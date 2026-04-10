@@ -25,6 +25,7 @@ const SCRIPTS = {
   'post-write':   'scripts/post-write.ts',
   'raw':          'scripts/raw.ts',
   'freshen':      'scripts/freshen.ts',
+  'log':          'scripts/log.ts',
   // Paper pipeline
   'paper:fetch':          'scripts/paper/fetch-paper.ts',
   'paper:extract':        'scripts/paper/extract-sections.ts',
@@ -53,6 +54,7 @@ if (!cmd || cmd === '--help' || cmd === '-h') {
   console.error('  post-write    Post-write hook pipeline (reads stdin)');
   console.error('  raw           Scan raw/ folder for uningested files');
   console.error('  freshen       Sample live source URLs for freshness checking');
+  console.error('  log           Append an entry to .wiki/log.md');
   console.error('');
   console.error('  paper:fetch          Download paper from arXiv/URL');
   console.error('  paper:extract        Extract pages from PDF');

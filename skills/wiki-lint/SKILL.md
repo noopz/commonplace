@@ -88,7 +88,7 @@ Sort by `backlinkCount` descending. For each, suggest: *"[[ConceptName]] is refe
 
 **Log**: append to `$VAULT_PATH/.wiki/log.md`:
 ```bash
-printf "## [$(date +%Y-%m-%d)] lint | Full audit\n- Critical: N, Improvements: N, Suggestions: N. Fixed: N mechanical.\n\n" >> "$VAULT_PATH/.wiki/log.md"
+commonplace log --vault "$VAULT_PATH" --entry "## [$(date +%Y-%m-%d)] lint | Full audit\n- Critical: N, Improvements: N, Suggestions: N. Fixed: N mechanical.\n"
 ```
 
 ## Running Individual Checks
