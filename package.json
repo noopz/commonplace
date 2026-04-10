@@ -1,0 +1,24 @@
+{
+  "name": "commonplace",
+  "version": "1.4.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "commonplace": "./bin/commonplace"
+  },
+  "description": "LLM-maintained knowledge base for Obsidian vaults",
+  "scripts": {
+    "index": "tsx scripts/index.ts",
+    "lint": "tsx scripts/lint.ts",
+    "validate": "tsx scripts/validate.ts",
+    "scope-check": "tsx scripts/scope-check.ts",
+    "vault-score": "tsx scripts/vault-score.ts",
+    "prune": "tsx scripts/prune.ts"
+  },
+  "dependencies": {
+    "gray-matter": "^4.0.3",
+    "glob": "^11.0.0",
+    "pdfjs-dist": "^4.9.155",
+    "tsx": "^4.19.0"
+  }
+}

@@ -1,0 +1,60 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "VAULT=$(cat ${CLAUDE_PLUGIN_ROOT}/.vault-path 2>/dev/null) && [ -n \"$VAULT\" ] && node ${CLAUDE_PLUGIN_ROOT}/bin/commonplace index --vault \"$VAULT\" --incremental 2>&1 || true"
+          },
+          {
+            "type": "command",
+            "command": "VAULT=$(cat ${CLAUDE_PLUGIN_ROOT}/.vault-path 2>/dev/null) && [ -n \"$VAULT\" ] && node ${CLAUDE_PLUGIN_ROOT}/bin/commonplace score --vault \"$VAULT\" 2>&1 || true"
+          },
+          {
+            "type": "command",
+            "command": "VAULT=$(cat ${CLAUDE_PLUGIN_ROOT}/.vault-path 2>/dev/null) && [ -n \"$VAULT\" ] && node ${CLAUDE_PLUGIN_ROOT}/bin/commonplace prune --vault \"$VAULT\" 2>&1 || true"
+          },
+          {
+            "type": "command",
+            "command": "VAULT=$(cat ${CLAUDE_PLUGIN_ROOT}/.vault-path 2>/dev/null) && [ -n \"$VAULT\" ] && node ${CLAUDE_PLUGIN_ROOT}/bin/commonplace lint --vault \"$VAULT\" --instruct 2>&1 || true"
+          },
+          {
+            "type": "command",
+            "command": "VAULT=$(cat ${CLAUDE_PLUGIN_ROOT}/.vault-path 2>/dev/null) && [ -n \"$VAULT\" ] && echo '=== Recent plugin activity ===' && tail -n 60 \"$VAULT/.wiki/log.md\" 2>/dev/null || true"
+          },
+          {
+            "type": "command",
+            "command": "VAULT=$(cat ${CLAUDE_PLUGIN_ROOT}/.vault-path 2>/dev/null) && [ -n \"$VAULT\" ] && node ${CLAUDE_PLUGIN_ROOT}/bin/commonplace raw --vault \"$VAULT\" --instruct 2>/dev/null || true"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node ${CLAUDE_PLUGIN_ROOT}/bin/commonplace post-write"
+          }
+        ]
+      },
+      {
+        "matcher": "Write",
+        "hooks": [
+          {
+            "type": "agent",
+            "prompt": "A file was just written. Get its path from the hook context (tool_input.file_path). If the path does not contain '/Research/', stop immediately and do nothing.\n\nIf it is a Research/ file:\n1. Run in Bash: VAULT=$(cat $CLAUDE_PLUGIN_ROOT/.vault-path) && npx tsx $CLAUDE_PLUGIN_ROOT/scripts/impact.ts --vault \"$VAULT\" --source \"<file_path>\"\n2. Read $CLAUDE_PLUGIN_ROOT/agents/wiki-impact-checker.md and follow those instructions using the script output and the vault path from step 1.",
+            "async": true
+          },
+          {
+            "type": "agent",
+            "prompt": "A file was just written. Get its path from the hook context (tool_input.file_path). If the path does not contain '/Research/', stop immediately and do nothing.\n\nIf it is a Research/ file:\n1. Run in Bash: VAULT=$(cat $CLAUDE_PLUGIN_ROOT/.vault-path) && npx tsx $CLAUDE_PLUGIN_ROOT/scripts/cross-domain.ts --vault \"$VAULT\" --source \"<file_path>\"\n2. If the results array is empty, stop immediately and do nothing.\n3. Read $CLAUDE_PLUGIN_ROOT/agents/wiki-cross-domain-linker.md and follow those instructions, treating the just-written file as the new source and using the script output and vault path from step 1.",
+            "async": true
+          }
+        ]
+      }
+    ]
+  }
+}
