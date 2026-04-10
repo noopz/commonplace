@@ -1,0 +1,5 @@
+node_modules/
+*.tsbuildinfo
+.vault-path
+.strata/
+skills/wiki-query-workspace/

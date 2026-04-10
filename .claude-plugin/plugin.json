@@ -1,0 +1,6 @@
+{
+  "name": "commonplace",
+  "version": "1.2.0",
+  "description": "LLM-maintained knowledge base for Obsidian vaults. Auto-triggers on paper sharing, vault health queries, concept compilation, research questions, and domain management.",
+  "homepage": "https://github.com/noopz/commonplace"
+}

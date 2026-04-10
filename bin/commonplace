@@ -1,0 +1,85 @@
+#!/usr/bin/env node
+/**
+ * commonplace — CLI dispatcher for all plugin scripts.
+ * Added to PATH by Claude Code while the plugin is active.
+ * Also invocable directly: node /path/to/bin/commonplace <cmd> [args]
+ *
+ * Usage: commonplace <command> [args...]
+ */
+
+import { spawnSync } from 'child_process';
+import { fileURLToPath } from 'url';
+import { join, dirname } from 'path';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+
+const SCRIPTS = {
+  // Core vault scripts
+  'index':        'scripts/index.ts',
+  'lint':         'scripts/lint.ts',
+  'validate':     'scripts/validate.ts',
+  'scope-check':  'scripts/scope-check.ts',
+  'score':        'scripts/vault-score.ts',
+  'prune':        'scripts/prune.ts',
+  'init':         'scripts/init.ts',
+  'post-write':   'scripts/post-write.ts',
+  'raw':          'scripts/raw.ts',
+  'freshen':      'scripts/freshen.ts',
+  // Paper pipeline
+  'paper:fetch':          'scripts/paper/fetch-paper.ts',
+  'paper:extract':        'scripts/paper/extract-sections.ts',
+  'paper:smart-extract':  'scripts/paper/smart-extract.ts',
+  'paper:detect':         'scripts/paper/detect-sections.ts',
+  'paper:enrich':         'scripts/paper/enrich-metadata.ts',
+  'paper:citations':      'scripts/paper/analyze-citations.ts',
+  'paper:figures':        'scripts/paper/extract-figures.ts',
+  'paper:quality':        'scripts/paper/quality-check.ts',
+  'paper:compare':        'scripts/paper/compare-papers.ts',
+};
+
+const [,, cmd, ...args] = process.argv;
+
+if (!cmd || cmd === '--help' || cmd === '-h') {
+  console.error('Usage: commonplace <command> [args...]');
+  console.error('');
+  console.error('Commands:');
+  console.error('  index         Build/update .wiki/*.json indexes');
+  console.error('  lint          Vault health audit');
+  console.error('  validate      Single-file frontmatter validation');
+  console.error('  scope-check   Domain scope enforcement');
+  console.error('  score         Compute vault quality score');
+  console.error('  prune         Remove low-value concept stubs');
+  console.error('  init          Initialize plugin for a vault');
+  console.error('  post-write    Post-write hook pipeline (reads stdin)');
+  console.error('  raw           Scan raw/ folder for uningested files');
+  console.error('  freshen       Sample live source URLs for freshness checking');
+  console.error('');
+  console.error('  paper:fetch          Download paper from arXiv/URL');
+  console.error('  paper:extract        Extract pages from PDF');
+  console.error('  paper:smart-extract  Adaptive full PDF extraction');
+  console.error('  paper:detect         Detect section headers');
+  console.error('  paper:enrich         Fetch external metadata');
+  console.error('  paper:citations      Analyze citation network');
+  console.error('  paper:figures        Extract figure/table captions');
+  console.error('  paper:quality        Score analysis quality');
+  console.error('  paper:compare        Compare two papers');
+  process.exit(0);
+}
+
+if (!SCRIPTS[cmd]) {
+  console.error(`commonplace: unknown command '${cmd}'`);
+  console.error(`Run 'commonplace --help' for available commands.`);
+  process.exit(1);
+}
+
+const root = join(__dirname, '..');
+const tsx = join(root, 'node_modules', '.bin', 'tsx');
+const scriptPath = join(root, SCRIPTS[cmd]);
+
+const result = spawnSync(tsx, [scriptPath, ...args], {
+  stdio: 'inherit',
+  cwd: root,
+  env: process.env,
+});
+
+process.exit(result.status ?? 1);
