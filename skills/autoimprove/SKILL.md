@@ -189,7 +189,7 @@ Score trend:
 
 Append a summary entry to `$VAULT_PATH/.wiki/log.md` after the run:
 ```bash
-printf "## [$(date +%Y-%m-%d)] autoimprove | Score: {before} → {after}\n- Rounds: N. {Summary of changes}\n\n" >> "$VAULT_PATH/.wiki/log.md"
+commonplace log --vault "$VAULT_PATH" --entry "## [$(date +%Y-%m-%d)] autoimprove | Score: {before} → {after}\n- Rounds: N. {Summary of changes}\n"
 ```
 
 ## What This Skill Does NOT Do

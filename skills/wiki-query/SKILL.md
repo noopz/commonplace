@@ -105,7 +105,7 @@ Path: check if a syntheses directory exists in the vault (e.g., `03 - Syntheses/
 
 **Log**: append one entry to `$VAULT_PATH/.wiki/log.md` summarizing what was queried and filed:
 ```bash
-printf "## [$(date +%Y-%m-%d)] query | {one-line question summary}\n- {what was found and filed back}\n\n" >> "$VAULT_PATH/.wiki/log.md"
+commonplace log --vault "$VAULT_PATH" --entry "## [$(date +%Y-%m-%d)] query | {one-line question summary}\n- {what was found and filed back}\n"
 ```
 
 ### Step 5: Mention what was filed

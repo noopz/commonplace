@@ -42,6 +42,7 @@ For hooks and agents where PATH may not include the plugin bin, use `node ${CLAU
 - `commonplace freshen --vault <path> [--sample <n>] [--min-age-days <n>]` — Sample oldest-unchecked live source URLs for freshness checking
 - `commonplace freshen --vault <path> --record` — Record a check result (reads JSON from stdin, merges into `.wiki/freshness.json`)
 - `commonplace freshen --vault <path> --clear <relative-path>` — Clear stale flag after re-ingesting a note
+- `commonplace log --vault <path> --entry "<text>"` — Append an entry to `.wiki/log.md` (use instead of printf/bash redirection)
 
 Paper commands:
 - `commonplace paper:fetch <url-or-id>` — Download from arXiv/URLs
