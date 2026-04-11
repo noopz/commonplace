@@ -7,11 +7,12 @@
 import { readFileSync } from "fs";
 
 // Dynamic import for pdfjs-dist (ESM compatibility)
+// Use legacy build to suppress the Node.js environment warning
 let pdfjsLib: typeof import("pdfjs-dist") | null = null;
 
 async function getPdfjs() {
   if (!pdfjsLib) {
-    pdfjsLib = await import("pdfjs-dist");
+    pdfjsLib = await import("pdfjs-dist/legacy/build/pdf.mjs") as unknown as typeof import("pdfjs-dist");
   }
   return pdfjsLib;
 }
