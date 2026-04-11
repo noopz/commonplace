@@ -176,7 +176,7 @@ After writing the source note and any new concept stubs:
    commonplace log --vault "$VAULT_PATH" --entry "## [$(date +%Y-%m-%d)] ingest | {Note Title}\n- Concepts: N new, N existing. MOCs: N linked.\n"
    ```
 
-6. **Report**: Tell the user what was created (impact check and cross-domain analysis run automatically via hooks in the background):
+6. **Report**: Tell the user what was created (impact check and cross-domain analysis run automatically via hooks):
    - Source note path
    - Number of concepts extracted (new + existing)
    - MOCs linked
