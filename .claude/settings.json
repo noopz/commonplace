@@ -2,7 +2,9 @@
   "permissions": {
     "allow": [
       "Bash(commonplace *)",
-      "Bash(node */bin/commonplace *)"
+      "Bash(node */bin/commonplace *)",
+      "Bash(cd * && git add *)",
+      "Bash(cd * && git commit *)"
     ]
   }
 }
