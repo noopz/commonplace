@@ -28,8 +28,7 @@ The loop is gated by a deterministic 0-100 quality score with five dimensions:
 ### Step 0: Resolve vault path and git checkpoint
 
 ```bash
-VAULT_PATH=$(cat ${CLAUDE_PLUGIN_ROOT}/.vault-path 2>/dev/null)
-CLAUDE_PLUGIN_ROOT=${CLAUDE_PLUGIN_ROOT:-$(cat "$VAULT_PATH/.wiki/plugin-root" 2>/dev/null)}
+VAULT_PATH=$(commonplace vault-path)
 ```
 
 If the vault is a git repo, create a safety checkpoint before starting:
@@ -93,15 +92,15 @@ For each round (default max 3, configurable via `$ARGUMENTS` as `--rounds N`):
 
 **Pick the highest-priority category with remaining issues** and execute:
 
-All agents have isolated context windows — they cannot see this conversation. Every agent prompt must include `${CLAUDE_PLUGIN_ROOT}` and the vault path so agents can run scripts. Pass relevant data (lint results, file lists) inline in the prompt too.
+All agents have isolated context windows — they cannot see this conversation. Every agent prompt must include the vault path so agents can run `commonplace` commands. Pass relevant data (lint results, file lists) inline in the prompt too.
 
-- **Mechanical fixes**: Dispatch `wiki-linter` agent. Include `${CLAUDE_PLUGIN_ROOT}`, vault path, and the lint JSON output inline so it knows exactly what to fix. The agent uses Edit to fix files. The PostToolUse hook keeps indexes live after each edit — no manual rebuild needed.
+- **Mechanical fixes**: Dispatch `wiki-linter` agent. Include vault path and the lint JSON output inline so it knows exactly what to fix. The agent uses Edit to fix files. The PostToolUse hook keeps indexes live after each edit — no manual rebuild needed.
 
-- **Pruning**: Dispatch `wiki-pruner` agent. Include `${CLAUDE_PLUGIN_ROOT}` and vault path. It runs `prune.ts --execute` to delete low-value stubs (orphans, malformed names, overly specific 5+ word names), then cleans up references to deleted concepts via Edit.
+- **Pruning**: Dispatch `wiki-pruner` agent. Include vault path. It runs `commonplace prune --execute` to delete low-value stubs (orphans, malformed names, overly specific 5+ word names), then cleans up references to deleted concepts via Edit.
 
-- **MOC sync**: Dispatch `wiki-moc-updater` agent. Include `${CLAUDE_PLUGIN_ROOT}`, vault path, and the list of MOCs needing updates from lint results.
+- **MOC sync**: Dispatch `wiki-moc-updater` agent. Include vault path and the list of MOCs needing updates from lint results.
 
-- **Concept linking**: Dispatch `wiki-concept-linker` agent. Include `${CLAUDE_PLUGIN_ROOT}`, vault path, and the list of source notes to scan.
+- **Concept linking**: Dispatch `wiki-concept-linker` agent. Include vault path and the list of source notes to scan.
 
 - **Stub compilation**: Execute wiki-compile's workflow inline (this runs at main-model cost, not Haiku). Read source notes that reference the stub, synthesize a definition, write the compiled concept note. Cap at 5 stubs per round.
 
@@ -115,7 +114,7 @@ All agents have isolated context windows — they cannot see this conversation. 
 - **Cross-domain synthesis**: Only run if current score ≥ 70. Run at main-model cost. Steps:
   1. Run the cross-domain script:
      ```bash
-     npx tsx ${CLAUDE_PLUGIN_ROOT}/scripts/cross-domain.ts --vault "$VAULT_PATH" --since <last-autoimprove-date>
+     commonplace cross-domain --vault "$VAULT_PATH" --since <last-autoimprove-date>
      ```
   2. If no results with cross-domain hits → skip this round entirely.
   3. For each cross-domain hit (up to 3): read both the new source note and the affected existing notes.

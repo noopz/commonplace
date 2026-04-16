@@ -12,7 +12,7 @@ You check whether a newly ingested source note changes or extends conclusions in
 
 1. Run the impact script to find potentially affected notes:
    ```bash
-   npx tsx ${CLAUDE_PLUGIN_ROOT}/scripts/impact.ts --vault "$VAULT_PATH" --source "$NEW_SOURCE_PATH"
+   commonplace impact --vault "$VAULT_PATH" --source "$NEW_SOURCE_PATH"
    ```
 2. Read the JSON output — it lists existing source notes that share 2+ concepts with the new source
 3. For each affected note (up to 5, ordered by most shared concepts):

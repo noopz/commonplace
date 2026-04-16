@@ -12,7 +12,7 @@ You remove low-value concept stubs from the Obsidian vault and clean up their re
 
 1. Run the pruning script:
    ```bash
-   cd ${CLAUDE_PLUGIN_ROOT} && npx tsx scripts/prune.ts --vault "$(cat ${CLAUDE_PLUGIN_ROOT}/.vault-path)" --execute --verbose
+   commonplace prune --vault "$(commonplace vault-path)" --execute --verbose
    ```
 
 2. Parse the JSON output. It contains three sections:

@@ -26,10 +26,11 @@ If you catch yourself about to pipe to `python3` or `jq`, stop and use Grep or R
 
 ## Scripts
 
-All scripts are invoked via the `commonplace` CLI, which is on PATH when the plugin is active. They output JSON to stdout — read that output directly. Never pipe through Python or shell one-liners.
+All scripts are invoked via the `commonplace` CLI, which is automatically on PATH when the plugin is active. Just call `commonplace <cmd>` directly — never reconstruct PATH or use `npx tsx` to run scripts manually.
 
-For hooks and agents where PATH may not include the plugin bin, use `node ${CLAUDE_PLUGIN_ROOT}/bin/commonplace <cmd>`.
+Command hooks (shell subprocesses) don't inherit the Bash tool PATH, so they use `node ${CLAUDE_PLUGIN_ROOT}/bin/commonplace <cmd>` instead. Skills, agents, and normal Bash tool calls should always use the bare `commonplace` command.
 
+- `commonplace vault-path` — Print the configured vault path (no tsx spawn, instant)
 - `commonplace index --vault <path> [--incremental]` — Build/update `.wiki/*.json` indexes
 - `commonplace lint --vault <path> [--check <name>]` — Vault health audit
 - `commonplace validate --vault <path> <file>` — Single file frontmatter validation

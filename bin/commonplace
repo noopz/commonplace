@@ -42,6 +42,19 @@ const SCRIPTS = {
 
 const [,, cmd, ...args] = process.argv;
 
+// Built-in: print the vault path without spawning tsx
+if (cmd === 'vault-path') {
+  const { readFileSync } = await import('fs');
+  try {
+    const vp = readFileSync(join(__dirname, '..', '.vault-path'), 'utf-8').trim();
+    console.log(vp);
+    process.exit(0);
+  } catch {
+    console.error('commonplace: no .vault-path configured — run commonplace init');
+    process.exit(1);
+  }
+}
+
 if (!cmd || cmd === '--help' || cmd === '-h') {
   console.error('Usage: commonplace <command> [args...]');
   console.error('');
