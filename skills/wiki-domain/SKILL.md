@@ -15,10 +15,9 @@ Professional domains (AI research, trading, coding) can share concepts freely. H
 
 ## Listing Existing Domains
 
-First, resolve the vault path and structure:
+First, resolve the vault path:
 ```bash
-VAULT_PATH=$(cat ${CLAUDE_PLUGIN_ROOT}/.vault-path 2>/dev/null)
-CLAUDE_PLUGIN_ROOT=${CLAUDE_PLUGIN_ROOT:-$(cat "$VAULT_PATH/.wiki/plugin-root" 2>/dev/null)}
+VAULT_PATH=$(commonplace vault-path)
 ```
 
 Read `$VAULT_PATH/.wiki/config.json` with the Read tool to get `structure.sources` and `structure.mocs`. Use these for all directory creation — never assume `02 - Areas/Research` or any specific path.

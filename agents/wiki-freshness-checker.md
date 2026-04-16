@@ -43,7 +43,7 @@ Only add the callout once — check if `[!stale]` already exists in the file bef
 Run this Bash command (substitute actual values):
 ```bash
 echo '{"path":"<relPath>","url":"<url>","lastChecked":"<ISO-timestamp>","stale":<true|false>}' \
-  | npx tsx $CLAUDE_PLUGIN_ROOT/scripts/freshen.ts --vault "$VAULT_PATH" --record
+  | commonplace freshen --vault "$VAULT_PATH" --record
 ```
 
 Use ISO 8601 for lastChecked: `new Date().toISOString()` equivalent — e.g. `2026-04-08T14:30:00Z`.

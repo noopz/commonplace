@@ -16,8 +16,7 @@ When wiki-ingest creates a source note, it extracts concepts and creates stub no
 ### Step 0: Resolve vault path
 
 ```bash
-VAULT_PATH=$(cat ${CLAUDE_PLUGIN_ROOT}/.vault-path 2>/dev/null)
-CLAUDE_PLUGIN_ROOT=${CLAUDE_PLUGIN_ROOT:-$(cat "$VAULT_PATH/.wiki/plugin-root" 2>/dev/null)}
+VAULT_PATH=$(commonplace vault-path)
 ```
 
 Use `$VAULT_PATH` in all commands and paths below.
@@ -92,7 +91,7 @@ One paragraph definition explaining what this concept is, written clearly enough
 ### Step 4: Post-compilation
 
 After writing a compiled concept:
-- Dispatch `wiki-concept-linker` agent. Include `${CLAUDE_PLUGIN_ROOT}`, vault path, and the concept name so it knows what to link in source notes that mention it but don't link it
+- Dispatch `wiki-concept-linker` agent. Include vault path and the concept name so it knows what to link in source notes that mention it but don't link it
 
 ### Batch Control
 

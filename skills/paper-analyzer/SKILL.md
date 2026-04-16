@@ -71,8 +71,7 @@ Use multi-agent analysis for deeper coverage:
 **Critical — agent context isolation**: Subagents have completely isolated context windows. They cannot see the parent conversation, files you've read, or scripts you've run. Every agent prompt must be self-contained and include:
 - The absolute PDF path (e.g. `/tmp/papers/foo.pdf`)
 - The extracted section text you want them to analyze (paste it inline)
-- The plugin root path (`${CLAUDE_PLUGIN_ROOT}`) so they can run scripts if needed
-- A clear task description
+- A clear task description (agents can run `commonplace` commands directly — it's on PATH)
 
 Agents do have full tool access (Bash, Read, etc.) — the problem is they won't know what to operate on unless you tell them explicitly in the prompt.
 

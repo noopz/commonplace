@@ -58,11 +58,7 @@ commonplace index --vault "<vault-path>"
 
 ### Step 6: Report
 
-After init, two pointer files exist:
-- `${CLAUDE_PLUGIN_ROOT}/.vault-path` — plugin → vault (used by SessionStart hooks)
-- `$VAULT_PATH/.wiki/plugin-root` — vault → plugin (used by agents/skills running from vault context)
-
-If `${CLAUDE_PLUGIN_ROOT}` is not set, resolve the plugin root with: `cat "$VAULT_PATH/.wiki/plugin-root"`
+After init, the vault path is stored so `commonplace vault-path` works in all contexts. SessionStart hooks use `${CLAUDE_PLUGIN_ROOT}/.vault-path` directly (command hooks don't get the Bash tool's PATH).
 
 Tell the user:
 - Vault path that was configured

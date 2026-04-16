@@ -50,10 +50,9 @@ When the user describes something they learned or discovered:
 
 ## Creating the Source Note
 
-First, resolve the vault path and structure:
+First, resolve the vault path:
 ```bash
-VAULT_PATH=$(cat ${CLAUDE_PLUGIN_ROOT}/.vault-path 2>/dev/null)
-CLAUDE_PLUGIN_ROOT=${CLAUDE_PLUGIN_ROOT:-$(cat "$VAULT_PATH/.wiki/plugin-root" 2>/dev/null)}
+VAULT_PATH=$(commonplace vault-path)
 ```
 
 Then read `$VAULT_PATH/.wiki/config.json` with the Read tool to get `structure.sources`, `structure.concepts`, and `structure.mocs`. Use these paths for all file placement — never assume `02 - Areas/Research` or any other path.
@@ -167,7 +166,7 @@ After writing the source note and any new concept stubs:
    commonplace scope-check --vault "$VAULT_PATH" "<file-path>"
    ```
 
-4. **Dispatch agents** for Research/ files. Agents have isolated context — include `${CLAUDE_PLUGIN_ROOT}`, vault path, and relevant data inline in each prompt:
+4. **Dispatch agents** for Research/ files. Agents have isolated context — include vault path and relevant data inline in each prompt:
    - Dispatch `wiki-moc-updater` agent with the new source note path and its `mocs:` frontmatter list so it knows which MOCs to update
    - Dispatch `wiki-concept-linker` agent with the new source note path so it can scan for unlinked concept mentions
 

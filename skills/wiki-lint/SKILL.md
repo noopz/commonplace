@@ -16,8 +16,7 @@ The vault accumulates entropy over time — broken links from renamed notes, sta
 ### Step 0: Resolve vault path
 
 ```bash
-VAULT_PATH=$(cat ${CLAUDE_PLUGIN_ROOT}/.vault-path 2>/dev/null)
-CLAUDE_PLUGIN_ROOT=${CLAUDE_PLUGIN_ROOT:-$(cat "$VAULT_PATH/.wiki/plugin-root" 2>/dev/null)}
+VAULT_PATH=$(commonplace vault-path)
 ```
 
 Use `$VAULT_PATH` in all commands below.
