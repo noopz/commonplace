@@ -21,7 +21,7 @@
           },
           {
             "type": "command",
-            "command": "VAULT=$(cat ${CLAUDE_PLUGIN_ROOT}/.vault-path 2>/dev/null) && [ -n \"$VAULT\" ] && echo '=== Recent plugin activity ===' && tail -n 60 \"$VAULT/.wiki/log.md\" 2>/dev/null || true"
+            "command": "VAULT=$(cat ${CLAUDE_PLUGIN_ROOT}/.vault-path 2>/dev/null) && [ -n \"$VAULT\" ] && echo '=== Recent plugin activity ===' && node ${CLAUDE_PLUGIN_ROOT}/bin/commonplace log --vault \"$VAULT\" --tail 60 2>/dev/null || true"
           },
           {
             "type": "command",
@@ -45,11 +45,11 @@
         "hooks": [
           {
             "type": "agent",
-            "prompt": "A file was just written. Get its path from the hook context (tool_input.file_path). If the path does not contain '/Research/', stop immediately and do nothing.\n\nIf it is a Research/ file:\n1. Run: commonplace impact --vault \"$(commonplace vault-path)\" --source \"<file_path>\"\n2. If the affected array is empty, stop. Otherwise, for each affected note (up to 5): read the new source and affected note, determine if the new source contradicts/extends/supersedes claims. For soft impact, append a See also link to Connections. For hard impact, add an [!update] callout to Notes."
+            "prompt": "A file was just written. Get its path from the hook context (tool_input.file_path). If the path does not contain '/Research/', stop immediately and do nothing.\n\nIf it is a Research/ file, read ${CLAUDE_PLUGIN_ROOT}/agents/wiki-impact-checker.md and follow those instructions. The source to check is the file that was just written."
           },
           {
             "type": "agent",
-            "prompt": "A file was just written. Get its path from the hook context (tool_input.file_path). If the path does not contain '/Research/', stop immediately and do nothing.\n\nIf it is a Research/ file:\n1. Run: commonplace cross-domain --vault \"$(commonplace vault-path)\" --source \"<file_path>\"\n2. If the results array is empty, stop immediately and do nothing.\n3. For each cross-domain bridge concept: read the new source and affected notes from other domains. Add cross-reference callouts in the Notes section of affected notes linking back to the new source."
+            "prompt": "A file was just written. Get its path from the hook context (tool_input.file_path). If the path does not contain '/Research/', stop immediately and do nothing.\n\nIf it is a Research/ file, read ${CLAUDE_PLUGIN_ROOT}/agents/wiki-cross-domain-linker.md and follow those instructions. The source to check is the file that was just written."
           }
         ]
       }

@@ -58,7 +58,7 @@ Paper commands:
 
 ## Vault Location
 
-The active vault is auto-discovered from cwd (`.obsidian/` marker) or configured via `npx tsx scripts/init.ts`, which stores the resolved path in `.vault-path` at the plugin root. The vault's own CLAUDE.md defines the schema and conventions.
+The active vault is auto-discovered from cwd (`.obsidian/` marker) or configured via `commonplace init --vault <path>`, which stores the resolved path in `.vault-path` at the plugin root. Use `commonplace vault-path` to retrieve it. The vault's own CLAUDE.md defines the schema and conventions.
 
 ## Domain System
 

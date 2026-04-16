@@ -6,7 +6,7 @@
  *   echo "## [2026-04-09] ..." | commonplace log --vault <path>
  */
 
-import { appendFileSync, existsSync, mkdirSync } from "fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync } from "fs";
 import { join } from "path";
 import { parseArgs } from "util";
 import { resolveVault } from "./lib/vault.js";
@@ -15,11 +15,21 @@ const { values } = parseArgs({
   options: {
     vault: { type: "string" },
     entry: { type: "string" },
+    tail: { type: "string" }, // print last N lines
   },
 });
 
 const config = resolveVault(values.vault);
 const logPath = join(config.wikiPath, "log.md");
+
+// --tail N: print last N lines and exit
+if (values.tail) {
+  if (!existsSync(logPath)) process.exit(0);
+  const lines = readFileSync(logPath, "utf-8").split("\n");
+  const n = parseInt(values.tail, 10) || 60;
+  console.log(lines.slice(-n).join("\n"));
+  process.exit(0);
+}
 
 // Ensure .wiki/ exists
 if (!existsSync(config.wikiPath)) {
