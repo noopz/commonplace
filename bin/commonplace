@@ -42,23 +42,36 @@ const SCRIPTS = {
 
 const [,, cmd, ...args] = process.argv;
 
-// Built-in: print the vault path without spawning tsx
-if (cmd === 'vault-path') {
+// Built-ins: instant lookups without spawning tsx
+if (cmd === 'vault-path' || cmd === 'config') {
   const { readFileSync } = await import('fs');
+  let vp;
   try {
-    const vp = readFileSync(join(__dirname, '..', '.vault-path'), 'utf-8').trim();
-    console.log(vp);
-    process.exit(0);
+    vp = readFileSync(join(__dirname, '..', '.vault-path'), 'utf-8').trim();
   } catch {
     console.error('commonplace: no .vault-path configured — run commonplace init');
     process.exit(1);
   }
+  if (cmd === 'vault-path') {
+    console.log(vp);
+  } else {
+    // config: print .wiki/config.json
+    try {
+      console.log(readFileSync(join(vp, '.wiki', 'config.json'), 'utf-8'));
+    } catch {
+      console.error('commonplace: no .wiki/config.json found — run commonplace init');
+      process.exit(1);
+    }
+  }
+  process.exit(0);
 }
 
 if (!cmd || cmd === '--help' || cmd === '-h') {
   console.error('Usage: commonplace <command> [args...]');
   console.error('');
   console.error('Commands:');
+  console.error('  vault-path    Print configured vault path');
+  console.error('  config        Print .wiki/config.json');
   console.error('  index         Build/update .wiki/*.json indexes');
   console.error('  lint          Vault health audit');
   console.error('  validate      Single-file frontmatter validation');

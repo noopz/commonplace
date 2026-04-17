@@ -31,6 +31,7 @@ All scripts are invoked via the `commonplace` CLI, which is automatically on PAT
 Command hooks (shell subprocesses) don't inherit the Bash tool PATH, so they use `node ${CLAUDE_PLUGIN_ROOT}/bin/commonplace <cmd>` instead. Skills, agents, and normal Bash tool calls should always use the bare `commonplace` command.
 
 - `commonplace vault-path` — Print the configured vault path (no tsx spawn, instant)
+- `commonplace config` — Print `.wiki/config.json` contents (no tsx spawn, instant)
 - `commonplace index --vault <path> [--incremental]` — Build/update `.wiki/*.json` indexes
 - `commonplace lint --vault <path> [--check <name>]` — Vault health audit
 - `commonplace validate --vault <path> <file>` — Single file frontmatter validation
