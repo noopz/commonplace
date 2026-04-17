@@ -66,18 +66,11 @@ Never load full index files — they grow without bound. Use Grep to target spec
 - Be specific — cite which paper said what, with details
 - If comparing: use a structured comparison (table or side-by-side)
 
-### Step 3: Identify novel connections
+### Step 3: Identify what to file back
 
-While synthesizing, watch for:
-- **Concept connections** not captured in any concept note's "Related Concepts" section
-- **Cross-paper patterns** that aren't captured in any MOC
-- **New synthesis insights** that emerge from comparing multiple sources
+Every query is an opportunity to strengthen the vault. While synthesizing, decide what to file:
 
-### Step 4: File back automatically
-
-Every query is an opportunity to strengthen the vault. Don't ask — just do it and mention briefly at the end.
-
-**Concept connections** — if you found links not currently captured in concept notes:
+**Always file concept connections** — if you found links not currently captured in concept notes:
 1. Add to "Related Concepts" sections of relevant concept notes
 2. Update `updated` date in frontmatter
 3. Run scope-check on modified files:
@@ -85,7 +78,14 @@ Every query is an opportunity to strengthen the vault. Don't ask — just do it 
    commonplace scope-check --vault "$VAULT_PATH" "<file>"
    ```
 
-**Synthesis pages** — if you produced a meaningful comparison, multi-source analysis, or cross-domain bridge discovery, file it as a new vault page. This is the most important filing operation: answers that synthesize 3+ sources or reveal non-obvious connections shouldn't disappear into chat history.
+**File synthesis pages by default** — this is the most important operation. Answers that draw on 2+ sources, reveal non-obvious connections, or produce structured comparisons are vault pages, not chat messages. The threshold is low: if it took real work to synthesize, it belongs in the vault. Don't ask — just file it.
+
+Good candidates:
+- Comparison tables between papers or approaches
+- Analysis of how a concept evolved across sources
+- Cross-domain bridges surfaced during graph traversal
+- Design explorations grounded in vault research
+- Any answer the user might want to find again later
 
 ```yaml
 ---
@@ -94,15 +94,25 @@ created: YYYY-MM-DD
 concepts:
   - '[[Concept A]]'
   - '[[Concept B]]'
+mocs:
+  - '[[Relevant MOC]]'
 ---
 # {Descriptive Title}
 
 {synthesis content — tables, analysis, connections}
+
+## Sources
+- [[Paper A]]
+- [[Paper B]]
 ```
 
-Path: check if a syntheses directory exists in the vault (e.g., `03 - Syntheses/` or similar). If not, create `$VAULT_PATH/03 - Syntheses/{Title}.md`. Good candidates: comparison tables between papers, analysis of how a concept evolved across sources, cross-domain bridges surfaced during graph traversal.
+Path: check if a syntheses directory exists in the vault (e.g., `03 - Syntheses/` or similar). If not, create `$VAULT_PATH/03 - Syntheses/{Title}.md`.
 
-**Log**: append one entry to `$VAULT_PATH/.wiki/log.md` summarizing what was queried and filed:
+### Step 4: File back and log
+
+File everything identified in Step 3. Don't ask — just do it.
+
+**Log**: append one entry:
 ```bash
 commonplace log --vault "$VAULT_PATH" --entry "## [$(date +%Y-%m-%d)] query | {one-line question summary}\n- {what was found and filed back}\n"
 ```
