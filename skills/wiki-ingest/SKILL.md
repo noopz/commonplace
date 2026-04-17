@@ -33,8 +33,9 @@ Papers get the deepest treatment because they're the densest sources.
 ### Web Articles / Patch Notes / Blog Posts
 
 1. **Fetch content**: Use WebFetch to retrieve the URL
-2. **Synthesize source note**: Extract key findings, techniques, or information
-3. **Determine domain**: Match against existing domains by topic. If no domain matches, ask the user or hand off to wiki-domain.
+2. **Save key images**: If the article contains diagrams, figures, or charts that are essential to understanding the content, download them to `$VAULT_PATH/raw/assets/` and reference them in the source note as `![[raw/assets/filename.png]]`. Use descriptive filenames (`raft-log-replication.png`, not `image1.png`). Skip decorative images — only save figures that carry information.
+3. **Synthesize source note**: Extract key findings, techniques, or information
+4. **Determine domain**: Match against existing domains by topic. If no domain matches, ask the user or hand off to wiki-domain.
 
 ### Coding Projects
 

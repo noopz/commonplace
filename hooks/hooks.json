@@ -44,12 +44,8 @@
         "matcher": "Write",
         "hooks": [
           {
-            "type": "agent",
-            "prompt": "A file was just written. Get its path from the hook context (tool_input.file_path). If the path does not contain '/Research/', stop immediately and do nothing.\n\nIf it is a Research/ file, read ${CLAUDE_PLUGIN_ROOT}/agents/wiki-impact-checker.md and follow those instructions. The source to check is the file that was just written."
-          },
-          {
-            "type": "agent",
-            "prompt": "A file was just written. Get its path from the hook context (tool_input.file_path). If the path does not contain '/Research/', stop immediately and do nothing.\n\nIf it is a Research/ file, read ${CLAUDE_PLUGIN_ROOT}/agents/wiki-cross-domain-linker.md and follow those instructions. The source to check is the file that was just written."
+            "type": "command",
+            "command": "node ${CLAUDE_PLUGIN_ROOT}/bin/commonplace post-write-research"
           }
         ]
       }
