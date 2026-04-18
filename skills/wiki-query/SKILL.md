@@ -15,11 +15,7 @@ Most knowledge bases are read-only — you search, you get an answer, nothing ch
 
 ### Step 0: Resolve vault path
 
-```bash
-VAULT_PATH=$(commonplace vault-path)
-```
-
-Use `$VAULT_PATH` in all paths below.
+Run `commonplace vault-path` to get the vault path. Use it in all paths below.
 
 ### Step 1: Search the vault
 

@@ -15,12 +15,7 @@ Professional domains (AI research, trading, coding) can share concepts freely. H
 
 ## Listing Existing Domains
 
-First, resolve the vault path:
-```bash
-VAULT_PATH=$(commonplace vault-path)
-```
-
-Read `$VAULT_PATH/.wiki/config.json` with the Read tool to get `structure.sources` and `structure.mocs`. Use these for all directory creation — never assume `02 - Areas/Research` or any specific path.
+First, run `commonplace vault-path` and `commonplace config` to get the vault path and structure. Use `structure.sources` and `structure.mocs` for all directory creation — never assume any specific path.
 
 Read the domain registry from `$VAULT_PATH/CLAUDE.md` — look for the block between `<!-- DOMAIN_REGISTRY_START -->` and `<!-- DOMAIN_REGISTRY_END -->`.
 

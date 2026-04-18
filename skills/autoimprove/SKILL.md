@@ -27,9 +27,7 @@ The loop is gated by a deterministic 0-100 quality score with five dimensions:
 
 ### Step 0: Resolve vault path and git checkpoint
 
-```bash
-VAULT_PATH=$(commonplace vault-path)
-```
+Run `commonplace vault-path` to get the vault path.
 
 If the vault is a git repo, create a safety checkpoint before starting:
 
