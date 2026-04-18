@@ -15,11 +15,7 @@ The vault accumulates entropy over time — broken links from renamed notes, sta
 
 ### Step 0: Resolve vault path
 
-```bash
-VAULT_PATH=$(commonplace vault-path)
-```
-
-Use `$VAULT_PATH` in all commands below.
+Run `commonplace vault-path` to get the vault path. Use it in all commands below.
 
 ### Step 1: Rebuild indexes
 

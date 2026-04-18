@@ -51,12 +51,7 @@ When the user describes something they learned or discovered:
 
 ## Creating the Source Note
 
-First, resolve the vault path:
-```bash
-VAULT_PATH=$(commonplace vault-path)
-```
-
-Then read `$VAULT_PATH/.wiki/config.json` with the Read tool to get `structure.sources`, `structure.concepts`, and `structure.mocs`. Use these paths for all file placement — never assume `02 - Areas/Research` or any other path.
+First, run `commonplace vault-path` and `commonplace config` to get the vault path and structure. Use `structure.sources`, `structure.concepts`, and `structure.mocs` for all file placement — never assume `02 - Areas/Research` or any other path.
 
 Place the note in the correct domain directory:
 ```
