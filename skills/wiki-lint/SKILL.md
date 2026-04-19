@@ -1,6 +1,6 @@
 ---
 name: wiki-lint
-description: "Run vault health checks. Use this skill when the user asks about vault quality, broken links, stubs, orphans, or says \"how's the vault looking\" or \"anything need fixing\". Also auto-activate after ingesting multiple sources to report on overall health. Activate when the user mentions cleaning up, organizing, or maintaining the vault."
+description: "Run vault health checks and report issues. Use this skill when the user asks about vault quality, broken links, stubs, orphans, or says \"how's the vault looking\", \"anything need fixing\", or \"what needs fixing\". Also auto-activate after ingesting multiple sources to report on overall health. This skill diagnoses and reports — if the user wants autonomous multi-round fixing, hand off to autoimprove instead."
 ---
 
 # Wiki Lint
@@ -56,7 +56,7 @@ Dispatch the `wiki-linter` agent to fix everything that's mechanical:
 - Remove duplicate frontmatter entries
 - Add missing required tags
 
-The linter agent handles this — just dispatch it with the lint results. Don't ask the user for permission on mechanical fixes; they expect it to just happen.
+Agents have isolated context windows — they cannot see this conversation. Include the vault path and lint results inline in the agent prompt so it knows exactly what to fix.
 
 ### Step 5: Report and recommend
 
@@ -71,7 +71,7 @@ After the mechanical report, surface actionable intelligence from the vault's sh
 
 **High-value stubs** — concept stubs with high `backlinkCount` are the most-referenced unknown concepts in the corpus. For the top 3-5:
 ```
-Grep "isStub.*true" "$VAULT_PATH/.wiki/concept-index.jsonl"
+Grep "isStub.*true" in concept-index.jsonl (path set to $VAULT_PATH/.wiki/concept-index.jsonl)
 ```
 Sort by `backlinkCount` descending. For each, suggest: *"[[ConceptName]] is referenced N times but has no definition. Suggested search: ..."*
 

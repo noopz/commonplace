@@ -38,20 +38,13 @@ Never load full index files — they grow without bound. Use Grep to target spec
 3. **Traverse the graph** — concepts are nodes, wikilinks are edges. Don't just find nodes, follow edges:
 
    - **Hub detection**: `backlinkCount` in concept-index.jsonl is a corpus-wide signal. High count = referenced across many papers, not just one. Prioritize these.
-   - **Follow edges via Grep**: once you identify a relevant concept, find every note that links to it:
-     ```
-     Grep "\[\[ConceptName\]\]" "$VAULT_PATH" --include="*.md"
-     ```
-     Read those notes as a cluster — this is graph traversal, not keyword search. The cluster may include papers, person notes, Google Docs notes, and anything else in the vault.
+   - **Follow edges via Grep**: once you identify a relevant concept, find every note that links to it — use the Grep tool with pattern `\[\[ConceptName\]\]`, path set to the vault, and glob `*.md`. Read those notes as a cluster — this is graph traversal, not keyword search. The cluster may include papers, person notes, Google Docs notes, and anything else in the vault.
    - **Enter via MOC**: if the question touches a subfield, MOCs are pre-built cluster maps. Grep `moc-index.jsonl` for relevant MOCs, read the MOC note to get the full paper list for that subfield, then drill into specific papers.
    - **Traverse citation chains**: source notes carry `builds_on`, `compares_with`, `uses_method` frontmatter. If a paper is relevant, grep for its title in those fields to find papers that build on or compare against it — this follows the citation graph without needing external tools.
    - **Bridge concepts**: check the `domains` array in concept-index.jsonl entries. A concept appearing in 2+ domains is a cross-domain bridge — especially powerful for synthesis questions because it connects otherwise separate clusters.
    - Stop when you have sufficient context or have traversed 2-3 hops. Note unexplored frontier concepts for the user.
 
-4. **Grep vault notes** for terms not caught by the index:
-   ```
-   Grep "<term>" "$VAULT_PATH" --include="*.md"
-   ```
+4. **Grep vault notes** for terms not caught by the index — use the Grep tool with your search term, path set to the vault, and glob `*.md`.
 
 5. **Read relevant notes**: Once you find matches, read the full notes for context
 
@@ -74,7 +67,7 @@ Every query is an opportunity to strengthen the vault. While synthesizing, decid
    commonplace scope-check "<file>"
    ```
 
-**File synthesis pages by default** — this is the most important operation. Answers that draw on 2+ sources, reveal non-obvious connections, or produce structured comparisons are vault pages, not chat messages. The threshold is low: if it took real work to synthesize, it belongs in the vault. Don't ask — just file it.
+**File synthesis pages when warranted** — answers that draw on 3+ sources, reveal non-obvious connections, or produce structured comparisons are vault pages, not chat messages. If the answer required real synthesis work (comparison tables, cross-source analysis, cross-domain bridges), file it. For shorter answers that draw on 1-2 sources, mention that you could file it and let the user decide.
 
 Good candidates:
 - Comparison tables between papers or approaches
@@ -106,7 +99,7 @@ Path: check if a syntheses directory exists in the vault (e.g., `03 - Syntheses/
 
 ### Step 4: File back and log
 
-File everything identified in Step 3. Don't ask — just do it.
+File everything identified in Step 3.
 
 **Log**: append one entry:
 ```bash

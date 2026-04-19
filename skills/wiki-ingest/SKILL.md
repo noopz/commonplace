@@ -162,7 +162,7 @@ After writing the source note and any new concept stubs:
    commonplace scope-check "<file-path>"
    ```
 
-4. **Dispatch agents** for Research/ files. Agents have isolated context — include vault path and relevant data inline in each prompt:
+4. **Dispatch agents** for source files. Agents have isolated context windows — they cannot see this conversation. Include vault path and relevant data inline in each prompt:
    - Dispatch `wiki-moc-updater` agent with the new source note path and its `mocs:` frontmatter list so it knows which MOCs to update
    - Dispatch `wiki-concept-linker` agent with the new source note path so it can scan for unlinked concept mentions
 

@@ -40,7 +40,7 @@ MOCs use this structure:
 - Update the count in `## Papers (N)` after adding entries
 - Don't remove existing entries — only add missing ones
 - Don't modify anything outside the Papers section
-- Update the date line at the bottom if one exists (format: `*Last updated YYYY-MM-DD*` or `*Last PYY-MM-DD*`)
+- Update the date line at the bottom if one exists (format: `*Last updated YYYY-MM-DD*`)
 
 ## How to work
 

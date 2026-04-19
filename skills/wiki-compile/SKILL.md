@@ -28,7 +28,7 @@ Or if the user names specific concepts, just check those files directly.
 ### Step 2: Filter out malformed names
 
 Before compiling, check each stub name. Skip any that look like sentence fragments:
-- Names with more than 6 words
+- Names with 5 or more words
 - Names that end with prepositions, articles, or conjunctions
 - Names that don't look like real noun-phrase concepts
 

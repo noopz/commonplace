@@ -1,6 +1,6 @@
 ---
 name: autoimprove
-description: "Autonomously improve vault quality using a score-gated improvement loop. Activate when the user says 'improve the vault', 'autoimprove', 'make the vault better', 'run the improvement loop', or asks 'what's the vault score'. Also activate when the user asks 'how can the vault be improved' or 'what needs fixing'. Shows the vault score at minimum, runs improvement rounds if there are actionable issues."
+description: "Autonomously improve vault quality using a score-gated improvement loop. Activate when the user says 'improve the vault', 'autoimprove', 'make the vault better', 'run the improvement loop', or asks 'what's the vault score'. Also activate when the user asks 'how can the vault be improved'. Shows the vault score at minimum, runs improvement rounds if there are actionable issues. If the user just wants a diagnostic report without autonomous fixing (e.g. 'what needs fixing', 'how's the vault'), defer to wiki-lint instead."
 ---
 
 # Autoimprove
