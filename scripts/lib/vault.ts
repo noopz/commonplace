@@ -42,9 +42,23 @@ export function discoverVault(startPath: string): string | null {
 }
 
 export function resolveVault(explicitPath?: string): VaultConfig {
-  const vaultPath = explicitPath
-    ? resolve(explicitPath)
-    : discoverVault(process.cwd());
+  let vaultPath: string | null = null;
+
+  if (explicitPath) {
+    vaultPath = resolve(explicitPath);
+  } else {
+    // Prefer configured vault — if the user ran `init`, that vault wins
+    try {
+      const pluginRoot = resolve(import.meta.dirname!, "..", "..");
+      const stored = readFileSync(join(pluginRoot, ".vault-path"), "utf-8").trim();
+      if (stored && existsSync(stored)) vaultPath = stored;
+    } catch {}
+
+    // Fall back to cwd discovery (walk up looking for .obsidian/ or .wiki/)
+    if (!vaultPath) {
+      vaultPath = discoverVault(process.cwd());
+    }
+  }
 
   if (!vaultPath) {
     console.error(

@@ -20,7 +20,7 @@ Run `commonplace vault-path` to get the vault path. Use it in all commands and p
 ### Step 1: Find stubs
 
 ```bash
-commonplace lint --vault "$VAULT_PATH" --check stubs
+commonplace lint --check stubs
 ```
 
 Or if the user names specific concepts, just check those files directly.

@@ -42,8 +42,8 @@ The user can `git diff HEAD~1` or `git reset HEAD~1` to review/revert.
 Rebuild indexes fresh (full, not incremental) and compute baseline score:
 
 ```bash
-commonplace index --vault "$VAULT_PATH"
-commonplace score --vault "$VAULT_PATH" --verbose
+commonplace index
+commonplace score --verbose
 ```
 
 Show the baseline to the user:
@@ -61,7 +61,7 @@ Vault Score: 43.7/100 (F)
 Run lint to identify actionable issues:
 
 ```bash
-commonplace lint --vault "$VAULT_PATH"
+commonplace lint
 ```
 
 Categorize by priority (cheapest and highest-impact first):
@@ -112,7 +112,7 @@ All agents have isolated context windows — they cannot see this conversation. 
 - **Cross-domain synthesis**: Only run if current score ≥ 70. Run at main-model cost. Steps:
   1. Run the cross-domain script:
      ```bash
-     commonplace cross-domain --vault "$VAULT_PATH" --since <last-autoimprove-date>
+     commonplace cross-domain --since <last-autoimprove-date>
      ```
   2. If no results with cross-domain hits → skip this round entirely.
   3. For each cross-domain hit (up to 3): read both the new source note and the affected existing notes.
@@ -124,7 +124,7 @@ All agents have isolated context windows — they cannot see this conversation. 
 After each round, re-score:
 
 ```bash
-commonplace score --vault "$VAULT_PATH" --verbose
+commonplace score --verbose
 ```
 
 Show the delta:
@@ -145,7 +145,7 @@ Round 1 complete: 43.7 → 52.1 (+8.4)
 After the score-gated rounds complete (regardless of final score), run a freshness sample:
 
 ```bash
-commonplace freshen --vault "$VAULT_PATH" --sample 5
+commonplace freshen --sample 5
 ```
 
 If `candidates` array is non-empty, dispatch `wiki-freshness-checker` agent with the candidates JSON and vault path inline. The agent WebFetches each URL, compares to the note's Summary, and adds a `> [!stale]` callout to notes whose source content has substantially changed. Skip entirely if no candidates returned.
@@ -186,7 +186,7 @@ Score trend:
 
 Append a summary entry to `$VAULT_PATH/.wiki/log.md` after the run:
 ```bash
-commonplace log --vault "$VAULT_PATH" --entry "## [$(date +%Y-%m-%d)] autoimprove | Score: {before} → {after}\n- Rounds: N. {Summary of changes}\n"
+commonplace log --entry "## [$(date +%Y-%m-%d)] autoimprove | Score: {before} → {after}\n- Rounds: N. {Summary of changes}\n"
 ```
 
 ## What This Skill Does NOT Do

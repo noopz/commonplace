@@ -5,27 +5,27 @@
         "hooks": [
           {
             "type": "command",
-            "command": "VAULT=$(cat ${CLAUDE_PLUGIN_ROOT}/.vault-path 2>/dev/null) && [ -n \"$VAULT\" ] && node ${CLAUDE_PLUGIN_ROOT}/bin/commonplace index --vault \"$VAULT\" --incremental 2>&1 || true"
+            "command": "node ${CLAUDE_PLUGIN_ROOT}/bin/commonplace index --incremental 2>&1 || true"
           },
           {
             "type": "command",
-            "command": "VAULT=$(cat ${CLAUDE_PLUGIN_ROOT}/.vault-path 2>/dev/null) && [ -n \"$VAULT\" ] && node ${CLAUDE_PLUGIN_ROOT}/bin/commonplace score --vault \"$VAULT\" 2>&1 || true"
+            "command": "node ${CLAUDE_PLUGIN_ROOT}/bin/commonplace score 2>&1 || true"
           },
           {
             "type": "command",
-            "command": "VAULT=$(cat ${CLAUDE_PLUGIN_ROOT}/.vault-path 2>/dev/null) && [ -n \"$VAULT\" ] && node ${CLAUDE_PLUGIN_ROOT}/bin/commonplace prune --vault \"$VAULT\" 2>&1 || true"
+            "command": "node ${CLAUDE_PLUGIN_ROOT}/bin/commonplace prune 2>&1 || true"
           },
           {
             "type": "command",
-            "command": "VAULT=$(cat ${CLAUDE_PLUGIN_ROOT}/.vault-path 2>/dev/null) && [ -n \"$VAULT\" ] && node ${CLAUDE_PLUGIN_ROOT}/bin/commonplace lint --vault \"$VAULT\" --instruct 2>&1 || true"
+            "command": "node ${CLAUDE_PLUGIN_ROOT}/bin/commonplace lint --instruct 2>&1 || true"
           },
           {
             "type": "command",
-            "command": "VAULT=$(cat ${CLAUDE_PLUGIN_ROOT}/.vault-path 2>/dev/null) && [ -n \"$VAULT\" ] && echo '=== Recent plugin activity ===' && node ${CLAUDE_PLUGIN_ROOT}/bin/commonplace log --vault \"$VAULT\" --tail 60 2>/dev/null || true"
+            "command": "echo '=== Recent plugin activity ===' && node ${CLAUDE_PLUGIN_ROOT}/bin/commonplace log --tail 60 2>/dev/null || true"
           },
           {
             "type": "command",
-            "command": "VAULT=$(cat ${CLAUDE_PLUGIN_ROOT}/.vault-path 2>/dev/null) && [ -n \"$VAULT\" ] && node ${CLAUDE_PLUGIN_ROOT}/bin/commonplace raw --vault \"$VAULT\" --instruct 2>/dev/null || true"
+            "command": "node ${CLAUDE_PLUGIN_ROOT}/bin/commonplace raw --instruct 2>/dev/null || true"
           }
         ]
       }
