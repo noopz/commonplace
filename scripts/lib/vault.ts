@@ -212,27 +212,30 @@ export function isInVault(filePath: string, vaultPath: string): boolean {
   return resolved.startsWith(vaultResolved) && resolved.endsWith(".md");
 }
 
+/** Parse a JSONL file (one JSON object per line) into an array */
+function parseJsonl<T>(filePath: string): T[] {
+  return readFileSync(filePath, "utf-8")
+    .trim()
+    .split("\n")
+    .filter(line => line)
+    .map(line => JSON.parse(line) as T);
+}
+
 export function loadIndexes(config: VaultConfig): {
   sources: SourceNote[];
   concepts: ConceptNote[];
   mocs: MocNote[];
 } {
   return {
-    sources: JSON.parse(
-      readFileSync(join(config.wikiPath, "source-index.json"), "utf-8")
-    ),
-    concepts: JSON.parse(
-      readFileSync(join(config.wikiPath, "concept-index.json"), "utf-8")
-    ),
-    mocs: JSON.parse(
-      readFileSync(join(config.wikiPath, "moc-index.json"), "utf-8")
-    ),
+    sources: parseJsonl<SourceNote>(join(config.wikiPath, "source-index.jsonl")),
+    concepts: parseJsonl<ConceptNote>(join(config.wikiPath, "concept-index.jsonl")),
+    mocs: parseJsonl<MocNote>(join(config.wikiPath, "moc-index.jsonl")),
   };
 }
 
 export function ensureIndex(config: VaultConfig): boolean {
   if (
-    existsSync(join(config.wikiPath, "source-index.json")) &&
+    existsSync(join(config.wikiPath, "source-index.jsonl")) &&
     existsSync(join(config.wikiPath, ".last-index"))
   ) {
     return true;

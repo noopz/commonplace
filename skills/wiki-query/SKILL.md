@@ -21,31 +21,31 @@ Run `commonplace vault-path` to get the vault path. Use it in all paths below.
 
 Never load full index files — they grow without bound. Use Grep to target specific entries.
 
-**Index schemas (for reference):**
-- `source-index.json` — top-level JSON array, fields: `title`, `path`, `domain`, `scope`, `tags`, `concepts`, `mocs`
-- `concept-index.json` — top-level JSON array, fields: `name`, `path`, `domains`, `backlinkCount`, `isStub`
+**Index schemas (JSONL — one JSON record per line, grep returns complete records):**
+- `source-index.jsonl` — fields: `title`, `path`, `domain`, `scope`, `tags`, `concepts`, `mocs`
+- `concept-index.jsonl` — fields: `name`, `path`, `domains`, `backlinkCount`, `isStub`
 
 **Search strategy:**
 
 1. **Start with Grep on the indexes** using terms from the user's question:
    ```
-   Grep "<term>" "$VAULT_PATH/.wiki/source-index.json"
-   Grep "<term>" "$VAULT_PATH/.wiki/concept-index.json"
+   Grep "<term>" "$VAULT_PATH/.wiki/source-index.jsonl"
+   Grep "<term>" "$VAULT_PATH/.wiki/concept-index.jsonl"
    ```
 
 2. **Iterate with derived terms** — look at what you find and generate new search terms from it. If a source note mentions [[Concept X]], grep for that. If a concept appears in two domains, grep for it in both. Don't stop at the first pass.
 
 3. **Traverse the graph** — concepts are nodes, wikilinks are edges. Don't just find nodes, follow edges:
 
-   - **Hub detection**: `backlinkCount` in concept-index.json is a corpus-wide signal. High count = referenced across many papers, not just one. Prioritize these.
+   - **Hub detection**: `backlinkCount` in concept-index.jsonl is a corpus-wide signal. High count = referenced across many papers, not just one. Prioritize these.
    - **Follow edges via Grep**: once you identify a relevant concept, find every note that links to it:
      ```
      Grep "\[\[ConceptName\]\]" "$VAULT_PATH" --include="*.md"
      ```
      Read those notes as a cluster — this is graph traversal, not keyword search. The cluster may include papers, person notes, Google Docs notes, and anything else in the vault.
-   - **Enter via MOC**: if the question touches a subfield, MOCs are pre-built cluster maps. Grep `moc-index.json` for relevant MOCs, read the MOC note to get the full paper list for that subfield, then drill into specific papers.
+   - **Enter via MOC**: if the question touches a subfield, MOCs are pre-built cluster maps. Grep `moc-index.jsonl` for relevant MOCs, read the MOC note to get the full paper list for that subfield, then drill into specific papers.
    - **Traverse citation chains**: source notes carry `builds_on`, `compares_with`, `uses_method` frontmatter. If a paper is relevant, grep for its title in those fields to find papers that build on or compare against it — this follows the citation graph without needing external tools.
-   - **Bridge concepts**: check the `domains` array in concept-index.json entries. A concept appearing in 2+ domains is a cross-domain bridge — especially powerful for synthesis questions because it connects otherwise separate clusters.
+   - **Bridge concepts**: check the `domains` array in concept-index.jsonl entries. A concept appearing in 2+ domains is a cross-domain bridge — especially powerful for synthesis questions because it connects otherwise separate clusters.
    - Stop when you have sufficient context or have traversed 2-3 hops. Note unexplored frontier concepts for the user.
 
 4. **Grep vault notes** for terms not caught by the index:

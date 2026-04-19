@@ -29,6 +29,7 @@ const SCRIPTS = {
   'impact':       'scripts/impact.ts',
   'cross-domain': 'scripts/cross-domain.ts',
   'post-write-research': 'scripts/post-write-research.ts',
+  'session-context':     'scripts/session-context.ts',
   // Paper pipeline
   'paper:fetch':          'scripts/paper/fetch-paper.ts',
   'paper:extract':        'scripts/paper/extract-sections.ts',

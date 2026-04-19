@@ -13,12 +13,12 @@ LLM-maintained knowledge base for any folder of notes. Transforms raw sources in
 
 **This is a hard rule.** Never do this:
 ```bash
-cat .wiki/moc-index.json | python3 -c "import json,sys; ..."
+cat .wiki/moc-index.jsonl | python3 -c "import json,sys; ..."
 cat file.json | python3 -c "import json,sys; data=json.load(sys.stdin); ..."
 ```
 
 Instead:
-- **To search an index**: use `Grep` — e.g. `Grep "pattern" "$VAULT/.wiki/concept-index.json"`
+- **To search an index**: use `Grep` — e.g. `Grep "pattern" "$VAULT/.wiki/concept-index.jsonl"`
 - **To read a file**: use the `Read` tool — never `cat`
 - **Script output**: assign to a variable and read it directly — scripts output valid JSON, trust it
 

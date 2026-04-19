@@ -24,7 +24,7 @@ Also show stats from the index:
 commonplace index --incremental
 ```
 
-Parse `domain-index.json` from `.wiki/` to show source and concept counts per domain.
+Parse `domain-index.jsonl` from `.wiki/` to show source and concept counts per domain.
 
 ## Creating a New Domain
 

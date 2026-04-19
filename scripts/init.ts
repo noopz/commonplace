@@ -267,7 +267,7 @@ ${registrySection}
 ## Working with Indexes
 
 Never use Python or shell one-liners to parse JSON index files. Instead:
-- **Search**: use Grep — e.g. \`Grep "pattern" ".wiki/concept-index.json"\`
+- **Search**: use Grep — e.g. \`Grep "pattern" ".wiki/concept-index.jsonl"\`
 - **Read**: use the Read tool — never \`cat file | python3 -c ...\`
 - **Script output**: scripts output valid JSON, read it directly
 
