@@ -45,6 +45,7 @@ interface FileSample {
   relDir: string;
   tags: string[];
   body: string;
+  fm: string; // raw frontmatter text
 }
 
 function parseTags(fmText: string): string[] {
@@ -60,22 +61,55 @@ for (const filePath of sample) {
   try {
     const raw = readFileSync(filePath, "utf-8");
     const fmMatch = raw.match(/^---\n([\s\S]*?)\n---/);
-    const tags = fmMatch ? parseTags(fmMatch[1]) : [];
+    const fm = fmMatch ? fmMatch[1] : "";
+    const tags = fm ? parseTags(fm) : [];
     const parts = filePath.slice(config.vaultPath.length + 1).split("/");
     const relDir = parts.length >= 3 ? parts.slice(0, 2).join("/") : parts.slice(0, 1).join("/");
-    samples.push({ relDir, tags, body: raw });
+    samples.push({ relDir, tags, body: raw, fm });
   } catch { /* skip */ }
 }
 
-function inferDir(tagName: string): { dir: string; confidence: number } {
-  const counts: Record<string, number> = {};
-  for (const s of samples) {
-    if (s.tags.includes(tagName)) counts[s.relDir] = (counts[s.relDir] ?? 0) + 1;
+/** Find the common ancestor directory of a set of relative dir paths */
+function commonAncestor(dirs: string[]): string {
+  if (!dirs.length) return "";
+  const splitDirs = dirs.map(d => d.split("/"));
+  const ancestor: string[] = [];
+  for (let i = 0; i < splitDirs[0].length; i++) {
+    const seg = splitDirs[0][i];
+    if (splitDirs.every(parts => parts[i] === seg)) {
+      ancestor.push(seg);
+    } else {
+      break;
+    }
   }
-  const entries = Object.entries(counts).sort((a, b) => b[1] - a[1]);
-  if (!entries.length) return { dir: "", confidence: 0 };
-  const total = Object.values(counts).reduce((a, b) => a + b, 0);
-  return { dir: entries[0][0], confidence: entries[0][1] / total };
+  return ancestor.join("/");
+}
+
+/**
+ * Infer a directory using a predicate on samples.
+ * Groups by top-level directory, picks the majority group,
+ * then returns the common ancestor within that group.
+ * This handles: Research/AI, Research/Finance → "Research" (not a subdomain).
+ */
+function inferDirBy(predicate: (s: FileSample) => boolean): { dir: string; confidence: number } {
+  const dirs = samples.filter(predicate).map(s => s.relDir);
+  if (!dirs.length) return { dir: "", confidence: 0 };
+
+  // Group by first path segment
+  const groups: Record<string, string[]> = {};
+  for (const d of dirs) {
+    const top = d.split("/")[0];
+    (groups[top] ??= []).push(d);
+  }
+
+  // Pick the group with the most entries
+  const sorted = Object.entries(groups).sort((a, b) => b[1].length - a[1].length);
+  const [, topDirs] = sorted[0];
+
+  // Common ancestor within the winning group
+  const dir = commonAncestor(topDirs) || topDirs[0].split("/")[0];
+  const confidence = topDirs.length / dirs.length;
+  return { dir, confidence };
 }
 
 function inferStubPattern(): { pattern: string; confidence: number } {
@@ -100,9 +134,12 @@ function inferMocCountPattern(): { pattern: string; confidence: number } {
   return { pattern: entries[0][0], confidence: entries[0][1] / (ms.length || 1) };
 }
 
-const sourcesResult = inferDir("paper");
-const conceptsResult = inferDir("concept");
-const mocsResult = inferDir("moc");
+// Sources: notes with concepts: array in frontmatter (strongest signal), or tagged "paper"
+const sourcesResult = inferDirBy(s => /^concepts:/m.test(s.fm) || s.tags.includes("paper"));
+// Concepts: tagged "concept"
+const conceptsResult = inferDirBy(s => s.tags.includes("concept"));
+// MOCs: tagged "moc"
+const mocsResult = inferDirBy(s => s.tags.includes("moc"));
 const stubResult = inferStubPattern();
 const mocCountResult = inferMocCountPattern();
 
