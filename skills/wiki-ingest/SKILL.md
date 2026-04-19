@@ -112,7 +112,7 @@ Personal observations...
 
 For each key concept mentioned in the source:
 
-1. **Check if concept exists**: Grep `.wiki/concept-index.json` for the concept name, or Glob `{structure.concepts}/` (from config.json). Don't load the full index.
+1. **Check if concept exists**: Grep `.wiki/concept-index.jsonl` for the concept name, or Glob `{structure.concepts}/` (from config.json). Don't load the full index.
 2. **If it exists**: Add it to the source note's `concepts:` frontmatter array
 3. **If it doesn't exist**: Create a stub concept note:
 
@@ -139,7 +139,7 @@ Only create concepts for genuine noun-phrase concepts (e.g., "reinforcement lear
 
 ## MOC Linking
 
-1. Check existing MOCs in `.wiki/moc-index.json`
+1. Check existing MOCs in `.wiki/moc-index.jsonl`
 2. Add relevant MOCs to the source note's `mocs:` array
 3. If no existing MOC fits, consider whether a new one is warranted (only if this domain has 3+ sources)
 

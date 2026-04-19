@@ -38,17 +38,17 @@ Flag skipped names to the user: "Skipping 'Context File Quality Directly Impacts
 
 For each valid stub:
 
-1. **Find referencing sources**: Grep `.wiki/source-index.json` for the concept name — sources that list it in their `concepts` array will have it on adjacent lines. Don't load the full index.
+1. **Find referencing sources**: Grep `.wiki/source-index.jsonl` for the concept name — sources that list it in their `concepts` array will have it on adjacent lines. Don't load the full index.
    ```
-   Grep "<concept name>" "$VAULT_PATH/.wiki/source-index.json"
+   Grep "<concept name>" "$VAULT_PATH/.wiki/source-index.jsonl"
    ```
-   Also check `backlinkCount` in `concept-index.json` (Grep for the concept name) — high backlink counts mean the concept is referenced widely across the corpus and deserves a richer definition.
+   Also check `backlinkCount` in `concept-index.jsonl` (Grep for the concept name) — high backlink counts mean the concept is referenced widely across the corpus and deserves a richer definition.
 2. **Read those source notes**: Understand how the concept is used in context
 3. **Synthesize a definition**: Write a real definition based on how the concept appears across sources
 
 ### What a Good Concept Note Looks Like
 
-Reference: a compiled concept note in `$VAULT_PATH/.wiki/concept-index.json`
+Reference: a compiled concept note in `$VAULT_PATH/.wiki/concept-index.jsonl`
 
 ```markdown
 ---

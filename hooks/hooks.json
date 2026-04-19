@@ -26,6 +26,10 @@
           {
             "type": "command",
             "command": "node ${CLAUDE_PLUGIN_ROOT}/bin/commonplace raw --instruct 2>/dev/null || true"
+          },
+          {
+            "type": "command",
+            "command": "node ${CLAUDE_PLUGIN_ROOT}/bin/commonplace session-context 2>/dev/null || true"
           }
         ]
       }

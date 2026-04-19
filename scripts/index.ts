@@ -74,15 +74,11 @@ let existingMocs: MocNote[] = [];
 
 if (incremental) {
   try {
-    existingSources = JSON.parse(
-      readFileSync(join(config.wikiPath, "source-index.json"), "utf-8")
-    );
-    existingConcepts = JSON.parse(
-      readFileSync(join(config.wikiPath, "concept-index.json"), "utf-8")
-    );
-    existingMocs = JSON.parse(
-      readFileSync(join(config.wikiPath, "moc-index.json"), "utf-8")
-    );
+    const parseJsonl = <T>(f: string): T[] =>
+      readFileSync(f, "utf-8").trim().split("\n").filter(Boolean).map(l => JSON.parse(l));
+    existingSources = parseJsonl(join(config.wikiPath, "source-index.jsonl"));
+    existingConcepts = parseJsonl(join(config.wikiPath, "concept-index.jsonl"));
+    existingMocs = parseJsonl(join(config.wikiPath, "moc-index.jsonl"));
   } catch {
     // If indexes don't exist, do full rebuild
   }
@@ -227,23 +223,15 @@ const domainSummaries: DomainSummary[] = Object.entries(registry.domains).map(
   })
 );
 
-// Write indexes
-writeFileSync(
-  join(config.wikiPath, "source-index.json"),
-  JSON.stringify(sources, null, 2)
-);
-writeFileSync(
-  join(config.wikiPath, "concept-index.json"),
-  JSON.stringify(concepts, null, 2)
-);
-writeFileSync(
-  join(config.wikiPath, "moc-index.json"),
-  JSON.stringify(mocs, null, 2)
-);
-writeFileSync(
-  join(config.wikiPath, "domain-index.json"),
-  JSON.stringify(domainSummaries, null, 2)
-);
+// Write indexes as JSONL (one record per line) — grep returns complete records
+function toJsonl(arr: unknown[]): string {
+  return arr.map(item => JSON.stringify(item)).join("\n") + "\n";
+}
+
+writeFileSync(join(config.wikiPath, "source-index.jsonl"), toJsonl(sources));
+writeFileSync(join(config.wikiPath, "concept-index.jsonl"), toJsonl(concepts));
+writeFileSync(join(config.wikiPath, "moc-index.jsonl"), toJsonl(mocs));
+writeFileSync(join(config.wikiPath, "domain-index.jsonl"), toJsonl(domainSummaries));
 
 // Write last-index timestamp
 writeFileSync(

@@ -14,7 +14,7 @@ Run `commonplace vault-path` to get the absolute vault path. Use it in all file 
 
 ## Your job
 
-1. Run `commonplace vault-path` and read `$VAULT/.wiki/source-index.json` and `$VAULT/.wiki/moc-index.json`
+1. Run `commonplace vault-path` and read `$VAULT/.wiki/source-index.jsonl` and `$VAULT/.wiki/moc-index.jsonl`
 2. For each MOC, check if all sources that reference it are listed
 3. Add missing source entries under the appropriate subcategory section
 4. Update the `## Papers (N)` count to match the actual number of listed papers

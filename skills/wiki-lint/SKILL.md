@@ -71,7 +71,7 @@ After the mechanical report, surface actionable intelligence from the vault's sh
 
 **High-value stubs** — concept stubs with high `backlinkCount` are the most-referenced unknown concepts in the corpus. For the top 3-5:
 ```
-Grep "isStub.*true" "$VAULT_PATH/.wiki/concept-index.json"
+Grep "isStub.*true" "$VAULT_PATH/.wiki/concept-index.jsonl"
 ```
 Sort by `backlinkCount` descending. For each, suggest: *"[[ConceptName]] is referenced N times but has no definition. Suggested search: ..."*
 
