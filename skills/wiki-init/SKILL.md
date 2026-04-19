@@ -13,7 +13,7 @@ Obsidian is not required. The plugin works on any folder of `.md` files with YAM
 
 1. Detects vault structure by sampling frontmatter tags (`paper`, `concept`, `moc`) across up to 200 notes
 2. Writes `.wiki/config.json` in the vault with detected structure, stub pattern, and MOC count pattern
-3. Writes `.vault-path` at the plugin root so SessionStart hooks know where the vault is
+3. Writes `.vault-path` to `CLAUDE_PLUGIN_DATA` (persistent across plugin updates) so all commands auto-discover the vault
 4. Generates or updates vault `CLAUDE.md` with a domain registry sentinel block
 
 ## Workflow
@@ -58,7 +58,7 @@ commonplace index --vault "<vault-path>"
 
 ### Step 6: Report
 
-After init, the vault path is stored so `commonplace vault-path` works in all contexts. SessionStart hooks use `${CLAUDE_PLUGIN_ROOT}/.vault-path` directly (command hooks don't get the Bash tool's PATH).
+After init, the vault path is stored in `CLAUDE_PLUGIN_DATA` (persistent directory that survives plugin updates). All `commonplace` commands auto-discover the vault — no `--vault` flag needed.
 
 Tell the user:
 - Vault path that was configured

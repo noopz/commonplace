@@ -146,7 +146,10 @@ writeFileSync(configPath, JSON.stringify(merged, null, 2) + "\n");
 const pluginRoot = process.env.CLAUDE_PLUGIN_ROOT
   ?? resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
-writeFileSync(join(pluginRoot, ".vault-path"), config.vaultPath + "\n");
+// Write to CLAUDE_PLUGIN_DATA (survives plugin updates), fall back to plugin root
+const dataDir = process.env.CLAUDE_PLUGIN_DATA;
+const vaultPathDest = dataDir ? join(dataDir, ".vault-path") : join(pluginRoot, ".vault-path");
+writeFileSync(vaultPathDest, config.vaultPath + "\n");
 
 // Write reverse pointer in vault so agents running from vault context can find the plugin
 writeFileSync(join(config.wikiPath, "plugin-root"), pluginRoot + "\n");
@@ -255,7 +258,7 @@ console.log(JSON.stringify({
   status: "ok",
   vaultPath: config.vaultPath,
   configWritten: configPath,
-  vaultPathFile: join(pluginRoot, ".vault-path"),
+  vaultPathFile: vaultPathDest,
   pluginRootFile: join(config.wikiPath, "plugin-root"),
   structure: merged.structure,
   stubPattern: merged.stubPattern,

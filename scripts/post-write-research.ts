@@ -33,14 +33,17 @@ if (!filePath.includes("/Research/")) {
   process.exit(0);
 }
 
-// Resolve vault path
+// Resolve vault path — check CLAUDE_PLUGIN_DATA first, fall back to plugin root
 const pluginRoot = join(import.meta.dirname!, "..");
-let vaultPath: string;
-try {
-  vaultPath = readFileSync(join(pluginRoot, ".vault-path"), "utf-8").trim();
-} catch {
-  process.exit(0);
+let vaultPath: string | undefined;
+const dataDir = process.env.CLAUDE_PLUGIN_DATA;
+for (const loc of [
+  ...(dataDir ? [join(dataDir, ".vault-path")] : []),
+  join(pluginRoot, ".vault-path"),
+]) {
+  try { vaultPath = readFileSync(loc, "utf-8").trim(); break; } catch {}
 }
+if (!vaultPath) process.exit(0);
 
 const tsx = join(pluginRoot, "node_modules", ".bin", "tsx");
 
