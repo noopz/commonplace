@@ -22,13 +22,13 @@ Run `commonplace vault-path` to get the vault path. Use it in all commands below
 Indexes may be stale. Run a full rebuild to ensure accurate lint results:
 
 ```bash
-commonplace index --vault "$VAULT_PATH"
+commonplace index
 ```
 
 ### Step 2: Run lint
 
 ```bash
-commonplace lint --vault "$VAULT_PATH"
+commonplace lint
 ```
 
 This produces JSON with all issues organized by severity:
@@ -83,14 +83,14 @@ Sort by `backlinkCount` descending. For each, suggest: *"[[ConceptName]] is refe
 
 **Log**: append to `$VAULT_PATH/.wiki/log.md`:
 ```bash
-commonplace log --vault "$VAULT_PATH" --entry "## [$(date +%Y-%m-%d)] lint | Full audit\n- Critical: N, Improvements: N, Suggestions: N. Fixed: N mechanical.\n"
+commonplace log --entry "## [$(date +%Y-%m-%d)] lint | Full audit\n- Critical: N, Improvements: N, Suggestions: N. Fixed: N mechanical.\n"
 ```
 
 ## Running Individual Checks
 
 The user can ask about specific checks:
 ```bash
-commonplace lint --vault "$VAULT_PATH" --check stubs
+commonplace lint --check stubs
 ```
 
 Valid check names: `unresolved`, `stubs`, `orphans`, `frontmatter`, `moc-staleness`, `scope-violations`, `duplicates`, `malformed-dates`, `near-duplicate-names`, `malformed-concept-names`

@@ -149,17 +149,17 @@ After writing the source note and any new concept stubs:
 
 1. **Validate** the source note frontmatter:
    ```bash
-   commonplace validate --vault "$VAULT_PATH" "<file-path>"
+   commonplace validate "<file-path>"
    ```
 
 2. **Rebuild index**:
    ```bash
-   commonplace index --vault "$VAULT_PATH" --incremental
+   commonplace index --incremental
    ```
 
 3. **Scope check**:
    ```bash
-   commonplace scope-check --vault "$VAULT_PATH" "<file-path>"
+   commonplace scope-check "<file-path>"
    ```
 
 4. **Dispatch agents** for Research/ files. Agents have isolated context — include vault path and relevant data inline in each prompt:
@@ -168,7 +168,7 @@ After writing the source note and any new concept stubs:
 
 5. **Log**: append to `$VAULT_PATH/.wiki/log.md`:
    ```bash
-   commonplace log --vault "$VAULT_PATH" --entry "## [$(date +%Y-%m-%d)] ingest | {Note Title}\n- Concepts: N new, N existing. MOCs: N linked.\n"
+   commonplace log --entry "## [$(date +%Y-%m-%d)] ingest | {Note Title}\n- Concepts: N new, N existing. MOCs: N linked.\n"
    ```
 
 6. **Report**: Tell the user what was created (impact check and cross-domain analysis run automatically via hooks):

@@ -71,7 +71,7 @@ Every query is an opportunity to strengthen the vault. While synthesizing, decid
 2. Update `updated` date in frontmatter
 3. Run scope-check on modified files:
    ```bash
-   commonplace scope-check --vault "$VAULT_PATH" "<file>"
+   commonplace scope-check "<file>"
    ```
 
 **File synthesis pages by default** — this is the most important operation. Answers that draw on 2+ sources, reveal non-obvious connections, or produce structured comparisons are vault pages, not chat messages. The threshold is low: if it took real work to synthesize, it belongs in the vault. Don't ask — just file it.
@@ -110,7 +110,7 @@ File everything identified in Step 3. Don't ask — just do it.
 
 **Log**: append one entry:
 ```bash
-commonplace log --vault "$VAULT_PATH" --entry "## [$(date +%Y-%m-%d)] query | {one-line question summary}\n- {what was found and filed back}\n"
+commonplace log --entry "## [$(date +%Y-%m-%d)] query | {one-line question summary}\n- {what was found and filed back}\n"
 ```
 
 ### Step 5: Mention what was filed

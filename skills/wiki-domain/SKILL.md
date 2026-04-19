@@ -21,7 +21,7 @@ Read the domain registry from `$VAULT_PATH/CLAUDE.md` — look for the block bet
 
 Also show stats from the index:
 ```bash
-commonplace index --vault "$VAULT_PATH" --incremental
+commonplace index --incremental
 ```
 
 Parse `domain-index.json` from `.wiki/` to show source and concept counts per domain.
@@ -61,7 +61,7 @@ When the user wants a new domain:
 
 5. **Rebuild indexes**:
    ```bash
-   commonplace index --vault "$VAULT_PATH"
+   commonplace index
    ```
 
 ## Example

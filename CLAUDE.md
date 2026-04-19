@@ -30,21 +30,23 @@ All scripts are invoked via the `commonplace` CLI, which is automatically on PAT
 
 Command hooks (shell subprocesses) don't inherit the Bash tool PATH, so they use `node ${CLAUDE_PLUGIN_ROOT}/bin/commonplace <cmd>` instead. Skills, agents, and normal Bash tool calls should always use the bare `commonplace` command.
 
+All commands auto-discover the vault via cwd (`.obsidian/` or `.wiki/` marker) or `.vault-path` fallback. The `--vault <path>` flag is optional — only needed for `init` or when overriding auto-discovery.
+
 - `commonplace vault-path` — Print the configured vault path (no tsx spawn, instant)
 - `commonplace config` — Print `.wiki/config.json` contents (no tsx spawn, instant)
-- `commonplace index --vault <path> [--incremental]` — Build/update `.wiki/*.json` indexes
-- `commonplace lint --vault <path> [--check <name>]` — Vault health audit
-- `commonplace validate --vault <path> <file>` — Single file frontmatter validation
-- `commonplace scope-check --vault <path> [<file>]` — Domain scope enforcement
-- `commonplace score --vault <path>` — Compute vault quality score
-- `commonplace prune --vault <path>` — Remove low-value stubs
-- `commonplace init --vault <path>` — Initialize plugin for a vault
+- `commonplace index [--incremental]` — Build/update `.wiki/*.json` indexes
+- `commonplace lint [--check <name>]` — Vault health audit
+- `commonplace validate <file>` — Single file frontmatter validation
+- `commonplace scope-check [<file>]` — Domain scope enforcement
+- `commonplace score` — Compute vault quality score
+- `commonplace prune` — Remove low-value stubs
+- `commonplace init --vault <path>` — Initialize plugin for a vault (requires explicit path)
 - `commonplace post-write` — Post-write hook pipeline (reads stdin)
-- `commonplace raw --vault <path> [--instruct]` — Scan raw/ for uningested files; `--instruct` prints human-readable summary
-- `commonplace freshen --vault <path> [--sample <n>] [--min-age-days <n>]` — Sample oldest-unchecked live source URLs for freshness checking
-- `commonplace freshen --vault <path> --record` — Record a check result (reads JSON from stdin, merges into `.wiki/freshness.json`)
-- `commonplace freshen --vault <path> --clear <relative-path>` — Clear stale flag after re-ingesting a note
-- `commonplace log --vault <path> --entry "<text>"` — Append an entry to `.wiki/log.md` (use instead of printf/bash redirection)
+- `commonplace raw [--instruct]` — Scan raw/ for uningested files; `--instruct` prints human-readable summary
+- `commonplace freshen [--sample <n>] [--min-age-days <n>]` — Sample oldest-unchecked live source URLs for freshness checking
+- `commonplace freshen --record` — Record a check result (reads JSON from stdin, merges into `.wiki/freshness.json`)
+- `commonplace freshen --clear <relative-path>` — Clear stale flag after re-ingesting a note
+- `commonplace log --entry "<text>"` — Append an entry to `.wiki/log.md` (use instead of printf/bash redirection)
 
 Paper commands:
 - `commonplace paper:fetch <url-or-id>` — Download from arXiv/URLs
