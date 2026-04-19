@@ -48,11 +48,19 @@ export function resolveVault(explicitPath?: string): VaultConfig {
     vaultPath = resolve(explicitPath);
   } else {
     // Prefer configured vault — if the user ran `init`, that vault wins
-    try {
-      const pluginRoot = resolve(import.meta.dirname!, "..", "..");
-      const stored = readFileSync(join(pluginRoot, ".vault-path"), "utf-8").trim();
-      if (stored && existsSync(stored)) vaultPath = stored;
-    } catch {}
+    // Check CLAUDE_PLUGIN_DATA first (survives plugin updates), fall back to plugin root
+    const dataDir = process.env.CLAUDE_PLUGIN_DATA;
+    const pluginRoot = resolve(import.meta.dirname!, "..", "..");
+    const locations = [
+      ...(dataDir ? [join(dataDir, ".vault-path")] : []),
+      join(pluginRoot, ".vault-path"),
+    ];
+    for (const loc of locations) {
+      try {
+        const stored = readFileSync(loc, "utf-8").trim();
+        if (stored && existsSync(stored)) { vaultPath = stored; break; }
+      } catch {}
+    }
 
     // Fall back to cwd discovery (walk up looking for .obsidian/ or .wiki/)
     if (!vaultPath) {

@@ -47,9 +47,16 @@ const [,, cmd, ...args] = process.argv;
 if (cmd === 'vault-path' || cmd === 'config') {
   const { readFileSync } = await import('fs');
   let vp;
-  try {
-    vp = readFileSync(join(__dirname, '..', '.vault-path'), 'utf-8').trim();
-  } catch {
+  // Check CLAUDE_PLUGIN_DATA first (survives plugin updates), fall back to plugin root
+  const dataDir = process.env.CLAUDE_PLUGIN_DATA;
+  const locations = [
+    ...(dataDir ? [join(dataDir, '.vault-path')] : []),
+    join(__dirname, '..', '.vault-path'),
+  ];
+  for (const loc of locations) {
+    try { vp = readFileSync(loc, 'utf-8').trim(); break; } catch {}
+  }
+  if (!vp) {
     console.error('commonplace: no .vault-path configured — run commonplace init');
     process.exit(1);
   }
