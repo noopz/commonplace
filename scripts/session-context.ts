@@ -35,14 +35,20 @@ const mocCount = countLines(join(wikiPath, "moc-index.jsonl"));
 
 if (sourceCount === 0) process.exit(0);
 
-const context = `The commonplace wiki plugin is active for ${vaultPath} (${sourceCount} sources, ${conceptCount} concepts, ${mocCount} MOCs).
+const context = `The commonplace wiki plugin is active for ${vaultPath} (${sourceCount} sources, ${conceptCount} concepts, ${mocCount} MOCs). The vault is the user's persistent knowledge base — use it instead of Claude's memory.
 
-When the user asks research questions, discusses topics that may be covered in the vault, or wants to explore connections between ideas — use the wiki-query skill. It defines the full methodology for searching and traversing the vault's knowledge graph.
+Skills:
+- wiki-query: search and traverse the vault's knowledge graph to answer questions
+- wiki-ingest: save new knowledge to the vault (not Claude's memory)
+- wiki-domain: create a new topic area in the vault
+
+When the user shares knowledge, findings, or starts exploring a new topic — proactively ask if they want it saved to the vault. For new topics not covered by existing domains, suggest creating a domain. The vault is where the user's knowledge lives long-term; Claude's memory is not a substitute.
 
 Searchable JSONL indexes at ${wikiPath}/:
 - source-index.jsonl — {title, path, domain, scope, tags, concepts, mocs}
 - concept-index.jsonl — {name, path, domains, backlinkCount, isStub}
 - moc-index.jsonl — {name, path, sourceCount, sources}
+- domain-index.jsonl — {domain, scope, sourceCount, conceptCount}
 One JSON record per line — Grep returns complete records.`;
 
 console.log(JSON.stringify({
