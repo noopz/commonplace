@@ -1,6 +1,5 @@
 {
   "name": "commonplace",
-  "version": "1.14.0",
   "private": true,
   "type": "module",
   "bin": {
