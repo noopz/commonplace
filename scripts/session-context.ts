@@ -37,12 +37,12 @@ if (sourceCount === 0) process.exit(0);
 
 const context = `The commonplace wiki plugin is active for ${vaultPath} (${sourceCount} sources, ${conceptCount} concepts, ${mocCount} MOCs). The vault is the user's persistent knowledge base — use it instead of Claude's memory.
 
-Skills:
-- wiki-query: search and traverse the vault's knowledge graph to answer questions
+Use the plugin's skills for structural vault operations (creating notes, adding domains, ingesting sources) — never create source/concept notes, domains, or indexes by hand. Editing existing note content directly is fine.
+- wiki-query: answer questions using vault knowledge
 - wiki-ingest: save new knowledge to the vault (not Claude's memory)
 - wiki-domain: create a new topic area in the vault
 
-When the user shares knowledge, findings, or starts exploring a new topic — proactively ask if they want it saved to the vault. For new topics not covered by existing domains, suggest creating a domain. The vault is where the user's knowledge lives long-term; Claude's memory is not a substitute.
+When the user shares knowledge, findings, or starts exploring a new topic — proactively ask if they want it saved to the vault. For new topics not covered by existing domains, suggest creating a domain via wiki-domain. The vault is where the user's knowledge lives long-term; Claude's memory is not a substitute.
 
 Searchable JSONL indexes at ${wikiPath}/:
 - source-index.jsonl — {title, path, domain, scope, tags, concepts, mocs}
