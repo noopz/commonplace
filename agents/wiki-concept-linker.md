@@ -21,13 +21,7 @@ Run `commonplace vault-path` to get the absolute vault path. Use it in all file 
 
 ## Rules
 
-- Only modify the **body** of notes, never the frontmatter
-- Only link the **first** occurrence of each concept per note (not every mention)
-- Match case-insensitively but preserve the original casing in the wikilink
-- Don't link inside existing wikilinks, code blocks, or headings
-- Don't link concept names that are part of longer words (e.g., don't link "act" inside "ReAct")
-- Skip concept notes themselves (`.wiki/concept-index.jsonl` has their paths)
-- Respect scope: if a note is in a hobby domain, only link concepts from the same domain
+Follow all rules in `references/linking-rules.md` — that file is the single source of truth for linking behavior. Read it before making any edits.
 
 ## How to work
 

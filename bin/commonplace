@@ -28,6 +28,7 @@ const SCRIPTS = {
   'log':          'scripts/log.ts',
   'impact':       'scripts/impact.ts',
   'cross-domain': 'scripts/cross-domain.ts',
+  'deep-link':    'scripts/deep-link.ts',
   'post-write-research': 'scripts/post-write-research.ts',
   'session-context':     'scripts/session-context.ts',
   // Paper pipeline
@@ -94,6 +95,7 @@ if (!cmd || cmd === '--help' || cmd === '-h') {
   console.error('  log           Append an entry to .wiki/log.md');
   console.error('  impact        Find existing notes affected by a source');
   console.error('  cross-domain  Find cross-domain bridge concepts for a source');
+  console.error('  deep-link     Find implicit concept connections via embeddings (requires Ollama)');
   console.error('');
   console.error('  paper:fetch          Download paper from arXiv/URL');
   console.error('  paper:extract        Extract pages from PDF');
