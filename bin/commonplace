@@ -10,6 +10,7 @@
 import { spawnSync } from 'child_process';
 import { fileURLToPath } from 'url';
 import { join, dirname } from 'path';
+import { readdirSync, existsSync } from 'fs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -51,10 +52,22 @@ if (cmd === 'vault-path' || cmd === 'config') {
   let vp;
   // Check CLAUDE_PLUGIN_DATA first (survives plugin updates), fall back to plugin root
   const dataDir = process.env.CLAUDE_PLUGIN_DATA;
+  const homeDir = process.env.HOME || process.env.USERPROFILE || '';
   const locations = [
     ...(dataDir ? [join(dataDir, '.vault-path')] : []),
     join(__dirname, '..', '.vault-path'),
   ];
+  // Scan all possible plugin data dirs (marketplace name varies)
+  if (homeDir) {
+    try {
+      const pluginDataRoot = join(homeDir, '.claude', 'plugins', 'data');
+      for (const dir of readdirSync(pluginDataRoot)) {
+        if (dir.startsWith('commonplace-')) {
+          locations.push(join(pluginDataRoot, dir, '.vault-path'));
+        }
+      }
+    } catch {}
+  }
   for (const loc of locations) {
     try { vp = readFileSync(loc, 'utf-8').trim(); break; } catch {}
   }
@@ -116,7 +129,10 @@ if (!SCRIPTS[cmd]) {
 }
 
 const root = join(__dirname, '..');
-const tsx = join(root, 'node_modules', '.bin', 'tsx');
+const localTsx = join(root, 'node_modules', '.bin', 'tsx');
+const dataDir2 = process.env.CLAUDE_PLUGIN_DATA;
+const dataTsx = dataDir2 ? join(dataDir2, 'node_modules', '.bin', 'tsx') : null;
+const tsx = existsSync(localTsx) ? localTsx : (dataTsx && existsSync(dataTsx) ? dataTsx : localTsx);
 const scriptPath = join(root, SCRIPTS[cmd]);
 
 const result = spawnSync(tsx, [scriptPath, ...args], {
