@@ -2,25 +2,35 @@
 
 Shared rules for all agents that add `[[wikilinks]]` to vault notes. Every linking agent — string-matching or semantic — must follow these.
 
+Link targets include **concept notes**, **source notes**, and **MOC notes** — any vault page that has its own `.md` file. The goal is Wikipedia-style inline linking: a reader should be able to follow any unfamiliar term or reference to its own page.
+
 ## Mechanical Rules
 
 These are non-negotiable. Apply them before any judgment calls.
 
-- **First occurrence only** — link each concept once per note, on first mention. Subsequent mentions stay as plain text.
-- **Preserve original casing** — match case-insensitively, but keep the author's casing in the wikilink: `[[Gradient Descent|gradient descent]]` if the text says "gradient descent" and the concept note is "Gradient Descent".
+- **First occurrence only** — link each target once per note, on first mention. Subsequent mentions stay as plain text.
+- **Preserve original casing** — match case-insensitively, but keep the author's casing in the wikilink: `[[Gradient Descent|gradient descent]]` if the text says "gradient descent" and the note is "Gradient Descent".
 - **Never link inside**: existing `[[wikilinks]]`, code blocks (fenced or inline), or headings (`#`, `##`, etc.)
-- **Word boundaries** — don't link partial words. "act" inside "ReAct" is not a match. "agent" inside "multi-agent" is not a match. The concept name must appear as a standalone term or at a natural word boundary.
-- **Skip concept notes** — don't add wikilinks to a concept note for itself or for concepts it already defines.
-- **Respect domain scope** — if a note is in a hobby domain, only link concepts from that same hobby domain. Professional domain notes can link concepts from any professional domain.
+- **Word boundaries** — don't link partial words. "act" inside "ReAct" is not a match. "agent" inside "multi-agent" is not a match. The target name must appear as a standalone term or at a natural word boundary.
+- **No self-links** — don't add a wikilink to a note for itself, and don't link concepts inside their own definition note.
+- **Respect domain scope** — if a note is in a hobby domain, only link concepts from that same hobby domain. Professional domain notes can link from any professional domain. Source-to-source links are not scope-restricted (a trading paper can link to an agent foundations paper if it references it).
 - **Body only** — never modify frontmatter. Only link within the body text of notes.
 
 ## Judgment Rules
 
 These require reading context and making a call. They apply to all linking agents, not just semantic ones.
 
+### Front-load links in the summary
+
+The Summary section is the lead — it establishes what this note is about and how it connects to the rest of the vault. This section should be the most link-dense part of the note. A reader landing here should immediately see the web of connections: what concepts this builds on, what other work it relates to, what domain it fits in.
+
+If a concept or source note is important enough to be in frontmatter, it should ideally have an inline link somewhere in the Summary or Key Ideas sections — not buried in a late section. When the "first occurrence" of a term is in paragraph 12, ask whether the Summary should reference it too. If the Summary discusses the idea without naming it, use display syntax: `[[Concept Name|the phrasing used in the summary]]`.
+
+Later sections (Methodology, Notes) should link where relevant but don't need the same density. The reader has context by then.
+
 ### Density cap
 
-If a note already has 15+ concept links, only add links for concepts that are central to the note's argument. A note with every other sentence linked to a concept is harder to read and traverse than one with well-chosen links. Prefer fewer, more meaningful links.
+If a note already has 15+ inline wikilinks, only add links that are central to the note's argument. A note with every other sentence linked is harder to read and traverse than one with well-chosen links. Prefer fewer, more meaningful links. This cap applies to ALL link types combined (concepts, source notes, MOCs).
 
 ### Ubiquity filter
 
@@ -30,10 +40,10 @@ To check: grep `concept-index.jsonl` for the concept's `backlinkCount` and compa
 
 ### Structural relevance
 
-Link concepts that help a reader (or agent) understand the note's argument. Don't link:
+Link vault notes that help a reader (or agent) understand the note's argument or follow the thread to related work. Don't link:
 - Passing mentions or background assumptions ("we use standard gradient descent" — gradient descent isn't the point)
-- Concepts in boilerplate sections (author lists, citation metadata)
-- Terms used in a generic sense rather than the specific vault concept
+- Content in boilerplate sections (author lists, citation metadata)
+- Terms used in a generic sense rather than the specific vault note
 
 A good test: would following this link teach you something relevant to understanding this note? If not, don't link it.
 
