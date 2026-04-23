@@ -1,4 +1,4 @@
-import { readFileSync, existsSync, statSync } from "fs";
+import { readFileSync, existsSync, statSync, readdirSync } from "fs";
 import { join, resolve } from "path";
 import { glob } from "glob";
 import type {
@@ -51,10 +51,22 @@ export function resolveVault(explicitPath?: string): VaultConfig {
     // Check CLAUDE_PLUGIN_DATA first (survives plugin updates), fall back to plugin root
     const dataDir = process.env.CLAUDE_PLUGIN_DATA;
     const pluginRoot = resolve(import.meta.dirname!, "..", "..");
+    const homeDir = process.env.HOME || process.env.USERPROFILE || "";
     const locations = [
       ...(dataDir ? [join(dataDir, ".vault-path")] : []),
       join(pluginRoot, ".vault-path"),
     ];
+    // Scan all possible plugin data dirs (marketplace name varies)
+    if (homeDir) {
+      try {
+        const pluginDataRoot = join(homeDir, ".claude", "plugins", "data");
+        for (const dir of readdirSync(pluginDataRoot)) {
+          if (dir.startsWith("commonplace-")) {
+            locations.push(join(pluginDataRoot, dir, ".vault-path"));
+          }
+        }
+      } catch {}
+    }
     for (const loc of locations) {
       try {
         const stored = readFileSync(loc, "utf-8").trim();
