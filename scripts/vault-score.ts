@@ -12,6 +12,7 @@ import { join } from "path";
 import { parseArgs } from "util";
 import { execSync } from "child_process";
 import { resolveVault, ensureIndex, loadIndexes } from "./lib/vault.js";
+import { parseNote, extractWikilinks } from "./lib/frontmatter.js";
 import type {
   LintResult,
   VaultScore,
@@ -67,7 +68,7 @@ const nonStubConcepts = totalConcepts - stubConcepts;
 const criticalIssues = lintResult ? lintResult.critical.length : classifiedNoteCount;
 
 // ============================================================
-// DIMENSION 1: Integrity (weight: 25)
+// DIMENSION 1: Integrity (weight: 15)
 // ============================================================
 
 const integrityRaw =
@@ -78,8 +79,8 @@ const integrityRaw =
 const integrity: VaultScoreDimension = {
   name: "integrity",
   score: integrityRaw,
-  weight: 25,
-  weighted: Math.round(integrityRaw * 25 * 10) / 10,
+  weight: 15,
+  weighted: Math.round(integrityRaw * 15 * 10) / 10,
   details: {
     criticalIssues,
     classifiedNotes: classifiedNoteCount,
@@ -87,26 +88,48 @@ const integrity: VaultScoreDimension = {
 };
 
 // ============================================================
-// DIMENSION 2: Coverage (weight: 25)
+// DIMENSION 2: Coverage (weight: 15)
 // ============================================================
 
-const coverageRaw =
+const conceptCoverage =
   totalConcepts === 0 ? 1.0 : nonStubConcepts / totalConcepts;
+
+// Sub-metric: note completeness (fraction of source notes with a Summary section)
+let notesWithSummary = 0;
+for (const source of sourceIndex) {
+  try {
+    const parsed = parseNote(source.path, config.vaultPath);
+    if (/^##\s+(?:Summary|Core Contribution|Overview)/m.test(parsed.body)) {
+      notesWithSummary++;
+    }
+  } catch {
+    // Skip
+  }
+}
+const noteCompleteness =
+  sourceIndex.length === 0 ? 1.0 : notesWithSummary / sourceIndex.length;
+
+const coverageRaw = (conceptCoverage + noteCompleteness) / 2;
 
 const coverage: VaultScoreDimension = {
   name: "coverage",
   score: coverageRaw,
-  weight: 25,
-  weighted: Math.round(coverageRaw * 25 * 10) / 10,
+  weight: 15,
+  weighted: Math.round(coverageRaw * 15 * 10) / 10,
   details: {
     totalConcepts,
     nonStubConcepts,
     stubConcepts,
+    conceptCoverage: Math.round(conceptCoverage * 1000) / 1000,
+    noteCompleteness: Math.round(noteCompleteness * 1000) / 1000,
+    notesWithSummary,
+    totalSourceNotes: sourceIndex.length,
   },
 };
 
 // ============================================================
-// DIMENSION 3: Connectivity (weight: 20)
+// DIMENSION 3: Graph Structure (weight: 10)
+// Are notes connected in the graph at all?
 // ============================================================
 
 // Sub-metric: backlink density
@@ -136,14 +159,109 @@ const conceptExtraction =
     ? 1.0
     : sourcesWithConcepts / sourceIndex.length;
 
-const connectivityRaw =
+// Sub-metric: inline link density (vault note mentions in body that are actually wikilinked)
+// Covers concepts (non-stub), source notes, and MOCs
+const linkTargetNames: string[] = [
+  ...conceptIndex.filter((c) => !c.isStub).map((c) => c.name),
+  ...sourceIndex.map((s) => s.title),
+  ...mocIndex.map((m) => m.name),
+].filter((n) => n.length > 2); // skip very short names
+
+let totalMentions = 0;
+let linkedMentions = 0;
+
+for (const source of sourceIndex) {
+  try {
+    const parsed = parseNote(source.path, config.vaultPath);
+    const body = parsed.body;
+    const bodyLinks = new Set(extractWikilinks(body).map((l) => l.toLowerCase()));
+
+    // Strip wikilinks, code blocks, and headings for plain-text scanning
+    const stripped = body
+      .replace(/\[\[[^\]]+\]\]/g, "")
+      .replace(/```[\s\S]*?```/g, "")
+      .replace(/`[^`]+`/g, "")
+      .replace(/^#{1,3}\s+.+$/gm, "");
+
+    for (const name of linkTargetNames) {
+      if (name === source.title) continue; // no self-links
+      const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const re = new RegExp(`(?<![\\[\\w])${escaped}(?![\\]\\w])`, "i");
+      const isLinked = bodyLinks.has(name.toLowerCase());
+      const appearsAsText = re.test(stripped);
+
+      if (isLinked || appearsAsText) {
+        totalMentions++;
+        if (isLinked) linkedMentions++;
+      }
+    }
+  } catch {
+    // Skip unparseable files
+  }
+}
+
+const inlineLinkDensity =
+  totalMentions === 0 ? 1.0 : linkedMentions / totalMentions;
+
+// Sub-metric: summary link coverage (fraction of source notes with links in their summary section)
+let summariesWithLinks = 0;
+let summariesTotal = 0;
+
+for (const source of sourceIndex) {
+  try {
+    const parsed = parseNote(source.path, config.vaultPath);
+    const summaryMatch = parsed.body.match(
+      /^##\s+(?:Summary|Core Contribution|Overview)\s*\n([\s\S]*?)(?=\n##\s|\n$|$)/m
+    );
+    if (summaryMatch && summaryMatch[1].trim().length > 100) {
+      summariesTotal++;
+      const summaryLinks = extractWikilinks(summaryMatch[1]);
+      if (summaryLinks.length > 0) summariesWithLinks++;
+    }
+  } catch {
+    // Skip
+  }
+}
+
+const summaryLinkCoverage =
+  summariesTotal === 0 ? 1.0 : summariesWithLinks / summariesTotal;
+
+// Sub-metric: frontmatter-body coherence
+// For each source note, what fraction of its frontmatter concepts: entries
+// have at least one inline [[wikilink]] in the body?
+let fmConceptsTotal = 0;
+let fmConceptsLinkedInBody = 0;
+
+for (const source of sourceIndex) {
+  if (source.concepts.length === 0) continue;
+  try {
+    const parsed = parseNote(source.path, config.vaultPath);
+    const bodyLinks = new Set(extractWikilinks(parsed.body).map((l) => l.toLowerCase()));
+
+    for (const conceptName of source.concepts) {
+      fmConceptsTotal++;
+      if (bodyLinks.has(conceptName.toLowerCase())) {
+        fmConceptsLinkedInBody++;
+      }
+    }
+  } catch {
+    // Skip
+  }
+}
+
+const frontmatterBodyCoherence =
+  fmConceptsTotal === 0 ? 1.0 : fmConceptsLinkedInBody / fmConceptsTotal;
+
+// DIMENSION 3: Graph Structure (weight: 10)
+// Are notes connected in the graph at all?
+const graphStructureRaw =
   (backlinkDensity + orphanRatio + mocCoverage + conceptExtraction) / 4;
 
-const connectivity: VaultScoreDimension = {
-  name: "connectivity",
-  score: connectivityRaw,
-  weight: 20,
-  weighted: Math.round(connectivityRaw * 20 * 10) / 10,
+const graphStructure: VaultScoreDimension = {
+  name: "graph-structure",
+  score: graphStructureRaw,
+  weight: 10,
+  weighted: Math.round(graphStructureRaw * 10 * 10) / 10,
   details: {
     avgBacklinks: Math.round(avgBacklinks * 100) / 100,
     backlinkDensity: Math.round(backlinkDensity * 1000) / 1000,
@@ -155,7 +273,61 @@ const connectivity: VaultScoreDimension = {
 };
 
 // ============================================================
-// DIMENSION 4: Consistency (weight: 15)
+// DIMENSION 4: Inline Linking (weight: 15)
+// Are vault note mentions in body text actually wikilinked?
+// ============================================================
+
+const inlineLinking: VaultScoreDimension = {
+  name: "inline-linking",
+  score: inlineLinkDensity,
+  weight: 15,
+  weighted: Math.round(inlineLinkDensity * 15 * 10) / 10,
+  details: {
+    inlineLinkDensity: Math.round(inlineLinkDensity * 1000) / 1000,
+    linked: linkedMentions,
+    total: totalMentions,
+    unlinked: totalMentions - linkedMentions,
+  },
+};
+
+// ============================================================
+// DIMENSION 5: Summary Links (weight: 15)
+// Do summary/lead sections front-load links to key concepts?
+// ============================================================
+
+const summaryLinks: VaultScoreDimension = {
+  name: "summary-links",
+  score: summaryLinkCoverage,
+  weight: 15,
+  weighted: Math.round(summaryLinkCoverage * 15 * 10) / 10,
+  details: {
+    summaryLinkCoverage: Math.round(summaryLinkCoverage * 1000) / 1000,
+    withLinks: summariesWithLinks,
+    total: summariesTotal,
+    withoutLinks: summariesTotal - summariesWithLinks,
+  },
+};
+
+// ============================================================
+// DIMENSION 6: Frontmatter Coherence (weight: 15)
+// Do frontmatter concepts have corresponding inline body links?
+// ============================================================
+
+const frontmatterCoherence: VaultScoreDimension = {
+  name: "frontmatter-coherence",
+  score: frontmatterBodyCoherence,
+  weight: 15,
+  weighted: Math.round(frontmatterBodyCoherence * 15 * 10) / 10,
+  details: {
+    coherence: Math.round(frontmatterBodyCoherence * 1000) / 1000,
+    linked: fmConceptsLinkedInBody,
+    total: fmConceptsTotal,
+    unlinked: fmConceptsTotal - fmConceptsLinkedInBody,
+  },
+};
+
+// ============================================================
+// DIMENSION 7: Consistency (weight: 5)
 // ============================================================
 
 // Sub-metric: MOC count accuracy
@@ -190,8 +362,8 @@ const consistencyRaw = (mocAccuracy + noDuplicates + noNearDupes) / 3;
 const consistency: VaultScoreDimension = {
   name: "consistency",
   score: consistencyRaw,
-  weight: 15,
-  weighted: Math.round(consistencyRaw * 15 * 10) / 10,
+  weight: 5,
+  weighted: Math.round(consistencyRaw * 5 * 10) / 10,
   details: {
     mocAccuracy: Math.round(mocAccuracy * 1000) / 1000,
     duplicateCount,
@@ -200,7 +372,7 @@ const consistency: VaultScoreDimension = {
 };
 
 // ============================================================
-// DIMENSION 5: Hygiene (weight: 15) — git-derived
+// DIMENSION 8: Hygiene (weight: 10) — git-derived
 // ============================================================
 
 let hygieneRaw = 0.5; // Default: neutral if no git
@@ -276,8 +448,8 @@ try {
 const hygiene: VaultScoreDimension = {
   name: "hygiene",
   score: hygieneRaw,
-  weight: 15,
-  weighted: Math.round(hygieneRaw * 15 * 10) / 10,
+  weight: 10,
+  weighted: Math.round(hygieneRaw * 10 * 10) / 10,
   details: hygieneDetails,
 };
 
@@ -285,7 +457,7 @@ const hygiene: VaultScoreDimension = {
 // COMPOSITE SCORE
 // ============================================================
 
-const dimensions = [integrity, coverage, connectivity, consistency, hygiene];
+const dimensions = [integrity, coverage, graphStructure, inlineLinking, summaryLinks, frontmatterCoherence, consistency, hygiene];
 const totalScore =
   Math.round(dimensions.reduce((sum, d) => sum + d.weighted, 0) * 10) / 10;
 

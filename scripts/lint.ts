@@ -19,6 +19,7 @@ import {
 import {
   parseNote,
   extractWikilinks,
+  extractFrontmatterWikilinks,
   extractAllFrontmatterLinks,
   isStub,
   hasMalformedDateLine,
@@ -83,6 +84,7 @@ const checksToRun = values.check ? [values.check] : [
   "malformed-dates",
   "near-duplicate-names",
   "malformed-concept-names",
+  "underlinked",
 ];
 
 function shouldRun(check: string): boolean {
@@ -312,6 +314,106 @@ if (shouldRun("malformed-concept-names")) {
   }
 }
 
+// === Check: underlinked notes (vault note names in body text not wikilinked) ===
+if (shouldRun("underlinked")) {
+  // Build lookup of all linkable vault note names
+  // Concepts (skip stubs — no definition to link to)
+  const linkTargets: { name: string; type: string }[] = conceptIndex
+    .filter((c) => !c.isStub)
+    .map((c) => ({ name: c.name, type: "concept" }));
+
+  // Source notes — use title from index
+  for (const s of sourceIndex) {
+    linkTargets.push({ name: s.title, type: "source" });
+  }
+
+  // MOC notes
+  for (const m of mocIndex) {
+    linkTargets.push({ name: m.name, type: "moc" });
+  }
+
+  // Sort longest-first so "FinMem: A Performance-Enhanced..." matches before "FinMem"
+  // and we don't double-count
+  linkTargets.sort((a, b) => b.name.length - a.name.length);
+
+  // Skip very short names (<=2 chars) that would false-positive on abbreviations
+  const filteredTargets = linkTargets.filter((t) => t.name.length > 2);
+
+  for (const source of sourceIndex) {
+    try {
+      const parsed = parseNote(source.path, config.vaultPath);
+      const body = parsed.body;
+      const bodyLinks = new Set(extractWikilinks(body).map((l) => l.toLowerCase()));
+
+      // Strip existing wikilinks, code blocks, and headings before searching
+      const stripped = body
+        .replace(/\[\[[^\]]+\]\]/g, "")
+        .replace(/```[\s\S]*?```/g, "")
+        .replace(/`[^`]+`/g, "")
+        .replace(/^#{1,3}\s+.+$/gm, "");
+
+      const unlinked: string[] = [];
+      for (const target of filteredTargets) {
+        // No self-links
+        if (target.name === source.title) continue;
+
+        // Skip if already linked in body
+        if (bodyLinks.has(target.name.toLowerCase())) continue;
+
+        // Word-boundary match, case-insensitive
+        const escaped = target.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        const re = new RegExp(`(?<![\\[\\w])${escaped}(?![\\]\\w])`, "i");
+
+        if (re.test(stripped)) {
+          unlinked.push(target.name);
+        }
+      }
+
+      if (unlinked.length > 0) {
+        issues.push({
+          check: "underlinked",
+          severity: "improvement",
+          file: source.path,
+          message: `${unlinked.length} vault note${unlinked.length > 1 ? "s" : ""} mentioned but not linked: ${unlinked.slice(0, 5).join(", ")}${unlinked.length > 5 ? ` (+${unlinked.length - 5} more)` : ""}`,
+          fixable: true,
+        });
+      }
+
+      // Check if the Summary/lead section has inline links
+      const summaryMatch = body.match(/^##\s+(?:Summary|Core Contribution|Overview)\s*\n([\s\S]*?)(?=\n##\s|\n$|$)/m);
+      if (summaryMatch) {
+        const summaryLinks = extractWikilinks(summaryMatch[1]);
+        if (summaryLinks.length === 0 && summaryMatch[1].trim().length > 100) {
+          issues.push({
+            check: "underlinked",
+            severity: "suggestion",
+            file: source.path,
+            message: `Summary section has no inline wikilinks — front-load links to key concepts and related work`,
+            fixable: true,
+          });
+        }
+      }
+
+      // Check frontmatter-body coherence: concepts in frontmatter without inline body links
+      const fmConcepts = extractFrontmatterWikilinks(parsed.frontmatter.concepts);
+      if (fmConcepts.length > 0) {
+        const notInBody = fmConcepts.filter((c) => !bodyLinks.has(c.toLowerCase()));
+        if (notInBody.length > 0) {
+          issues.push({
+            check: "underlinked",
+            severity: "suggestion",
+            file: source.path,
+            message: `${notInBody.length} frontmatter concept${notInBody.length > 1 ? "s" : ""} with no inline body link: ${notInBody.slice(0, 5).join(", ")}${notInBody.length > 5 ? ` (+${notInBody.length - 5} more)` : ""}`,
+            fixable: true,
+          });
+        }
+      }
+    } catch {
+      // Skip unparseable files
+    }
+  }
+}
+
 // Build result
 const result: LintResult = {
   critical: issues.filter((i) => i.severity === "critical"),
@@ -327,8 +429,9 @@ const result: LintResult = {
 if (values.instruct && result.summary.total > 0) {
   const lines: string[] = [];
   lines.push(`Vault health: ${result.summary.total} issues (${result.summary.critical} critical, ${result.summary.fixable} fixable).`);
-  if (result.summary.fixable > 0) {
-    lines.push(`Dispatch the wiki-linter agent to fix ${result.summary.fixable} mechanical issues (malformed dates, stale MOC counts, duplicates).`);
+  const mechanicalFixable = issues.filter(i => i.fixable && i.check !== "underlinked").length;
+  if (mechanicalFixable > 0) {
+    lines.push(`Dispatch the wiki-linter agent to fix ${mechanicalFixable} mechanical issues (malformed dates, stale MOC counts, duplicates).`);
   }
   if (result.critical.length > 0) {
     const unresolvedCount = result.critical.filter(i => i.check === "unresolved").length;
@@ -339,6 +442,18 @@ if (values.instruct && result.summary.total > 0) {
   const stubCount = result.improvement.filter(i => i.check === "stubs").length;
   if (stubCount > 0) {
     lines.push(`${stubCount} concept stubs need definitions — offer to run wiki-compile.`);
+  }
+  const underlinkCount = result.improvement.filter(i => i.check === "underlinked").length;
+  if (underlinkCount > 0) {
+    lines.push(`${underlinkCount} notes have vault note mentions without inline wikilinks — dispatch the wiki-linker agent to fix.`);
+  }
+  const sparseSummaryCount = result.suggestion.filter(i => i.check === "underlinked" && i.message.includes("Summary section")).length;
+  if (sparseSummaryCount > 0) {
+    lines.push(`${sparseSummaryCount} notes have summary sections with no inline links — front-load links to key concepts and related work.`);
+  }
+  const fmCoherenceCount = result.suggestion.filter(i => i.check === "underlinked" && i.message.includes("frontmatter concept")).length;
+  if (fmCoherenceCount > 0) {
+    lines.push(`${fmCoherenceCount} notes have frontmatter concepts with no inline body link — the wiki-linker or deep-link can resolve.`);
   }
   lines.push(`Report this summary to the user and take the actions above.`);
   console.log(lines.join("\n"));

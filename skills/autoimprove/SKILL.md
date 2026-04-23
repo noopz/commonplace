@@ -17,11 +17,14 @@ The loop is gated by a deterministic 0-100 quality score with five dimensions:
 
 | Dimension | Weight | What it measures |
 |-----------|--------|------------------|
-| Integrity | 25 | Broken links, frontmatter errors, scope violations |
-| Coverage | 25 | % of concepts with real definitions (vs stubs) |
-| Connectivity | 20 | Backlink density, orphan ratio, MOC coverage |
-| Consistency | 15 | MOC count accuracy, no duplicates |
-| Hygiene | 15 | Uncommitted changes, days since last commit |
+| Integrity | 20 | Broken links, frontmatter errors, scope violations |
+| Coverage | 20 | Concept definitions (vs stubs), note completeness (summary sections) |
+| Graph Structure | 10 | Backlink density, orphan ratio, MOC coverage, concept extraction |
+| Inline Linking | 15 | Vault note mentions in body text that are actually wikilinked |
+| Summary Links | 15 | Summary/lead sections with front-loaded inline links |
+| Frontmatter Coherence | 15 | Frontmatter concept entries with corresponding inline body links |
+| Consistency | 5 | MOC count accuracy, no duplicates |
+| Hygiene | 10 | Uncommitted changes, days since last commit |
 
 ## Workflow
 
@@ -69,7 +72,7 @@ Categorize by priority (cheapest and highest-impact first):
 1. **Mechanical fixes** (Tier 2, Haiku): malformed dates, stale MOC counts, duplicate frontmatter entries
 2. **Pruning** (Tier 2, Haiku): remove low-value concept stubs and clean up their references
 3. **MOC sync** (Tier 2, Haiku): MOCs missing source entries that reference them
-4. **Concept linking** (Tier 2, Haiku): source notes mentioning concepts without wikilinks
+4. **Inline linking** (Tier 2, Haiku): source notes mentioning vault pages (concepts, sources, MOCs) without wikilinks, and summary sections with no inline links
 5. **Stub compilation** (Tier 3, main model): fill concept stubs with real definitions — **cap at 5 stubs per round**, ordered by backlink count descending
 6. **Semantic audit** (Tier 3, main model): read top concept notes by backlinkCount, detect contradictions and synthesis gaps, generate synthesis pages — **cap at 2 synthesis pages per round**
 7. **Cross-domain synthesis** (Tier 3, main model): only if score ≥ 70. Identify concepts bridging multiple domains and check if recent sources have created connections worth surfacing.
@@ -98,7 +101,7 @@ All agents have isolated context windows — they cannot see this conversation. 
 
 - **MOC sync**: Dispatch `wiki-moc-updater` agent. Include vault path and the list of MOCs needing updates from lint results.
 
-- **Concept linking**: Dispatch `wiki-concept-linker` agent. Include vault path and the list of source notes to scan.
+- **Inline linking**: Dispatch `wiki-concept-linker` agent (handles concepts, source notes, and MOC titles). Include vault path and the list of source notes to scan. The agent reads all three JSONL indexes and adds `[[wikilinks]]` at first mention — prioritizing summary sections where links should be front-loaded. See `references/linking-rules.md` for the full linking rules.
 
 - **Stub compilation**: Execute wiki-compile's workflow inline (this runs at main-model cost, not Haiku). Read source notes that reference the stub, synthesize a definition, write the compiled concept note. Cap at 5 stubs per round.
 
