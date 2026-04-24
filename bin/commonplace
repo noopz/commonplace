@@ -135,10 +135,19 @@ const dataTsx = dataDir2 ? join(dataDir2, 'node_modules', '.bin', 'tsx') : null;
 const tsx = existsSync(localTsx) ? localTsx : (dataTsx && existsSync(dataTsx) ? dataTsx : localTsx);
 const scriptPath = join(root, SCRIPTS[cmd]);
 
+// When tsx comes from CLAUDE_PLUGIN_DATA, Node needs NODE_PATH to find
+// packages (glob, etc.) since scripts live in CLAUDE_PLUGIN_ROOT, not
+// next to node_modules.
+const env = { ...process.env };
+if (tsx !== localTsx && dataDir2) {
+  const dataModules = join(dataDir2, 'node_modules');
+  env.NODE_PATH = env.NODE_PATH ? `${dataModules}:${env.NODE_PATH}` : dataModules;
+}
+
 const result = spawnSync(tsx, [scriptPath, ...args], {
   stdio: 'inherit',
   cwd: root,
-  env: process.env,
+  env,
 });
 
 process.exit(result.status ?? 1);
