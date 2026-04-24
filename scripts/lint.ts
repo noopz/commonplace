@@ -28,7 +28,7 @@ import {
 import {
   normalizeConceptSlug,
   isMalformedConceptName,
-  lookupScope,
+  canLink,
 } from "./lib/domain.js";
 import type {
   LintIssue,
@@ -47,7 +47,7 @@ const { values } = parseArgs({
 });
 
 const config = resolveVault(values.vault);
-const registry = loadDomainRegistry(config.claudeMdPath);
+const registry = loadDomainRegistry(config.wikiPath);
 const wikiConfig = loadWikiConfig(config);
 const lintExclude: string[] = wikiConfig?.lintExclude ?? [];
 const issues: LintIssue[] = [];
@@ -203,22 +203,17 @@ if (shouldRun("moc-staleness")) {
 // === Check: scope violations ===
 if (shouldRun("scope-violations")) {
   for (const source of sourceIndex) {
-    if (source.scope !== "hobby") continue;
-
-    // Hobby sources should not reference concepts from other domains
     for (const conceptName of source.concepts) {
       const concept = conceptIndex.find((c) => c.name === conceptName);
       if (!concept) continue;
 
       for (const cDomain of concept.domains) {
-        if (cDomain !== source.domain) {
-          const cScope = lookupScope(cDomain, registry);
-          if (cScope !== "hobby") continue; // Professional cross-ref is fine
+        if (!canLink(source.domain, cDomain, registry)) {
           issues.push({
             check: "scope-violations",
             severity: "critical",
             file: source.path,
-            message: `Hobby scope violation: "${source.domain}" references concept "${conceptName}" from hobby domain "${cDomain}"`,
+            message: `Scope violation: domain "${source.domain}" cannot link to concept "${conceptName}" in domain "${cDomain}"`,
             fixable: false,
           });
         }

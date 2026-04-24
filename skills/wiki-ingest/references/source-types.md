@@ -183,4 +183,4 @@ created: YYYY-MM-DD
 1. WebFetch the content
 2. Extract: version, date, key changes
 3. Focus on what changed and why it matters
-4. Typically goes in a hobby domain (games) or coding-projects
+4. Typically goes in a private domain (games) or coding-projects

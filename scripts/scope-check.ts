@@ -19,7 +19,7 @@ import {
   extractWikilinks,
   extractFrontmatterWikilinks,
 } from "./lib/frontmatter.js";
-import { inferSourceDomain, lookupScope } from "./lib/domain.js";
+import { inferSourceDomain, lookupScope, canLink } from "./lib/domain.js";
 import type { ScopeViolation, ConceptNote } from "./lib/types.js";
 
 const { values, positionals } = parseArgs({
@@ -30,7 +30,7 @@ const { values, positionals } = parseArgs({
 });
 
 const config = resolveVault(values.vault);
-const registry = loadDomainRegistry(config.claudeMdPath);
+const registry = loadDomainRegistry(config.wikiPath);
 
 // Load concept index for domain lookup
 let conceptIndex: ConceptNote[] = [];
@@ -54,15 +54,19 @@ function checkFile(fp: string): void {
   const sourceDomain = inferSourceDomain(fp, config.vaultPath, registry);
   const sourceScope = lookupScope(sourceDomain, registry);
 
-  // Only enforce isolation for hobby-scoped notes
-  if (sourceScope !== "hobby") return;
-
+  // Note-level scope takes precedence over domain scope
   let parsed;
   try {
     parsed = parseNote(fp, config.vaultPath);
   } catch {
     return;
   }
+  // Note-level scope can override domain scope to private
+  const noteScope = parsed.frontmatter.scope === "private" ? "private" : null;
+  const effectiveScope = noteScope || sourceScope;
+
+  // Public notes with no linkGroup restrictions — skip
+  if (effectiveScope === "public" && !registry.domains[sourceDomain]?.linkGroup) return;
 
   // Check both frontmatter concept links and body wikilinks
   const conceptLinks = [
@@ -75,17 +79,16 @@ function checkFile(fp: string): void {
     if (!concept) continue;
 
     for (const cDomain of concept.domains) {
-      if (cDomain === sourceDomain) continue;
-      const cScope = lookupScope(cDomain, registry);
-      if (cScope === "hobby") {
+      if (!canLink(sourceDomain, cDomain, registry)) {
+        const cScope = lookupScope(cDomain, registry);
         violations.push({
           sourceFile: fp,
           targetFile: concept.path,
           sourceDomain,
           targetDomain: cDomain,
-          sourceScope,
+          sourceScope: effectiveScope,
           targetScope: cScope,
-          reason: `Hobby domain "${sourceDomain}" references concept from hobby domain "${cDomain}"`,
+          reason: `Domain "${sourceDomain}" (${effectiveScope}) cannot link to domain "${cDomain}" (${cScope})`,
         });
       }
     }

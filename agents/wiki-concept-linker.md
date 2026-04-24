@@ -24,7 +24,7 @@ Run `commonplace vault-path` to get the absolute vault path. Use it in all file 
 
 ## Rules
 
-Follow all rules in `references/linking-rules.md` — that file is the single source of truth for linking behavior. Read it before making any edits. Pay particular attention to:
+Follow all rules in `references/linking-rules.md` — that file is the single source of truth for linking behavior. Also read `.wiki/domains.json` for scope and linkGroup configuration — private domains without a shared linkGroup must not cross-link. Read both before making any edits. Pay particular attention to:
 - **First occurrence only** — link once per note, not every mention
 - **Density cap** — if a note already has 15+ inline links, only add links central to the argument
 - **No self-links** — never link a note to itself

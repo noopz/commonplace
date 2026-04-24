@@ -19,6 +19,11 @@ You receive the output of `cross-domain.ts` as JSON in your context. For each br
 
 Only act when the new source is from a *different* domain than the affected note AND the shared concept is substantive (a methodology, finding, or technique — not a generic term like "AI" or "model").
 
+**Scope check:** Before linking, read `.wiki/domains.json` and verify the two domains are allowed to link. Rules:
+- Both `scope: "public"` → allowed
+- Same `linkGroup` → allowed
+- Otherwise → skip (do not create cross-domain links between isolated domains)
+
 **Add to the affected note's `## Connections` section:**
 ```
 - Cross-domain: [[New Source Title]] ({{new source's domain}}) — via [[Concept Name]]

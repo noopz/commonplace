@@ -21,11 +21,12 @@ export interface WikiConfig {
 export interface DomainEntry {
   slug: string;
   path: string;
-  scope: "professional" | "hobby";
+  scope: "public" | "private";
+  linkGroup?: string;
 }
 
 export interface DomainRegistry {
-  domains: Record<string, { path: string; scope: "professional" | "hobby" }>;
+  domains: Record<string, { path: string; scope: "public" | "private"; linkGroup?: string }>;
 }
 
 export type NoteType = "source" | "concept" | "moc" | "other";
@@ -54,7 +55,7 @@ export interface SourceNote {
   title: string;
   path: string;
   domain: string;
-  scope: "professional" | "hobby";
+  scope: "public" | "private";
   tags: string[];
   concepts: string[];
   mocs: string[];
@@ -90,7 +91,7 @@ export interface IndexData {
 export interface DomainSummary {
   slug: string;
   path: string;
-  scope: "professional" | "hobby";
+  scope: "public" | "private";
   sourceCount: number;
   conceptCount: number;
 }
@@ -131,8 +132,8 @@ export interface ScopeViolation {
   targetFile: string;
   sourceDomain: string;
   targetDomain: string;
-  sourceScope: "professional" | "hobby";
-  targetScope: "professional" | "hobby";
+  sourceScope: string;
+  targetScope: string;
   reason: string;
 }
 

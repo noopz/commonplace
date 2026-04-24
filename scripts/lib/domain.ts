@@ -42,8 +42,36 @@ export function inferConceptDomains(
 export function lookupScope(
   domain: string,
   registry: DomainRegistry
-): "professional" | "hobby" {
-  return registry.domains[domain]?.scope ?? "professional";
+): "public" | "private" {
+  return registry.domains[domain]?.scope ?? "public";
+}
+
+/**
+ * Check if domain A is allowed to link to domain B.
+ * Rules:
+ *   - Same domain: always OK
+ *   - Both public: OK
+ *   - Same linkGroup: OK (bidirectional)
+ *   - Otherwise: blocked
+ */
+export function canLink(
+  fromDomain: string,
+  toDomain: string,
+  registry: DomainRegistry,
+): boolean {
+  if (fromDomain === toDomain) return true;
+
+  const from = registry.domains[fromDomain];
+  const to = registry.domains[toDomain];
+  if (!from || !to) return true; // unknown domains — don't block
+
+  // Both public → free linking
+  if (from.scope === "public" && to.scope === "public") return true;
+
+  // Same linkGroup → bidirectional linking
+  if (from.linkGroup && to.linkGroup && from.linkGroup === to.linkGroup) return true;
+
+  return false;
 }
 
 /**
