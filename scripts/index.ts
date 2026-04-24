@@ -167,6 +167,7 @@ for (const filePath of processFiles) {
       path: filePath,
       domains: [], // Filled in below
       sourceCount: 0, // Filled in below
+      sources: [], // Filled in below
       declaredCount,
     });
   }
@@ -216,12 +217,13 @@ for (const concept of concepts) {
   concept.domains = inferConceptDomains(concept.name, domainConceptRefs);
 }
 
-// Compute source counts and domains for MOCs
+// Compute source counts and domains for MOCs (public sources only)
 for (const moc of mocs) {
   const referencingSources = sources.filter((s) =>
-    s.mocs.includes(moc.name)
+    s.mocs.includes(moc.name) && s.scope !== "private"
   );
   moc.sourceCount = referencingSources.length;
+  moc.sources = referencingSources.map((s) => s.title);
   moc.domains = [
     ...new Set(referencingSources.map((s) => s.domain)),
   ];

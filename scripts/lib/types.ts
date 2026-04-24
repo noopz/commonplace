@@ -77,6 +77,7 @@ export interface MocNote {
   path: string;
   domains: string[];
   sourceCount: number;
+  sources: string[];
   declaredCount: number | null;
 }
 
