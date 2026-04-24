@@ -45,10 +45,10 @@ If the output includes `lowConfidence` entries, review them with the user:
 
 ### Step 4: Add domains (if new vault)
 
-If the vault CLAUDE.md was newly generated, the domain registry will have skeleton entries detected from subdirectories. Review with the user:
+Init auto-discovers domains from vault directories and writes `.wiki/domains.json`. Review with the user:
 - Show what was detected
-- Ask if scope should be `professional` or `hobby` for any unclear domains
-- Edit `$VAULT_PATH/CLAUDE.md` to correct scopes or add missing domains
+- Ask if scope should be `public` or `private` for any unclear domains
+- Edit `$VAULT_PATH/.wiki/domains.json` to correct scopes or add missing domains
 
 ### Step 5: Run initial index
 

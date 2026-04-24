@@ -1,5 +1,5 @@
-import { readFileSync, existsSync, statSync, readdirSync } from "fs";
-import { join, resolve } from "path";
+import { readFileSync, writeFileSync, existsSync, statSync, readdirSync } from "fs";
+import { join, resolve, dirname, relative as relPath } from "path";
 import { glob } from "glob";
 import type {
   VaultConfig,
@@ -11,14 +11,7 @@ import type {
   MocNote,
 } from "./types.js";
 
-// Minimal fallback — only used when vault CLAUDE.md is missing or unparseable.
-// Real domain registries live in the vault's CLAUDE.md between DOMAIN_REGISTRY_START/END sentinels.
-const DEFAULT_REGISTRY: DomainRegistry = {
-  domains: {
-    research: { path: "02 - Areas/Research", scope: "professional" },
-    projects: { path: "01 - Projects", scope: "professional" },
-  },
-};
+const EMPTY_REGISTRY: DomainRegistry = { domains: {} };
 
 export function getVaultConfig(vaultPath: string): VaultConfig {
   const resolved = resolve(vaultPath);
@@ -101,74 +94,62 @@ export function loadWikiConfig(config: VaultConfig): WikiConfig | null {
   }
 }
 
-export function loadDomainRegistry(claudeMdPath: string): DomainRegistry {
-  if (!existsSync(claudeMdPath)) {
-    console.error(
-      `Warning: ${claudeMdPath} not found, using default domain registry`
-    );
-    return DEFAULT_REGISTRY;
+export function loadDomainRegistry(wikiPath: string): DomainRegistry {
+  const domainsPath = join(wikiPath, "domains.json");
+  if (!existsSync(domainsPath)) return EMPTY_REGISTRY;
+  try {
+    return JSON.parse(readFileSync(domainsPath, "utf-8")) as DomainRegistry;
+  } catch {
+    console.error("Warning: Could not parse domains.json, using empty registry");
+    return EMPTY_REGISTRY;
+  }
+}
+
+export function saveDomainRegistry(wikiPath: string, registry: DomainRegistry): void {
+  writeFileSync(join(wikiPath, "domains.json"), JSON.stringify(registry, null, 2) + "\n");
+}
+
+/**
+ * Auto-register a domain for a note in an unregistered path.
+ * Derives slug from the deepest meaningful directory segment.
+ * Returns the new domain slug, or null if registration fails.
+ */
+export function autoRegisterDomain(
+  filePath: string,
+  vaultPath: string,
+  wikiPath: string,
+  registry: DomainRegistry,
+): string | null {
+  const rel = filePath.startsWith(vaultPath)
+    ? filePath.slice(vaultPath.length + 1)
+    : filePath;
+  const dir = dirname(rel);
+  if (!dir || dir === ".") return null;
+
+  // Check if this path is already covered by an existing domain
+  for (const entry of Object.values(registry.domains)) {
+    if (rel.startsWith(entry.path + "/")) return null;
   }
 
-  const content = readFileSync(claudeMdPath, "utf-8");
-  const startMarker = "<!-- DOMAIN_REGISTRY_START -->";
-  const endMarker = "<!-- DOMAIN_REGISTRY_END -->";
+  // Use the full directory path as the domain path (e.g., "04 - Explorations/Chess")
+  // Slug from the deepest segment (e.g., "chess")
+  const segments = dir.split("/");
+  const deepest = segments[segments.length - 1];
+  const slug = deepest.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+  if (!slug) return null;
 
-  const startIdx = content.indexOf(startMarker);
-  const endIdx = content.indexOf(endMarker);
-
-  if (startIdx === -1 || endIdx === -1) {
-    console.error(
-      "Warning: Domain registry markers not found in CLAUDE.md, using defaults"
-    );
-    return DEFAULT_REGISTRY;
+  // Avoid slug collisions — append parent if needed
+  let finalSlug = slug;
+  if (registry.domains[finalSlug]) {
+    const parent = segments.length > 1 ? segments[segments.length - 2] : "";
+    const parentSlug = parent.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+    finalSlug = parentSlug ? `${parentSlug}-${slug}` : slug;
+    if (registry.domains[finalSlug]) return null; // give up on double collision
   }
 
-  const yamlBlock = content
-    .slice(startIdx + startMarker.length, endIdx)
-    .replace(/```yaml\n?/, "")
-    .replace(/```\n?/, "")
-    .trim();
-
-  // Simple YAML parser for our known structure
-  const registry: DomainRegistry = { domains: {} };
-  let currentDomain = "";
-
-  for (const line of yamlBlock.split("\n")) {
-    const trimmed = line.trim();
-    if (trimmed === "domains:" || trimmed === "" || trimmed.startsWith("#"))
-      continue;
-
-    // Domain name line: "  ai-development:"
-    const domainMatch = trimmed.match(/^([a-z0-9-]+):$/);
-    if (domainMatch) {
-      currentDomain = domainMatch[1];
-      registry.domains[currentDomain] = { path: "", scope: "professional" };
-      continue;
-    }
-
-    if (currentDomain) {
-      const pathMatch = trimmed.match(/^path:\s*"(.+)"$/);
-      if (pathMatch) {
-        registry.domains[currentDomain].path = pathMatch[1];
-        continue;
-      }
-      const scopeMatch = trimmed.match(/^scope:\s*(\w+)$/);
-      if (scopeMatch) {
-        registry.domains[currentDomain].scope = scopeMatch[1] as
-          | "professional"
-          | "hobby";
-      }
-    }
-  }
-
-  if (Object.keys(registry.domains).length === 0) {
-    console.error(
-      "Warning: No domains parsed from CLAUDE.md, using defaults"
-    );
-    return DEFAULT_REGISTRY;
-  }
-
-  return registry;
+  registry.domains[finalSlug] = { path: dir, scope: "public" };
+  saveDomainRegistry(wikiPath, registry);
+  return finalSlug;
 }
 
 // Cache config.json per vault path so classifyNote doesn't hit disk on every call
@@ -185,10 +166,25 @@ function loadWikiConfigCached(vaultPath: string): WikiConfig | null {
   return cfg;
 }
 
+// Cache domains.json per wiki path
+const _registryCache = new Map<string, DomainRegistry>();
+
+export function loadDomainRegistryCached(wikiPath: string): DomainRegistry {
+  if (_registryCache.has(wikiPath)) return _registryCache.get(wikiPath)!;
+  const reg = loadDomainRegistry(wikiPath);
+  _registryCache.set(wikiPath, reg);
+  return reg;
+}
+
+export function clearRegistryCache(): void {
+  _registryCache.clear();
+}
+
 export function classifyNote(
   filePath: string,
   vaultPath: string,
-  wikiConfig?: WikiConfig | null
+  wikiConfig?: WikiConfig | null,
+  registry?: DomainRegistry,
 ): NoteType {
   const relative = filePath.startsWith(vaultPath)
     ? filePath.slice(vaultPath.length + 1)
@@ -203,6 +199,14 @@ export function classifyNote(
   if (sources && relative.startsWith(sources + "/")) return "source";
   if (concepts && relative.startsWith(concepts + "/")) return "concept";
   if (mocs && relative.startsWith(mocs + "/")) return "moc";
+
+  // Fallback: check if note is in a registered domain path
+  const wikiPath = join(vaultPath, ".wiki");
+  const reg = registry ?? loadDomainRegistryCached(wikiPath);
+  for (const entry of Object.values(reg.domains)) {
+    if (relative.startsWith(entry.path + "/")) return "source";
+  }
+
   return "other";
 }
 

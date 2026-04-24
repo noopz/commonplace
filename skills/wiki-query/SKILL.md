@@ -125,6 +125,6 @@ At the end of your answer, briefly note any vault updates. Keep it short — one
 ## Scope Rules
 
 When filing back connections:
-- Professional domain concepts can link freely across professional domains
-- Hobby domain concepts must stay isolated
+- Public-scoped concepts can link freely across public domains
+- Private/custom-scoped concepts must stay isolated within their domain
 - Run scope-check after any modifications to catch violations

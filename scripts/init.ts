@@ -15,7 +15,8 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSy
 import { join, dirname, resolve } from "path";
 import { fileURLToPath } from "url";
 import { glob } from "glob";
-import { resolveVault, loadDomainRegistry } from "./lib/vault.js";
+import { resolveVault, loadDomainRegistry, saveDomainRegistry } from "./lib/vault.js";
+import type { DomainRegistry } from "./lib/types.js";
 import type { WikiConfig } from "./lib/types.js";
 
 const { values } = parseArgs({ options: { vault: { type: "string" } } });
@@ -191,115 +192,175 @@ writeFileSync(vaultPathDest, config.vaultPath + "\n");
 // Write reverse pointer in vault so agents running from vault context can find the plugin
 writeFileSync(join(config.wikiPath, "plugin-root"), pluginRoot + "\n");
 
-// ---- Step 4: Generate/update vault CLAUDE.md ----
+// ---- Step 4: Discover domains and write .wiki/domains.json ----
+
+// Load existing domains.json (preserves user edits like scope changes)
+const existingRegistry = loadDomainRegistry(config.wikiPath);
+const discoveredRegistry: DomainRegistry = { domains: { ...existingRegistry.domains } };
+
+// Discover domains vault-wide: scan directories for notes with structured frontmatter
+const SKIP_DIRS = new Set([".obsidian", ".wiki", "node_modules", ".git", ".trash", "raw"]);
+const conceptsDir = merged.structure.concepts;
+const mocsDir = merged.structure.mocs;
+const sourcesDir = merged.structure.sources;
+
+/** Check if a file has real YAML frontmatter with tags. Returns scope if found. */
+function checkFrontmatter(filePath: string): { hasStructure: boolean; scope?: "public" | "private" } {
+  try {
+    const raw = readFileSync(filePath, "utf-8");
+    const fmMatch = raw.match(/^---\n([\s\S]*?)\n---/);
+    if (!fmMatch) return { hasStructure: false };
+    const fm = fmMatch[1];
+    const hasStructure = /^tags:/m.test(fm) || /^concepts:/m.test(fm);
+    if (!hasStructure) return { hasStructure: false };
+    const scopeMatch = fm.match(/^scope:\s*(public|private)\s*$/m);
+    return { hasStructure: true, scope: scopeMatch ? scopeMatch[1] as "public" | "private" : undefined };
+  } catch { return { hasStructure: false }; }
+}
+
+function discoverDomains(parentDir: string, relPrefix: string): void {
+  let entries: string[];
+  try { entries = readdirSync(parentDir); } catch { return; }
+
+  for (const entry of entries) {
+    if (SKIP_DIRS.has(entry)) continue;
+    // Skip template/meta directories — they contain schema examples, not real notes
+    const entryLower = entry.toLowerCase();
+    if (entryLower.includes("template") || entryLower.includes("meta")) continue;
+    const absPath = join(parentDir, entry);
+    const relPath = relPrefix ? `${relPrefix}/${entry}` : entry;
+
+    // Skip concepts, mocs, and sources dirs — they have their own classification
+    if (relPath === conceptsDir || relPath === mocsDir || relPath === sourcesDir) continue;
+
+    let isd: boolean;
+    try { isd = statSync(absPath).isDirectory(); } catch { continue; }
+    if (!isd) continue;
+
+    // Check if already registered (exact match or parent/child)
+    const alreadyRegistered = Object.values(discoveredRegistry.domains).some(
+      d => relPath.startsWith(d.path + "/") || d.path.startsWith(relPath + "/") || d.path === relPath
+    );
+
+    // Sample .md files for structured frontmatter and scope
+    const mdFiles = readdirSync(absPath).filter(f => f.endsWith(".md")).slice(0, 10);
+    let hasNotes = false;
+    let inferredScope: "public" | "private" = "public";
+    for (const md of mdFiles) {
+      const result = checkFrontmatter(join(absPath, md));
+      if (result.hasStructure) hasNotes = true;
+      // If any note declares private scope, the domain is private
+      if (result.scope === "private") inferredScope = "private";
+    }
+
+    if (hasNotes && !alreadyRegistered) {
+      // Strip leading number prefixes like "01 - " or "02 - " for cleaner slugs
+      const cleanName = entry.replace(/^\d+\s*-\s*/, "");
+      const slug = cleanName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+      if (slug && !discoveredRegistry.domains[slug]) {
+        discoveredRegistry.domains[slug] = { path: relPath, scope: inferredScope };
+      }
+    }
+
+    // Recurse into subdirectories
+    discoverDomains(absPath, relPath);
+  }
+}
+
+discoverDomains(config.vaultPath, "");
+
+// Also register subdirs under the sources dir (existing behavior)
+const sourcesDirAbs = join(config.vaultPath, merged.structure.sources);
+if (existsSync(sourcesDirAbs)) {
+  const subdirs = readdirSync(sourcesDirAbs).filter(d => {
+    try { return statSync(join(sourcesDirAbs, d)).isDirectory(); } catch { return false; }
+  });
+  for (const d of subdirs) {
+    const slug = d.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+    const path = `${merged.structure.sources}/${d}`;
+    if (slug && !discoveredRegistry.domains[slug]) {
+      discoveredRegistry.domains[slug] = { path, scope: "public" };
+    }
+  }
+}
+
+saveDomainRegistry(config.wikiPath, discoveredRegistry);
+
+// ---- Step 5: Generate/update vault CLAUDE.md ----
 
 const REGISTRY_START = "<!-- DOMAIN_REGISTRY_START -->";
 const REGISTRY_END = "<!-- DOMAIN_REGISTRY_END -->";
 
-// Load existing domain registry from CLAUDE.md if present, else detect from directory structure
-let domainBlock: string;
-if (existsSync(config.claudeMdPath)) {
-  const existing = readFileSync(config.claudeMdPath, "utf-8");
-  if (existing.includes(REGISTRY_START)) {
-    // Already has markers — preserve existing registry, we'll update it in-place below
-    domainBlock = existing.slice(
-      existing.indexOf(REGISTRY_START) + REGISTRY_START.length,
-      existing.indexOf(REGISTRY_END)
-    ).trim();
-  } else {
-    domainBlock = buildRegistryBlock(merged.structure.sources, config.vaultPath);
+function buildRegistryView(registry: DomainRegistry): string {
+  let entries = "";
+  for (const [slug, entry] of Object.entries(registry.domains).sort((a, b) => a[0].localeCompare(b[0]))) {
+    entries += `  ${slug}:\n    path: "${entry.path}"\n    scope: ${entry.scope}\n`;
   }
-} else {
-  domainBlock = buildRegistryBlock(merged.structure.sources, config.vaultPath);
+  if (!entries) entries = "  # No domains discovered yet\n";
+  return `\`\`\`yaml\ndomains:\n${entries}\`\`\``;
 }
 
-function buildRegistryBlock(sourcesDir: string, vaultPath: string): string {
-  // Detect domain subdirectories under sources dir
-  const sourcesDirAbs = join(vaultPath, sourcesDir);
-  let domainEntries = "";
-  if (existsSync(sourcesDirAbs)) {
-    const subdirs = readdirSync(sourcesDirAbs).filter((d) => {
-      try { return statSync(join(sourcesDirAbs, d)).isDirectory(); } catch { return false; }
-    });
-    for (const d of subdirs) {
-      const slug = d.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
-      domainEntries += `  ${slug}:\n    path: "${sourcesDir}/${d}"\n    scope: professional\n`;
-    }
-  }
-  if (!domainEntries) {
-    domainEntries = `  # Add domains here, e.g.:\n  # my-domain:\n  #   path: "${sourcesDir}/My Domain"\n  #   scope: professional\n`;
-  }
-  return `\`\`\`yaml\ndomains:\n${domainEntries}\`\`\``;
-}
-
-const registrySection = `${REGISTRY_START}\n${domainBlock}\n${REGISTRY_END}`;
+const domainBlock = buildRegistryView(discoveredRegistry);
+const registrySection = `${REGISTRY_START}\n<!-- Auto-generated from .wiki/domains.json — edit domains.json to change -->\n${domainBlock}\n${REGISTRY_END}`;
 
 if (existsSync(config.claudeMdPath)) {
   let content = readFileSync(config.claudeMdPath, "utf-8");
   if (content.includes(REGISTRY_START) && content.includes(REGISTRY_END)) {
-    // Update in-place
     content = content.slice(0, content.indexOf(REGISTRY_START)) +
       registrySection +
       content.slice(content.indexOf(REGISTRY_END) + REGISTRY_END.length);
   } else {
-    // Append
     content = content.trimEnd() + "\n\n## Domain Registry\n\n" + registrySection + "\n";
   }
   writeFileSync(config.claudeMdPath, content);
 } else {
-  // Generate skeleton CLAUDE.md
-  const skeleton = `# Vault Schema & Conventions
+  const skeleton = `# Vault Conventions
 
-This file defines the structure, rules, and conventions for this knowledge base.
+This vault is managed by the commonplace plugin. Structure, domains, and indexes live in \`.wiki/\`.
 
-## Vault Structure
+## Hard Rules
 
-- **Sources**: \`${merged.structure.sources}/\` — research notes, papers, articles
-- **Concepts**: \`${merged.structure.concepts}/\` — atomic concept definitions
-- **MOCs**: \`${merged.structure.mocs}/\` — Maps of Content
+- Frontmatter schema: read \`99 - Meta/Frontmatter Schema.md\` before creating any note
+- Never use \`pdftotext\` or system PDF tools — use \`commonplace paper:*\`
+- Never pipe JSON through \`python3\` or \`jq\` — use Grep or Read
+- \`raw/\` files are permanent — never delete after ingestion
 
 ## Domain Registry
 
 Domains are inferred from file paths, never stored in frontmatter.
 
 ${registrySection}
-
-## Working with Indexes
-
-Never use Python or shell one-liners to parse JSON index files. Instead:
-- **Search**: use Grep — e.g. \`Grep "pattern" ".wiki/concept-index.jsonl"\`
-- **Read**: use the Read tool — never \`cat file | python3 -c ...\`
-- **Script output**: scripts output valid JSON, read it directly
-
-## Frontmatter Schema
-
-*Document your note types and required fields here.*
-
-## Quality Standards
-
-- No broken wikilinks
-- No orphan notes
-- No stub concepts left indefinitely
 `;
   writeFileSync(config.claudeMdPath, skeleton);
 }
 
-// ---- Step 5: Report ----
+// ---- Step 6: Report ----
 
 const lowConfidence: string[] = [];
 if (sourcesResult.confidence < 0.7) lowConfidence.push(`sources dir (${Math.round(sourcesResult.confidence * 100)}% confidence) → "${merged.structure.sources}"`);
 if (conceptsResult.confidence < 0.7) lowConfidence.push(`concepts dir (${Math.round(conceptsResult.confidence * 100)}% confidence) → "${merged.structure.concepts}"`);
 if (mocsResult.confidence < 0.7) lowConfidence.push(`mocs dir (${Math.round(mocsResult.confidence * 100)}% confidence) → "${merged.structure.mocs}"`);
 
+const domainCount = Object.keys(discoveredRegistry.domains).length;
+const newDomains = Object.keys(discoveredRegistry.domains).filter(
+  k => !existingRegistry.domains[k]
+);
+
 console.log(JSON.stringify({
   status: "ok",
   vaultPath: config.vaultPath,
   configWritten: configPath,
+  domainsWritten: join(config.wikiPath, "domains.json"),
   vaultPathFile: vaultPathDest,
   pluginRootFile: join(config.wikiPath, "plugin-root"),
   structure: merged.structure,
   stubPattern: merged.stubPattern,
   mocCountPattern: merged.mocCountPattern,
+  domains: {
+    total: domainCount,
+    new: newDomains.length ? newDomains : undefined,
+    registry: discoveredRegistry.domains,
+  },
   lowConfidence: lowConfidence.length ? lowConfidence : undefined,
   sampledFiles: samples.length,
 }, null, 2));

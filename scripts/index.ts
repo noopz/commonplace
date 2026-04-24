@@ -10,6 +10,8 @@ import { parseArgs } from "util";
 import {
   resolveVault,
   loadDomainRegistry,
+  autoRegisterDomain,
+  saveDomainRegistry,
   findAllNotes,
   classifyNote,
   getLastIndexTime,
@@ -42,7 +44,7 @@ const { values } = parseArgs({
 });
 
 const config = resolveVault(values.vault);
-const registry = loadDomainRegistry(config.claudeMdPath);
+const registry = loadDomainRegistry(config.wikiPath);
 
 // Ensure .wiki/ directory exists
 if (!existsSync(config.wikiPath)) {
@@ -94,8 +96,19 @@ const mocs: MocNote[] = [];
 const domainConceptRefs = new Map<string, Set<string>>();
 
 for (const filePath of processFiles) {
-  const noteType = classifyNote(filePath, config.vaultPath);
-  if (noteType === "other") continue;
+  let noteType = classifyNote(filePath, config.vaultPath, null, registry);
+
+  // Auto-discover: "other" notes with source-shaped frontmatter (concepts: array)
+  if (noteType === "other") {
+    try {
+      const probe = parseNote(filePath, config.vaultPath);
+      if (Array.isArray(probe.frontmatter.concepts) && probe.frontmatter.concepts.length > 0) {
+        const slug = autoRegisterDomain(filePath, config.vaultPath, config.wikiPath, registry);
+        if (slug) noteType = "source";
+      }
+    } catch { /* skip */ }
+    if (noteType === "other") continue;
+  }
 
   let parsed;
   try {
@@ -108,7 +121,9 @@ for (const filePath of processFiles) {
 
   if (noteType === "source") {
     const domain = inferSourceDomain(filePath, config.vaultPath, registry);
-    const scope = lookupScope(domain, registry);
+    // Note-level scope overrides domain scope (only "public" or "private" are valid)
+    const noteScope = fm.scope === "private" ? "private" : fm.scope === "public" ? "public" : null;
+    const scope = noteScope || lookupScope(domain, registry);
     const conceptLinks = extractFrontmatterWikilinks(fm.concepts);
     const mocLinks = extractFrontmatterWikilinks(fm.mocs);
 

@@ -13,7 +13,7 @@ These are non-negotiable. Apply them before any judgment calls.
 - **Never link inside**: existing `[[wikilinks]]`, code blocks (fenced or inline), or headings (`#`, `##`, etc.)
 - **Word boundaries** — don't link partial words. "act" inside "ReAct" is not a match. "agent" inside "multi-agent" is not a match. The target name must appear as a standalone term or at a natural word boundary.
 - **No self-links** — don't add a wikilink to a note for itself, and don't link concepts inside their own definition note.
-- **Respect domain scope** — if a note is in a hobby domain, only link concepts from that same hobby domain. Professional domain notes can link from any professional domain. Source-to-source links are not scope-restricted (a trading paper can link to an agent foundations paper if it references it).
+- **Respect domain scope** — private domains only link concepts within themselves (or their linkGroup). Public domain notes can link from any public domain. Check `.wiki/domains.json` for scope and linkGroup configuration.
 - **Body only** — never modify frontmatter. Only link within the body text of notes.
 
 ## Judgment Rules
