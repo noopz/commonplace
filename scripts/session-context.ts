@@ -49,7 +49,12 @@ Searchable JSONL indexes at ${wikiPath}/:
 - concept-index.jsonl — {name, path, domains, backlinkCount, isStub}
 - moc-index.jsonl — {name, path, sourceCount, sources}
 - domain-index.jsonl — {domain, scope, sourceCount, conceptCount}
-One JSON record per line — Grep returns complete records.`;
+One JSON record per line — Grep returns complete records.
+
+Hard rules:
+- For research papers, use \`commonplace paper:*\` commands instead of pdftotext — they handle section detection, smart extraction, and metadata enrichment.
+- Never pipe JSON through python3 or jq — use the Grep tool to search JSONL indexes and the Read tool to read JSON files directly.
+- Files in raw/ are permanent originals — never delete, rename, or modify them after ingestion. They are the source of truth for re-ingestion.`;
 
 console.log(JSON.stringify({
   hookSpecificOutput: {
