@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "diff -q \"${CLAUDE_PLUGIN_ROOT}/package.json\" \"${CLAUDE_PLUGIN_DATA}/package.json\" >/dev/null 2>&1 || (cd \"${CLAUDE_PLUGIN_ROOT}\" && npm install --production 2>&1 && cp package.json \"${CLAUDE_PLUGIN_DATA}/package.json\") || rm -f \"${CLAUDE_PLUGIN_DATA}/package.json\""
+            "command": "test -d \"${CLAUDE_PLUGIN_ROOT}/node_modules\" || (cd \"${CLAUDE_PLUGIN_ROOT}\" && npm install --production 2>&1) || true"
           },
           {
             "type": "command",
