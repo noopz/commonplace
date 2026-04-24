@@ -41,6 +41,7 @@ MOCs use this structure:
 - Don't remove existing entries — only add missing ones
 - Don't modify anything outside the Papers section
 - Update the date line at the bottom if one exists (format: `*Last updated YYYY-MM-DD*`)
+- **Skip private sources** — read `.wiki/domains.json` and exclude sources from private domains (or with `scope: private` in frontmatter). MOCs are public-facing; private notes can reference a MOC in their own frontmatter but must not appear in the MOC listing.
 
 ## How to work
 
