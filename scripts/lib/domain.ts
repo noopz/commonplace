@@ -48,11 +48,15 @@ export function lookupScope(
 
 /**
  * Check if domain A is allowed to link to domain B.
+ * Asymmetric — private domains can link OUT freely but block inbound links.
+ * This lets a "People" folder reference public notes without leaking PII
+ * when public notes are shared externally.
+ *
  * Rules:
  *   - Same domain: always OK
- *   - Both public: OK
- *   - Same linkGroup: OK (bidirectional)
- *   - Otherwise: blocked
+ *   - Target is public: always OK (anyone can link to public)
+ *   - Target is private, same linkGroup: OK (bidirectional within group)
+ *   - Target is private, different group: blocked (protects PII)
  */
 export function canLink(
   fromDomain: string,
@@ -65,10 +69,10 @@ export function canLink(
   const to = registry.domains[toDomain];
   if (!from || !to) return true; // unknown domains — don't block
 
-  // Both public → free linking
-  if (from.scope === "public" && to.scope === "public") return true;
+  // Target is public → anyone can link to it
+  if (to.scope === "public") return true;
 
-  // Same linkGroup → bidirectional linking
+  // Target is private → only same linkGroup can link in
   if (from.linkGroup && to.linkGroup && from.linkGroup === to.linkGroup) return true;
 
   return false;
