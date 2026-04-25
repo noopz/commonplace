@@ -96,15 +96,27 @@ For each round (default max 3, configurable via `$ARGUMENTS` as `--rounds N`):
 
 **Pick the highest-priority category with remaining issues** and execute:
 
-All agents have isolated context windows — they cannot see this conversation. Every agent prompt must include the vault path so agents can run `commonplace` commands. Pass relevant data (lint results, file lists) inline in the prompt too.
+All agents have isolated context windows — they cannot see this conversation. Every agent prompt **must** include the vault path as a literal string (e.g. "The vault is at /path/to/vault") so agents don't need to run `commonplace vault-path` themselves. Pass relevant data (lint results, file lists) inline in the prompt too.
 
-- **Mechanical fixes**: Dispatch `wiki-linter` agent. Include vault path and the lint JSON output inline so it knows exactly what to fix. The agent uses Edit to fix files. The PostToolUse hook keeps indexes live after each edit — no manual rebuild needed.
+Agent names use the `commonplace:` prefix. The exact names are:
 
-- **Pruning**: Dispatch `wiki-pruner` agent. Include vault path. It runs `commonplace prune --execute` to delete low-value stubs (orphans, malformed names, overly specific 5+ word names), then cleans up references to deleted concepts via Edit.
+| Task | Agent name |
+|------|-----------|
+| Mechanical fixes | `commonplace:wiki-linter` |
+| Pruning | `commonplace:wiki-pruner` |
+| MOC sync | `commonplace:wiki-moc-updater` |
+| Inline linking | `commonplace:wiki-concept-linker` |
+| Deep linking | `commonplace:wiki-deep-linker` |
+| Freshness | `commonplace:wiki-freshness-checker` |
+| Domain management | `commonplace:wiki-domain-manager` |
 
-- **MOC sync**: Dispatch `wiki-moc-updater` agent. Include vault path and the list of MOCs needing updates from lint results.
+- **Mechanical fixes**: Dispatch `commonplace:wiki-linter`. Include vault path and the lint output inline so it knows exactly what to fix.
 
-- **Inline linking**: Dispatch `wiki-concept-linker` agent (handles concepts, source notes, and MOC titles). Include vault path and the list of source notes to scan. The agent reads all three JSONL indexes and adds `[[wikilinks]]` at first mention — prioritizing summary sections where links should be front-loaded. The agent has built-in linking and scope rules.
+- **Pruning**: Dispatch `commonplace:wiki-pruner`. Include vault path.
+
+- **MOC sync**: Dispatch `commonplace:wiki-moc-updater`. Include vault path and the list of MOCs needing updates.
+
+- **Inline linking**: Dispatch `commonplace:wiki-concept-linker`. Include vault path and the list of source notes to scan. The agent has built-in linking and scope rules.
 
 - **Stub compilation**: Execute wiki-compile's workflow inline (this runs at main-model cost, not Haiku). Read source notes that reference the stub, synthesize a definition, write the compiled concept note. Cap at 5 stubs per round.
 
@@ -154,7 +166,7 @@ After the score-gated rounds complete (regardless of final score), run a freshne
 commonplace freshen --sample 5
 ```
 
-If `candidates` array is non-empty, dispatch `wiki-freshness-checker` agent with the candidates JSON and vault path inline. The agent WebFetches each URL, compares to the note's Summary, and adds a `> [!stale]` callout to notes whose source content has substantially changed. Skip entirely if no candidates returned.
+If `candidates` array is non-empty, dispatch `commonplace:wiki-freshness-checker` agent with the candidates JSON and vault path inline. The agent WebFetches each URL, compares to the note's Summary, and adds a `> [!stale]` callout to notes whose source content has substantially changed. Skip entirely if no candidates returned.
 
 This runs outside the score loop because staleness checking doesn't affect any vault score dimension — it's a maintenance step, not a quality improvement.
 
