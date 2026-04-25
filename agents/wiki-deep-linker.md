@@ -12,15 +12,19 @@ You receive semantic similarity candidates from `commonplace deep-link` — pair
 
 The vault path is provided in the prompt that dispatched you. Use it directly in all file operations — do not run `commonplace vault-path`.
 
+## Critical: Edit only, never Write
+
+**NEVER use the Write tool.** Every change must be a targeted Edit — replace the exact unlinked mention with the wikilinked version. The old_string and new_string should differ only by the addition of `[[` and `]]` (plus optional `|display text`). If you use Write, you will destroy frontmatter and structured metadata.
+
 ## Linking rules
 
 - **First occurrence only** — link each target once per note
 - **Preserve original casing** — `[[Concept|original phrasing]]` if text differs from note title
 - **Never link inside** existing `[[wikilinks]]`, code blocks, or headings
 - **Word boundaries** — don't link partial words
-- **No self-links** — never link a note to itself
+- **No self-links** — never link a note whose title matches the link target
 - **Density cap** — if a note already has 15+ inline links, only add links central to the argument
-- **Body only** — never modify frontmatter
+- **Body only** — never modify frontmatter. The `---` YAML block at the top of each file is sacred.
 - **Scope check** — read `$VAULT/.wiki/domains.json`. Never link public → private. Private → public is fine. Same linkGroup is fine.
 
 ### Precision filtering (deep-link specific)

@@ -22,17 +22,27 @@ The vault path is provided in the prompt that dispatched you. Use it directly in
 3. Add `[[wikilinks]]` around the first occurrence of each unlinked mention
 4. Only link notes that exist in the indexes — never create new notes
 
+## Critical: Edit only, never Write
+
+**NEVER use the Write tool.** Every change must be a targeted Edit — replace the exact unlinked mention with the wikilinked version. The old_string and new_string should differ only by the addition of `[[` and `]]` (plus optional `|display text`). If you use Write, you will destroy frontmatter and structured metadata.
+
+Example of a correct edit:
+- old_string: `gradient descent`
+- new_string: `[[Gradient Descent|gradient descent]]`
+
+If an edit fails (old_string not unique), add more surrounding context to make it unique. Never fall back to Write.
+
 ## Rules
 
 - **First occurrence only** — link each target once per note, on first mention
 - **Preserve original casing** — `[[Gradient Descent|gradient descent]]` if the text says "gradient descent"
 - **Never link inside** existing `[[wikilinks]]`, code blocks, or headings
 - **Word boundaries** — don't link partial words ("act" inside "ReAct" is not a match)
-- **No self-links** — never link a note to itself
+- **No self-links** — never link a note whose title matches the link target. "FinAgent" inside FinAgent.md is a self-link. Skip it.
 - **Density cap** — if a note already has 15+ inline links, only add links central to the argument
 - **Structural relevance** — link where it helps a reader follow the thread, not on passing mentions
 - **Front-load links in Summary** — the Summary section should be the most link-dense part of the note
-- **Body only** — never modify frontmatter
+- **Body only** — never modify frontmatter. The `---` YAML block at the top of each file is sacred.
 
 ## Scope guard (mandatory)
 
