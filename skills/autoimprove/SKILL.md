@@ -13,20 +13,31 @@ The vault accumulates entropy — stubs, stale MOC counts, missing wikilinks, me
 
 ## The Score: vault-score.ts
 
-The loop is gated by a deterministic 0-100 quality score with five dimensions:
+The loop is gated by a deterministic 0-100 quality score. Run `commonplace score` to see it — output is human-readable by default. Use `commonplace score --json` only if you need to parse specific dimension values programmatically.
 
 | Dimension | Weight | What it measures |
 |-----------|--------|------------------|
-| Integrity | 20 | Broken links, frontmatter errors, scope violations |
-| Coverage | 20 | Concept definitions (vs stubs), note completeness (summary sections) |
+| Integrity | 15 | Broken links, frontmatter errors, scope violations |
+| Coverage | 15 | Concept definitions (vs stubs), note completeness (summary sections) |
 | Graph Structure | 10 | Backlink density, orphan ratio, MOC coverage, concept extraction |
 | Inline Linking | 15 | Vault note mentions in body text that are actually wikilinked |
 | Summary Links | 15 | Summary/lead sections with front-loaded inline links |
 | Frontmatter Coherence | 15 | Frontmatter concept entries with corresponding inline body links |
 | Consistency | 5 | MOC count accuracy, no duplicates |
-| Hygiene | 10 | Uncommitted changes, days since last commit |
+| Hygiene | 10 | Days since last commit |
 
 ## Workflow
+
+### Important: use commonplace commands, never custom scripts
+
+All analysis is built into the `commonplace` CLI. Never write Python scripts, shell one-liners, or custom code to parse indexes, check links, count issues, or analyze vault state. The commands output human-readable summaries by default:
+
+- `commonplace index` → "Indexed 230 files: 93 sources, 114 concepts, 10 MOCs"
+- `commonplace lint` → "Critical: 23 | Improvement: 58 | Suggestion: 71"
+- `commonplace score` → "Score: 78.6/100 (C)" with per-dimension breakdown
+- `commonplace scope-check` → JSON array of violations (empty = clean)
+
+If you need machine-parseable output, use `--json` flag. Never pipe through `python3` or `jq`.
 
 ### Step 0: Resolve vault path and git checkpoint
 
@@ -46,18 +57,10 @@ Rebuild indexes fresh (full, not incremental) and compute baseline score:
 
 ```bash
 commonplace index
-commonplace score --verbose
+commonplace score
 ```
 
-Show the baseline to the user:
-```
-Vault Score: 43.7/100 (F)
-  integrity:    0.0/25  — 221 critical issues
-  coverage:     2.9/25  — 46 stubs, 6 compiled
-  connectivity: 18.4/20 — avg 2.06 backlinks, 0 orphans
-  consistency:  14.3/15 — 1 stale MOC count
-  hygiene:      8.1/15  — 71 dirty files, 0.5 days since commit
-```
+Show the score output to the user directly — it's already human-readable.
 
 ### Step 2: Plan improvements
 
@@ -127,7 +130,7 @@ All agents have isolated context windows — they cannot see this conversation. 
 After each round, re-score:
 
 ```bash
-commonplace score --verbose
+commonplace score
 ```
 
 Show the delta:
