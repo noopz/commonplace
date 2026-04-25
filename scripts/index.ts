@@ -123,8 +123,15 @@ for (const filePath of processFiles) {
     // Note-level scope overrides domain scope (only "public" or "private" are valid)
     const noteScope = fm.scope === "private" ? "private" : fm.scope === "public" ? "public" : null;
     const scope = noteScope || lookupScope(domain, registry);
-    const conceptLinks = extractFrontmatterWikilinks(fm.concepts);
+    const fmConcepts = extractFrontmatterWikilinks(fm.concepts);
     const mocLinks = extractFrontmatterWikilinks(fm.mocs);
+
+    // Union frontmatter concepts with body wikilinks that resolve to concept notes.
+    // Body wikilinks are authoritative — frontmatter is a curation hint.
+    // We collect body links here; after the concept index is built, we filter to
+    // only those that match actual concept notes (deferred to post-processing below).
+    const bodyLinks = extractWikilinks(parsed.body);
+    const allConceptRefs = [...new Set([...fmConcepts, ...bodyLinks])];
 
     sources.push({
       title: parsed.title,
@@ -132,7 +139,7 @@ for (const filePath of processFiles) {
       domain,
       scope,
       tags: Array.isArray(fm.tags) ? fm.tags.map(String) : [],
-      concepts: conceptLinks,
+      concepts: allConceptRefs, // Refined to actual concepts in post-processing
       mocs: mocLinks,
       buildsOn: extractFrontmatterWikilinks(fm.builds_on),
       comparesWith: extractFrontmatterWikilinks(fm.compares_with),
@@ -143,7 +150,7 @@ for (const filePath of processFiles) {
     if (!domainConceptRefs.has(domain)) {
       domainConceptRefs.set(domain, new Set());
     }
-    for (const c of conceptLinks) {
+    for (const c of allConceptRefs) {
       domainConceptRefs.get(domain)!.add(c);
     }
   } else if (noteType === "concept") {
@@ -214,6 +221,12 @@ for (const filePath of allFiles) {
 for (const concept of concepts) {
   concept.backlinkCount = backlinkCounts.get(concept.name) ?? 0;
   concept.domains = inferConceptDomains(concept.name, domainConceptRefs);
+}
+
+// Refine source concepts: keep only links that resolve to actual concept notes.
+// Body wikilinks include source notes, MOCs, etc. — filter to concepts only.
+for (const source of sources) {
+  source.concepts = source.concepts.filter((name) => conceptNames.has(name));
 }
 
 // Compute source counts and domains for MOCs (public sources only)
