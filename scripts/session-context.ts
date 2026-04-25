@@ -53,7 +53,7 @@ One JSON record per line — Grep returns complete records.
 
 Hard rules:
 - For research papers, use \`commonplace paper:*\` commands instead of pdftotext — they handle section detection, smart extraction, and metadata enrichment.
-- Never pipe JSON through python3 or jq — use the Grep tool to search JSONL indexes and the Read tool to read JSON files directly.
+- Never write Python scripts, shell one-liners, or custom code to parse indexes, check links, or analyze vault state. All analysis is built into \`commonplace\` commands which output human-readable summaries by default. Use \`--json\` flag when machine-parseable output is needed. Use the Grep tool to search JSONL indexes and the Read tool to read JSON files.
 - Files in raw/ are permanent originals — never delete, rename, or modify them after ingestion. They are the source of truth for re-ingestion.`;
 
 console.log(JSON.stringify({
