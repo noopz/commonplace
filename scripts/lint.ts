@@ -45,6 +45,7 @@ const { values } = parseArgs({
     vault: { type: "string" },
     check: { type: "string" },
     instruct: { type: "boolean", default: false },
+    json: { type: "boolean", default: false },
   },
 });
 
@@ -459,6 +460,23 @@ if (values.instruct && result.summary.total > 0) {
   console.log(lines.join("\n"));
 } else if (values.instruct) {
   // Clean vault, say nothing
-} else {
+} else if (values.json) {
   console.log(JSON.stringify(result));
+} else {
+  // Human-readable summary (default)
+  if (result.summary.total === 0) {
+    console.log("Vault clean: 0 issues");
+  } else {
+    console.log(`Critical: ${result.summary.critical}  |  Improvement: ${result.improvement.length}  |  Suggestion: ${result.suggestion.length}  |  Total: ${result.summary.total}`);
+    // Group criticals by check
+    const checks: Record<string, number> = {};
+    for (const i of result.critical) {
+      checks[i.check] = (checks[i.check] || 0) + 1;
+    }
+    if (Object.keys(checks).length > 0) {
+      for (const [k, v] of Object.entries(checks).sort((a, b) => b[1] - a[1])) {
+        console.log(`  ${k}: ${v}`);
+      }
+    }
+  }
 }
