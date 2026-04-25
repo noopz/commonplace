@@ -71,6 +71,17 @@ if (cmd === 'vault-path' || cmd === 'config') {
   for (const loc of locations) {
     try { vp = readFileSync(loc, 'utf-8').trim(); break; } catch {}
   }
+  // Fall back to cwd discovery (walk up looking for .obsidian/ or .wiki/)
+  if (!vp) {
+    let current = process.cwd();
+    while (current !== '/') {
+      if (existsSync(join(current, '.obsidian')) || existsSync(join(current, '.wiki'))) {
+        vp = current;
+        break;
+      }
+      current = join(current, '..');
+    }
+  }
   if (!vp) {
     console.error('commonplace: no .vault-path configured — run commonplace init');
     process.exit(1);
@@ -135,7 +146,7 @@ const scriptPath = join(root, SCRIPTS[cmd]);
 const result = spawnSync(tsx, [scriptPath, ...args], {
   stdio: 'inherit',
   cwd: root,
-  env: process.env,
+  env: { ...process.env, COMMONPLACE_CALLER_CWD: process.cwd() },
 });
 
 process.exit(result.status ?? 1);

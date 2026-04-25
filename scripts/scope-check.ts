@@ -20,7 +20,7 @@ import {
   extractFrontmatterWikilinks,
 } from "./lib/frontmatter.js";
 import { inferSourceDomain, lookupScope, canLink } from "./lib/domain.js";
-import type { ScopeViolation, ConceptNote } from "./lib/types.js";
+import type { ScopeViolation, ConceptNote, SourceNote } from "./lib/types.js";
 
 const { values, positionals } = parseArgs({
   options: {
@@ -32,11 +32,14 @@ const { values, positionals } = parseArgs({
 const config = resolveVault(values.vault);
 const registry = loadDomainRegistry(config.wikiPath);
 
-// Load concept index for domain lookup
+// Load indexes for domain lookup
 let conceptIndex: ConceptNote[] = [];
+let sourceIndex: SourceNote[] = [];
 if (ensureIndex(config)) {
   try {
-    conceptIndex = loadIndexes(config).concepts;
+    const indexes = loadIndexes(config);
+    conceptIndex = indexes.concepts;
+    sourceIndex = indexes.sources;
   } catch {
     // Empty index
   }
@@ -65,30 +68,44 @@ function checkFile(fp: string): void {
   const noteScope = parsed.frontmatter.scope === "private" ? "private" : null;
   const effectiveScope = noteScope || sourceScope;
 
-  // Public notes with no linkGroup restrictions — skip
-  if (effectiveScope === "public" && !registry.domains[sourceDomain]?.linkGroup) return;
-
   // Check both frontmatter concept links and body wikilinks
   const conceptLinks = [
     ...extractFrontmatterWikilinks(parsed.frontmatter.concepts),
     ...extractWikilinks(parsed.body),
   ];
 
-  for (const conceptName of conceptLinks) {
-    const concept = conceptIndex.find((c) => c.name === conceptName);
-    if (!concept) continue;
+  for (const linkTarget of conceptLinks) {
+    // Check against concept index
+    const concept = conceptIndex.find((c) => c.name === linkTarget);
+    if (concept) {
+      for (const cDomain of concept.domains) {
+        if (!canLink(sourceDomain, cDomain, registry)) {
+          violations.push({
+            sourceFile: fp,
+            targetFile: concept.path,
+            sourceDomain,
+            targetDomain: cDomain,
+            sourceScope: effectiveScope,
+            targetScope: lookupScope(cDomain, registry),
+            reason: `Domain "${sourceDomain}" (${effectiveScope}) cannot link to concept "${linkTarget}" in domain "${cDomain}" (${lookupScope(cDomain, registry)})`,
+          });
+        }
+      }
+      continue;
+    }
 
-    for (const cDomain of concept.domains) {
-      if (!canLink(sourceDomain, cDomain, registry)) {
-        const cScope = lookupScope(cDomain, registry);
+    // Check against source index (e.g. People notes)
+    const source = sourceIndex.find((s) => s.title === linkTarget);
+    if (source) {
+      if (!canLink(sourceDomain, source.domain, registry)) {
         violations.push({
           sourceFile: fp,
-          targetFile: concept.path,
+          targetFile: source.path,
           sourceDomain,
-          targetDomain: cDomain,
+          targetDomain: source.domain,
           sourceScope: effectiveScope,
-          targetScope: cScope,
-          reason: `Domain "${sourceDomain}" (${effectiveScope}) cannot link to domain "${cDomain}" (${cScope})`,
+          targetScope: source.scope,
+          reason: `Domain "${sourceDomain}" (${effectiveScope}) cannot link to source "${linkTarget}" in domain "${source.domain}" (${source.scope})`,
         });
       }
     }

@@ -24,11 +24,21 @@ Run `commonplace vault-path` to get the absolute vault path. Use it in all file 
 
 ## Rules
 
-Follow all rules in `references/linking-rules.md` — that file is the single source of truth for linking behavior. Also read `.wiki/domains.json` for scope and linkGroup configuration — private domains without a shared linkGroup must not cross-link. Read both before making any edits. Pay particular attention to:
+Follow all rules in `references/linking-rules.md` — that file is the single source of truth for linking behavior. Read it and `.wiki/domains.json` before making any edits. Pay particular attention to:
 - **First occurrence only** — link once per note, not every mention
 - **Density cap** — if a note already has 15+ inline links, only add links central to the argument
 - **No self-links** — never link a note to itself
 - **Structural relevance** — link where it helps a reader follow the thread, not on passing mentions
+
+## Scope guard (mandatory)
+
+Before adding any wikilink, check scope. Read `.wiki/domains.json` to determine each domain's scope.
+
+- **Never link public → private.** If the note you're editing is in a public domain and the link target is in a private domain, skip it. This is the most important rule — it prevents PII leakage.
+- **Private → public is fine.** A private note can link to anything public.
+- **Same linkGroup is fine.** Private domains in the same linkGroup can link to each other.
+
+To check: look up the source note's domain and the target's domain in `domains.json`. If the target domain has `"scope": "private"` and the source domain is different and not in the same `linkGroup`, do not add the link.
 
 ## How to work
 
