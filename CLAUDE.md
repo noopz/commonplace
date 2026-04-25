@@ -34,11 +34,11 @@ All commands auto-discover the vault via cwd (`.obsidian/` or `.wiki/` marker) o
 
 - `commonplace vault-path` — Print the configured vault path (no tsx spawn, instant)
 - `commonplace config` — Print `.wiki/config.json` contents (no tsx spawn, instant)
-- `commonplace index [--incremental]` — Build/update `.wiki/*.json` indexes
-- `commonplace lint [--check <name>]` — Vault health audit
+- `commonplace index [--incremental]` — Build/update `.wiki/*.json` indexes (human-readable output by default)
+- `commonplace lint [--check <name>] [--json]` — Vault health audit (human-readable summary by default, `--json` for machine-parseable)
 - `commonplace validate <file>` — Single file frontmatter validation
 - `commonplace scope-check [<file>]` — Domain scope enforcement
-- `commonplace score` — Compute vault quality score
+- `commonplace score [--json]` — Compute vault quality score (human-readable by default, `--json` for machine-parseable)
 - `commonplace prune` — Remove low-value stubs
 - `commonplace init --vault <path>` — Initialize plugin for a vault (requires explicit path)
 - `commonplace post-write` — Post-write hook pipeline (reads stdin)

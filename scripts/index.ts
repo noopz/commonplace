@@ -64,8 +64,7 @@ const filesToProcess = incremental
 
 // If incremental and nothing changed, exit early
 if (incremental && filesToProcess.length === 0) {
-  const result = { status: "up-to-date", filesProcessed: 0 };
-  console.log(JSON.stringify(result));
+  console.log("Indexes up to date, 0 files changed");
   process.exit(0);
 }
 
@@ -256,16 +255,14 @@ writeFileSync(
   String(Date.now())
 );
 
-const result: { status: string; filesProcessed: number; index: IndexData } = {
+const result = {
   status: "ok",
   filesProcessed: processFiles.length,
-  index: {
-    sources,
-    concepts,
-    mocs,
-    domains: domainSummaries,
-    timestamp: new Date().toISOString(),
-  },
+  sources: sources.length,
+  concepts: concepts.length,
+  mocs: mocs.length,
+  domains: domainSummaries.length,
+  timestamp: new Date().toISOString(),
 };
 
-console.log(JSON.stringify(result));
+console.log(`Indexed ${processFiles.length} files: ${sources.length} sources, ${concepts.length} concepts, ${mocs.length} MOCs, ${domainSummaries.length} domains`);

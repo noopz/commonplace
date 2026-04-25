@@ -23,6 +23,7 @@ const { values } = parseArgs({
   options: {
     vault: { type: "string" },
     verbose: { type: "boolean", default: false },
+    json: { type: "boolean", default: false },
   },
 });
 
@@ -50,7 +51,7 @@ let lintResult: LintResult | null = null;
 try {
   const scriptDir = new URL(".", import.meta.url).pathname;
   const lintOutput = execSync(
-    `npx tsx ${scriptDir}lint.ts --vault ${config.vaultPath}`,
+    `npx tsx ${scriptDir}lint.ts --vault ${config.vaultPath} --json`,
     { stdio: "pipe", timeout: 60000 }
   );
   lintResult = JSON.parse(lintOutput.toString());
@@ -490,8 +491,12 @@ try {
 
 // --- Output ---
 
-if (values.verbose) {
-  console.log(JSON.stringify(result, null, 2));
+if (values.json || values.verbose) {
+  console.log(JSON.stringify(result, values.verbose ? null : undefined, values.verbose ? 2 : undefined));
 } else {
-  console.log(JSON.stringify(result));
+  // Human-readable summary (default)
+  console.log(`Score: ${totalScore}/100 (${grade}) — ${sourceIndex.length} sources, ${conceptIndex.length} concepts, ${mocIndex.length} MOCs`);
+  for (const d of dimensions) {
+    console.log(`  ${d.name}: ${d.weighted}/${d.weight}`);
+  }
 }
