@@ -28,6 +28,7 @@ import {
   inferConceptDomains,
   lookupScope,
 } from "./lib/domain.js";
+import { normalizeWikilinkTarget } from "./lib/resolve.js";
 import type {
   SourceNote,
   ConceptNote,
@@ -146,13 +147,8 @@ for (const filePath of processFiles) {
       usesMethod: extractFrontmatterWikilinks(fm.uses_method),
     });
 
-    // Track concept references per domain
-    if (!domainConceptRefs.has(domain)) {
-      domainConceptRefs.set(domain, new Set());
-    }
-    for (const c of allConceptRefs) {
-      domainConceptRefs.get(domain)!.add(c);
-    }
+    // Source-domain refs are populated after the concept index is built,
+    // so we can resolve user-typed names to canonical concept names.
   } else if (noteType === "concept") {
     const name = basename(filePath, ".md");
     concepts.push({
@@ -164,8 +160,12 @@ for (const filePath of processFiles) {
     });
   } else if (noteType === "moc") {
     const name = basename(filePath, ".md");
-    // Extract declared count from ## Papers (N) heading
-    const countMatch = parsed.body.match(/##\s+Papers\s*\((\d+)\)/);
+    // Extract declared count from a count-bearing section heading.
+    // Many MOCs use "Papers", but other vault domains may use "Sources",
+    // "Notes", "Items", "Entries"; treat them all as MOC list headings.
+    const countMatch = parsed.body.match(
+      /##\s+(?:Papers|Sources|Notes|Items|Entries)\s*\((\d+)\)/i
+    );
     const declaredCount = countMatch ? parseInt(countMatch[1], 10) : null;
 
     mocs.push({
@@ -179,9 +179,54 @@ for (const filePath of processFiles) {
   }
 }
 
+// Build case-insensitive, alias-aware concept lookup. Wikilinks resolve
+// case-insensitively in Obsidian and through `aliases:` frontmatter, so the
+// indexer treats `[[layered memory]]`, `[[Layered Memory]]`, and an aliased
+// short form as references to the same concept's canonical name.
+const conceptByLower = new Map<string, string>(); // lower(name|alias) → canonical
+for (const c of concepts) {
+  conceptByLower.set(c.name.toLowerCase(), c.name);
+  try {
+    const parsed = parseNote(c.path, config.vaultPath);
+    const aliases = parsed.frontmatter.aliases;
+    if (Array.isArray(aliases)) {
+      for (const alias of aliases) {
+        if (typeof alias === "string" && alias.length > 0) {
+          const key = alias.toLowerCase();
+          if (!conceptByLower.has(key)) conceptByLower.set(key, c.name);
+        }
+      }
+    }
+  } catch {}
+}
+
+function resolveConceptRef(target: string): string | null {
+  const key = normalizeWikilinkTarget(target);
+  if (!key) return null;
+  return conceptByLower.get(key) ?? null;
+}
+
+// Resolve each source's collected concept refs to canonical names. This
+// merges duplicates (alias + canonical, different cases) and drops refs
+// that don't resolve to a concept note (e.g. links to source notes or MOCs).
+for (const source of sources) {
+  const resolved = new Set<string>();
+  for (const ref of source.concepts) {
+    const canonical = resolveConceptRef(ref);
+    if (canonical) resolved.add(canonical);
+  }
+  source.concepts = [...resolved];
+
+  if (!domainConceptRefs.has(source.domain)) {
+    domainConceptRefs.set(source.domain, new Set());
+  }
+  for (const c of source.concepts) {
+    domainConceptRefs.get(source.domain)!.add(c);
+  }
+}
+
 // Compute backlink counts: scan ALL vault files for wikilinks to concepts,
 // not just source frontmatter — so person notes, Google Docs notes, etc. count too
-const conceptNames = new Set(concepts.map((c) => c.name));
 const backlinkCounts = new Map<string, number>();
 
 for (const filePath of allFiles) {
@@ -190,26 +235,30 @@ for (const filePath of allFiles) {
 
   try {
     const parsed = parseNote(filePath, config.vaultPath);
-    // Count from frontmatter concepts array (source notes) AND body wikilinks (all notes)
     const frontmatterLinks = extractFrontmatterWikilinks(parsed.frontmatter.concepts);
     const bodyLinks = extractWikilinks(parsed.body);
     const allLinks = new Set([...frontmatterLinks, ...bodyLinks]);
 
+    // Resolve each link to a canonical concept name; non-concept links
+    // (sources, MOCs, broken refs) resolve to null and are skipped.
+    const referencedConcepts = new Set<string>();
     for (const name of allLinks) {
-      if (conceptNames.has(name)) {
-        backlinkCounts.set(name, (backlinkCounts.get(name) ?? 0) + 1);
-      }
+      const canonical = resolveConceptRef(name);
+      if (canonical) referencedConcepts.add(canonical);
+    }
+    for (const canonical of referencedConcepts) {
+      backlinkCounts.set(canonical, (backlinkCounts.get(canonical) ?? 0) + 1);
     }
 
     // Track concept-domain associations from non-source notes too
     if (noteType !== "source") {
       const domain = inferSourceDomain(filePath, config.vaultPath, registry);
-      if (domain && !domainConceptRefs.has(domain)) {
-        domainConceptRefs.set(domain, new Set());
-      }
       if (domain) {
-        for (const name of allLinks) {
-          if (conceptNames.has(name)) domainConceptRefs.get(domain)!.add(name);
+        if (!domainConceptRefs.has(domain)) {
+          domainConceptRefs.set(domain, new Set());
+        }
+        for (const canonical of referencedConcepts) {
+          domainConceptRefs.get(domain)!.add(canonical);
         }
       }
     }
@@ -221,12 +270,6 @@ for (const filePath of allFiles) {
 for (const concept of concepts) {
   concept.backlinkCount = backlinkCounts.get(concept.name) ?? 0;
   concept.domains = inferConceptDomains(concept.name, domainConceptRefs);
-}
-
-// Refine source concepts: keep only links that resolve to actual concept notes.
-// Body wikilinks include source notes, MOCs, etc. — filter to concepts only.
-for (const source of sources) {
-  source.concepts = source.concepts.filter((name) => conceptNames.has(name));
 }
 
 // Compute source counts and domains for MOCs (public sources only)

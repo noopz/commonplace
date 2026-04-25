@@ -20,6 +20,7 @@ import {
   extractFrontmatterWikilinks,
 } from "./lib/frontmatter.js";
 import { inferSourceDomain, lookupScope, canLink } from "./lib/domain.js";
+import { normalizeWikilinkTarget } from "./lib/resolve.js";
 import type { ScopeViolation, ConceptNote, SourceNote } from "./lib/types.js";
 
 const { values, positionals } = parseArgs({
@@ -43,6 +44,47 @@ if (ensureIndex(config)) {
   } catch {
     // Empty index
   }
+}
+
+// Case-insensitive lookup tables: lowercase name/alias → record. Wikilinks
+// in Obsidian resolve case-insensitively and through aliases — scope-check
+// must too, otherwise a private note linked via `[[alias]]` slips past.
+const conceptByLower = new Map<string, ConceptNote>();
+for (const c of conceptIndex) {
+  conceptByLower.set(c.name.toLowerCase(), c);
+}
+const sourceByLower = new Map<string, SourceNote>();
+for (const s of sourceIndex) {
+  sourceByLower.set(s.title.toLowerCase(), s);
+}
+// Pull aliases from each indexed file's frontmatter
+for (const c of conceptIndex) {
+  try {
+    const parsed = parseNote(c.path, config.vaultPath);
+    const aliases = parsed.frontmatter.aliases;
+    if (Array.isArray(aliases)) {
+      for (const alias of aliases) {
+        if (typeof alias === "string" && alias.length > 0) {
+          const key = alias.toLowerCase();
+          if (!conceptByLower.has(key)) conceptByLower.set(key, c);
+        }
+      }
+    }
+  } catch {}
+}
+for (const s of sourceIndex) {
+  try {
+    const parsed = parseNote(s.path, config.vaultPath);
+    const aliases = parsed.frontmatter.aliases;
+    if (Array.isArray(aliases)) {
+      for (const alias of aliases) {
+        if (typeof alias === "string" && alias.length > 0) {
+          const key = alias.toLowerCase();
+          if (!sourceByLower.has(key)) sourceByLower.set(key, s);
+        }
+      }
+    }
+  } catch {}
 }
 
 const filePath = positionals[0];
@@ -75,8 +117,12 @@ function checkFile(fp: string): void {
   ];
 
   for (const linkTarget of conceptLinks) {
-    // Check against concept index
-    const concept = conceptIndex.find((c) => c.name === linkTarget);
+    // Strip section anchors and skip attachments before lookup.
+    const key = normalizeWikilinkTarget(linkTarget);
+    if (!key) continue;
+
+    // Check against concept index (case-insensitive, alias-aware)
+    const concept = conceptByLower.get(key);
     if (concept) {
       for (const cDomain of concept.domains) {
         if (!canLink(sourceDomain, cDomain, registry)) {
@@ -87,7 +133,7 @@ function checkFile(fp: string): void {
             targetDomain: cDomain,
             sourceScope: effectiveScope,
             targetScope: lookupScope(cDomain, registry),
-            reason: `Domain "${sourceDomain}" (${effectiveScope}) cannot link to concept "${linkTarget}" in domain "${cDomain}" (${lookupScope(cDomain, registry)})`,
+            reason: `Domain "${sourceDomain}" (${effectiveScope}) cannot link to concept "${concept.name}" in domain "${cDomain}" (${lookupScope(cDomain, registry)})`,
           });
         }
       }
@@ -95,7 +141,7 @@ function checkFile(fp: string): void {
     }
 
     // Check against source index (e.g. People notes)
-    const source = sourceIndex.find((s) => s.title === linkTarget);
+    const source = sourceByLower.get(key);
     if (source) {
       if (!canLink(sourceDomain, source.domain, registry)) {
         violations.push({
@@ -105,7 +151,7 @@ function checkFile(fp: string): void {
           targetDomain: source.domain,
           sourceScope: effectiveScope,
           targetScope: source.scope,
-          reason: `Domain "${sourceDomain}" (${effectiveScope}) cannot link to source "${linkTarget}" in domain "${source.domain}" (${source.scope})`,
+          reason: `Domain "${sourceDomain}" (${effectiveScope}) cannot link to source "${source.title}" in domain "${source.domain}" (${source.scope})`,
         });
       }
     }

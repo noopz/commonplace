@@ -32,6 +32,7 @@ import {
   inferSourceDomain,
   lookupScope,
 } from "./lib/domain.js";
+import { buildNameIndex, normalizeWikilinkTarget } from "./lib/resolve.js";
 import type {
   LintIssue,
   LintResult,
@@ -72,31 +73,9 @@ if (ensureIndex(config)) {
 }
 
 const allFiles = await findAllNotes(config.vaultPath);
-const allNoteNames = new Set(
-  allFiles.map((f) => basename(f, ".md"))
-);
-
-// Build alias lookup: aliases resolve wikilinks the same way filenames do
-for (const filePath of allFiles) {
-  try {
-    const parsed = parseNote(filePath, config.vaultPath);
-    const aliases = parsed.frontmatter.aliases;
-    if (Array.isArray(aliases)) {
-      for (const alias of aliases) {
-        if (typeof alias === "string" && alias.length > 0) {
-          allNoteNames.add(alias);
-        }
-      }
-    }
-  } catch {}
-}
-
-// Known attachment extensions — wikilinks to these are not note references
-const ATTACHMENT_EXTS = new Set([
-  ".pdf", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".bmp",
-  ".mp4", ".webm", ".mov", ".mp3", ".wav", ".ogg", ".flac",
-  ".zip", ".csv", ".xlsx", ".docx", ".pptx",
-]);
+// Case-insensitive lookup of every filename + alias → canonical name.
+// Obsidian wikilinks resolve case-insensitively, so the lint must too.
+const nameIndex = buildNameIndex(allFiles, config.vaultPath);
 
 const checksToRun = values.check ? [values.check] : [
   "unresolved",
@@ -135,15 +114,10 @@ if (shouldRun("unresolved")) {
       const allLinks = [...new Set([...bodyLinks, ...fmLinks])];
 
       for (const link of allLinks) {
-        // Strip section anchors: [[Note#Section]] → Note
-        const noteName = link.includes("#") ? link.split("#")[0] : link;
-        if (!noteName) continue; // bare [[#section]] — internal link, skip
+        const key = normalizeWikilinkTarget(link);
+        if (key === null) continue; // intra-doc anchor or attachment — not a broken note ref
 
-        // Skip attachment references (PDFs, images, etc.)
-        const dotIdx = noteName.lastIndexOf(".");
-        if (dotIdx > 0 && ATTACHMENT_EXTS.has(noteName.slice(dotIdx).toLowerCase())) continue;
-
-        if (!allNoteNames.has(noteName)) {
+        if (!nameIndex.has(key)) {
           issues.push({
             check: "unresolved",
             severity: "critical",
@@ -364,20 +338,33 @@ if (shouldRun("underlinked")) {
   // and we don't double-count
   linkTargets.sort((a, b) => b.name.length - a.name.length);
 
-  // Skip very short names (<=2 chars) that would false-positive on abbreviations
-  const filteredTargets = linkTargets.filter((t) => t.name.length > 2);
+  // Skip 1-char names — anything shorter than two characters is too noisy
+  // for word-boundary matching. Two-letter acronyms (AI, ML, OS) stay in.
+  const filteredTargets = linkTargets.filter((t) => t.name.length >= 2);
 
   for (const source of sourceIndex) {
     try {
       const parsed = parseNote(source.path, config.vaultPath);
       const body = parsed.body;
-      const bodyLinks = new Set(extractWikilinks(body).map((l) => l.toLowerCase()));
+      // Resolve body wikilinks to canonical names so an alias counts as a link
+      // to the canonical target (otherwise we'd false-positive when the body
+      // uses `[[Long Paper Title]]` and the target's canonical filename is short).
+      const bodyLinks = new Set<string>();
+      for (const link of extractWikilinks(body)) {
+        const key = normalizeWikilinkTarget(link);
+        if (!key) continue;
+        const canonical = nameIndex.get(key);
+        bodyLinks.add((canonical ?? key).toLowerCase());
+      }
 
-      // Strip existing wikilinks, code blocks, and headings before searching
+      // Strip existing wikilinks, fenced+inline code, indented code blocks, and headings.
+      // Wikilink regex excludes `[` so a malformed `[[foo[[bar]]` doesn't over-strip the
+      // text between the two `[[` markers (a real false-negative source on the old regex).
       const stripped = body
-        .replace(/\[\[[^\]]+\]\]/g, "")
+        .replace(/\[\[[^\[\]]+\]\]/g, "")
         .replace(/```[\s\S]*?```/g, "")
         .replace(/`[^`]+`/g, "")
+        .replace(/^(?: {4,}|\t).*$/gm, "")
         .replace(/^#{1,3}\s+.+$/gm, "");
 
       const sourceDomain = source.domain;
@@ -426,12 +413,25 @@ if (shouldRun("underlinked")) {
         }
       }
 
-      // Check frontmatter-body coherence (both directions)
+      // Check frontmatter-body coherence (both directions).
+      // Resolve frontmatter concepts to canonical names so an alias in
+      // frontmatter (e.g. `LM`) is treated the same as a body link to its
+      // canonical target (`Layered Memory`).
       const fmConcepts = extractFrontmatterWikilinks(parsed.frontmatter.concepts);
+      const fmConceptCanonical = new Map<string, string>();
+      for (const c of fmConcepts) {
+        const key = normalizeWikilinkTarget(c);
+        const canon = key ? nameIndex.get(key)?.toLowerCase() : null;
+        if (canon) fmConceptCanonical.set(c, canon);
+      }
 
       // Direction 1: frontmatter concept with no inline body link
       if (fmConcepts.length > 0) {
-        const notInBody = fmConcepts.filter((c) => !bodyLinks.has(c.toLowerCase()));
+        const notInBody = fmConcepts.filter((c) => {
+          const canon = fmConceptCanonical.get(c);
+          if (!canon) return false; // unresolvable — caught by `unresolved` check
+          return !bodyLinks.has(canon);
+        });
         if (notInBody.length > 0) {
           issues.push({
             check: "underlinked",
@@ -445,7 +445,7 @@ if (shouldRun("underlinked")) {
 
       // Direction 2: body wikilink to concept note not in frontmatter
       const conceptNameSet = new Set(conceptIndex.map((c) => c.name.toLowerCase()));
-      const fmConceptLower = new Set(fmConcepts.map((c) => c.toLowerCase()));
+      const fmConceptLower = new Set(fmConceptCanonical.values());
       const bodyConceptLinks = [...bodyLinks].filter((link) => conceptNameSet.has(link) && !fmConceptLower.has(link));
       if (bodyConceptLinks.length > 0) {
         issues.push({

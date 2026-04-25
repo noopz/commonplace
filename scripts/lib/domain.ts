@@ -9,12 +9,13 @@ export function inferSourceDomain(
   vaultPath: string,
   registry: DomainRegistry
 ): string {
-  const relative = filePath.startsWith(vaultPath)
+  const relative = filePath.startsWith(vaultPath + "/")
     ? filePath.slice(vaultPath.length + 1)
     : filePath;
 
   for (const [slug, entry] of Object.entries(registry.domains)) {
-    if (relative.startsWith(entry.path)) {
+    // Trailing "/" prevents `02 - Research/AI` from matching `02 - Research/AI Development/...`
+    if (relative.startsWith(entry.path + "/")) {
       return slug;
     }
   }
