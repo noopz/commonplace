@@ -38,7 +38,7 @@ export function parseNote(filePath: string, vaultPath: string): ParsedNote {
 }
 
 export function extractWikilinks(text: string): string[] {
-  const regex = /\[\[([^\]|]+)(?:\|[^\]]+)?\]\]/g;
+  const regex = /\[\[([^\[\]|]+)(?:\|[^\[\]]+)?\]\]/g;
   const links: string[] = [];
   let match;
   while ((match = regex.exec(text)) !== null) {
