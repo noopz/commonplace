@@ -9,19 +9,19 @@
           },
           {
             "type": "command",
-            "command": "node ${CLAUDE_PLUGIN_ROOT}/bin/commonplace index --incremental 2>&1 || true"
+            "command": "node ${CLAUDE_PLUGIN_ROOT}/bin/commonplace index --incremental 2>/dev/null || true"
           },
           {
             "type": "command",
-            "command": "node ${CLAUDE_PLUGIN_ROOT}/bin/commonplace score 2>&1 || true"
+            "command": "node ${CLAUDE_PLUGIN_ROOT}/bin/commonplace score 2>/dev/null || true"
           },
           {
             "type": "command",
-            "command": "node ${CLAUDE_PLUGIN_ROOT}/bin/commonplace prune 2>&1 || true"
+            "command": "node ${CLAUDE_PLUGIN_ROOT}/bin/commonplace prune 2>/dev/null || true"
           },
           {
             "type": "command",
-            "command": "node ${CLAUDE_PLUGIN_ROOT}/bin/commonplace lint --instruct 2>&1 || true"
+            "command": "node ${CLAUDE_PLUGIN_ROOT}/bin/commonplace lint --instruct 2>/dev/null || true"
           },
           {
             "type": "command",

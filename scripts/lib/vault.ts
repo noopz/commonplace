@@ -68,8 +68,10 @@ export function resolveVault(explicitPath?: string): VaultConfig {
     }
 
     // Fall back to cwd discovery (walk up looking for .obsidian/ or .wiki/)
+    // Use caller's cwd if available (bin/commonplace sets COMMONPLACE_CALLER_CWD)
     if (!vaultPath) {
-      vaultPath = discoverVault(process.cwd());
+      const callerCwd = process.env.COMMONPLACE_CALLER_CWD || process.cwd();
+      vaultPath = discoverVault(callerCwd);
     }
   }
 

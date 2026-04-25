@@ -29,6 +29,8 @@ import {
   normalizeConceptSlug,
   isMalformedConceptName,
   canLink,
+  inferSourceDomain,
+  lookupScope,
 } from "./lib/domain.js";
 import type {
   LintIssue,
@@ -311,20 +313,19 @@ if (shouldRun("malformed-concept-names")) {
 
 // === Check: underlinked notes (vault note names in body text not wikilinked) ===
 if (shouldRun("underlinked")) {
-  // Build lookup of all linkable vault note names
-  // Concepts (skip stubs — no definition to link to)
-  const linkTargets: { name: string; type: string }[] = conceptIndex
+  // Build lookup of all linkable vault note names with domain info for scope checks
+  const linkTargets: { name: string; type: string; domains: string[] }[] = conceptIndex
     .filter((c) => !c.isStub)
-    .map((c) => ({ name: c.name, type: "concept" }));
+    .map((c) => ({ name: c.name, type: "concept", domains: c.domains }));
 
   // Source notes — use title from index
   for (const s of sourceIndex) {
-    linkTargets.push({ name: s.title, type: "source" });
+    linkTargets.push({ name: s.title, type: "source", domains: [s.domain] });
   }
 
-  // MOC notes
+  // MOC notes — public by nature
   for (const m of mocIndex) {
-    linkTargets.push({ name: m.name, type: "moc" });
+    linkTargets.push({ name: m.name, type: "moc", domains: [] });
   }
 
   // Sort longest-first so "FinMem: A Performance-Enhanced..." matches before "FinMem"
@@ -347,6 +348,7 @@ if (shouldRun("underlinked")) {
         .replace(/`[^`]+`/g, "")
         .replace(/^#{1,3}\s+.+$/gm, "");
 
+      const sourceDomain = source.domain;
       const unlinked: string[] = [];
       for (const target of filteredTargets) {
         // No self-links
@@ -354,6 +356,9 @@ if (shouldRun("underlinked")) {
 
         // Skip if already linked in body
         if (bodyLinks.has(target.name.toLowerCase())) continue;
+
+        // Skip if linking would violate scope (e.g. public→private)
+        if (target.domains.length > 0 && target.domains.every((d) => !canLink(sourceDomain, d, registry))) continue;
 
         // Word-boundary match, case-insensitive
         const escaped = target.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
