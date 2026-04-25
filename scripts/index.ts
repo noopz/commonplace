@@ -29,6 +29,8 @@ import {
   lookupScope,
 } from "./lib/domain.js";
 import { normalizeWikilinkTarget } from "./lib/resolve.js";
+import { discoverGenres, loadGenreSamples } from "./lib/genre-discovery.js";
+import { loadWikiConfig } from "./lib/vault.js";
 import type {
   SourceNote,
   ConceptNote,
@@ -311,6 +313,23 @@ writeFileSync(
   String(Date.now())
 );
 
+// Re-run genre discovery so new genres crossing the ≥3-note threshold get
+// surfaced without the user having to re-run init. We write conventions.json
+// only when the discovered set actually changed; the SessionStart hook reads
+// the file later and surfaces any untuned genres to the model.
+const cfg = loadWikiConfig(config);
+const genreStructureDirs = new Set(
+  [cfg?.structure.concepts, cfg?.structure.mocs].filter((s): s is string => Boolean(s)),
+);
+const genreSamples = await loadGenreSamples(config.vaultPath);
+const genreResult = discoverGenres(genreSamples, genreStructureDirs, config.wikiPath);
+if (genreResult.changed) {
+  writeFileSync(
+    join(config.wikiPath, "conventions.json"),
+    JSON.stringify(genreResult.conventions, null, 2) + "\n",
+  );
+}
+
 const result = {
   status: "ok",
   filesProcessed: processFiles.length,
@@ -322,3 +341,8 @@ const result = {
 };
 
 console.log(`Indexed ${processFiles.length} files: ${sources.length} sources, ${concepts.length} concepts, ${mocs.length} MOCs, ${domainSummaries.length} domains`);
+if (genreResult.newGenres.length > 0) {
+  console.log(
+    `Discovered ${genreResult.newGenres.length} new genre(s): ${genreResult.newGenres.join(", ")} — dispatch wiki-conventions-tuner to propose rules.`,
+  );
+}

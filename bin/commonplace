@@ -23,6 +23,7 @@ const SCRIPTS = {
   'score':        'scripts/vault-score.ts',
   'prune':        'scripts/prune.ts',
   'init':         'scripts/init.ts',
+  'discover-genres': 'scripts/discover-genres.ts',
   'post-write':   'scripts/post-write.ts',
   'raw':          'scripts/raw.ts',
   'freshen':      'scripts/freshen.ts',
@@ -113,6 +114,7 @@ if (!cmd || cmd === '--help' || cmd === '-h') {
   console.error('  score         Compute vault quality score');
   console.error('  prune         Remove low-value concept stubs');
   console.error('  init          Initialize plugin for a vault');
+  console.error('  discover-genres  Re-run genre discovery; refresh .wiki/conventions.json');
   console.error('  post-write    Post-write hook pipeline (reads stdin)');
   console.error('  raw           Scan raw/ folder for uningested files');
   console.error('  freshen       Sample live source URLs for freshness checking');

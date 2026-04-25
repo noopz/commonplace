@@ -59,6 +59,8 @@ If `conventions.untuned` is non-empty, dispatch the **wiki-conventions-tuner** a
 
 If `conventions.untuned` is empty (everything already tuned from a previous run), skip this step.
 
+The indexer also re-runs genre discovery automatically (auto-detects when new genres cross the 3-note threshold). To re-run discovery on demand without a full init, use `commonplace discover-genres`.
+
 ### Step 6: Run initial index
 
 ```bash
