@@ -42,9 +42,11 @@ To check: look up the source note's domain and the target's domain in `domains.j
 
 ## How to work
 
-1. Run `VAULT=$(commonplace vault-path)` and read the indexes
+1. Run `VAULT=$(commonplace vault-path)` and read the indexes and `$VAULT/.wiki/domains.json`
 2. For each note path provided (or all vault `.md` files if none specified):
    - Read the note
    - Find unlinked vault page mentions in the body (not frontmatter, not headings, not code blocks)
+   - Check scope before each link (see scope guard above)
    - Apply wikilinks with Edit — first occurrence only
-3. Report what you linked
+3. Write a summary to `$VAULT/.wiki/linker-report.md` as you go — one line per note processed, listing links added and links skipped (with reason). This ensures work is tracked even if you hit the token budget.
+4. Report what you linked
