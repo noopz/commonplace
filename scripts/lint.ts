@@ -395,8 +395,10 @@ if (shouldRun("underlinked")) {
         }
       }
 
-      // Check frontmatter-body coherence: concepts in frontmatter without inline body links
+      // Check frontmatter-body coherence (both directions)
       const fmConcepts = extractFrontmatterWikilinks(parsed.frontmatter.concepts);
+
+      // Direction 1: frontmatter concept with no inline body link
       if (fmConcepts.length > 0) {
         const notInBody = fmConcepts.filter((c) => !bodyLinks.has(c.toLowerCase()));
         if (notInBody.length > 0) {
@@ -408,6 +410,20 @@ if (shouldRun("underlinked")) {
             fixable: true,
           });
         }
+      }
+
+      // Direction 2: body wikilink to concept note not in frontmatter
+      const conceptNameSet = new Set(conceptIndex.map((c) => c.name.toLowerCase()));
+      const fmConceptLower = new Set(fmConcepts.map((c) => c.toLowerCase()));
+      const bodyConceptLinks = [...bodyLinks].filter((link) => conceptNameSet.has(link) && !fmConceptLower.has(link));
+      if (bodyConceptLinks.length > 0) {
+        issues.push({
+          check: "underlinked",
+          severity: "suggestion",
+          file: source.path,
+          message: `${bodyConceptLinks.length} body wikilink${bodyConceptLinks.length > 1 ? "s" : ""} to concept notes not in frontmatter: ${bodyConceptLinks.slice(0, 5).join(", ")}${bodyConceptLinks.length > 5 ? ` (+${bodyConceptLinks.length - 5} more)` : ""}`,
+          fixable: true,
+        });
       }
     } catch {
       // Skip unparseable files
