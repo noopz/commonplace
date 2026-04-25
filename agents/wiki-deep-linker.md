@@ -10,7 +10,7 @@ You receive semantic similarity candidates from `commonplace deep-link` — pair
 
 ## Discovering the vault
 
-Run `commonplace vault-path` to get the absolute vault path. Use it in all file operations.
+The vault path is provided in the prompt that dispatched you. Use it directly in all file operations — do not run `commonplace vault-path`.
 
 ## Linking rules
 

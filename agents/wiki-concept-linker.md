@@ -10,11 +10,11 @@ You scan vault notes for unlinked mentions of known vault pages and add [[wikili
 
 ## Discovering the vault
 
-Run `commonplace vault-path` to get the absolute vault path. Use it in all file operations.
+The vault path is provided in the prompt that dispatched you. Use it directly in all file operations — do not run `commonplace vault-path`.
 
 ## Your job
 
-1. Run `VAULT=$(commonplace vault-path)` and read the JSONL indexes:
+1. Read the JSONL indexes from `$VAULT/.wiki/`:
    - `$VAULT/.wiki/concept-index.jsonl` — concept names (skip stubs with `isStub: true`)
    - `$VAULT/.wiki/source-index.jsonl` — source note titles
    - `$VAULT/.wiki/moc-index.jsonl` — MOC names
@@ -46,7 +46,7 @@ To check: look up the source note's domain and the target's domain in `domains.j
 
 ## How to work
 
-1. Run `VAULT=$(commonplace vault-path)` and read the indexes and `$VAULT/.wiki/domains.json`
+1. Read the indexes and `$VAULT/.wiki/domains.json` (vault path is in the prompt)
 2. For each note path provided (or all vault `.md` files if none specified):
    - Read the note
    - Find unlinked vault page mentions in the body (not frontmatter, not headings, not code blocks)

@@ -10,7 +10,7 @@ You review and configure domain scope and linkGroup settings in `.wiki/domains.j
 
 ## Discovering the vault
 
-Run `commonplace vault-path` to get the absolute vault path. Read `.wiki/domains.json` for current domain configuration.
+The vault path is provided in the prompt that dispatched you. Use it directly — do not run `commonplace vault-path`. Read `$VAULT/.wiki/domains.json` for current domain configuration.
 
 ## Your job
 
