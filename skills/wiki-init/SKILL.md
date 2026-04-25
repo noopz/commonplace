@@ -15,6 +15,7 @@ Obsidian is not required. The plugin works on any folder of `.md` files with YAM
 2. Writes `.wiki/config.json` in the vault with detected structure, stub pattern, and MOC count pattern
 3. Writes `.vault-path` to `CLAUDE_PLUGIN_DATA` (persistent across plugin updates) so all commands auto-discover the vault
 4. Generates or updates vault `CLAUDE.md` with a domain registry sentinel block
+5. Discovers genre detection signals (cssclasses values, top-level dirs) and writes `.wiki/conventions.json` with empty rules — the wiki-conventions-tuner agent fills in the rules afterwards
 
 ## Workflow
 
@@ -50,13 +51,21 @@ Init auto-discovers domains from vault directories and writes `.wiki/domains.jso
 - Ask if scope should be `public` or `private` for any unclear domains
 - Edit `$VAULT_PATH/.wiki/domains.json` to correct scopes or add missing domains
 
-### Step 5: Run initial index
+### Step 5: Tune genre conventions (if new genres discovered)
+
+Init writes `.wiki/conventions.json` with discovered genre detection signals (cssclasses values, top-level dirs) but leaves `rules: {}` empty for each. The init output's `conventions.untuned` field lists genres needing rules.
+
+If `conventions.untuned` is non-empty, dispatch the **wiki-conventions-tuner** agent. Pass the vault path inline (do not let it discover). The agent samples notes per genre and proposes `lead-link` and `external-source-citation` rules, then writes them back after user approval.
+
+If `conventions.untuned` is empty (everything already tuned from a previous run), skip this step.
+
+### Step 6: Run initial index
 
 ```bash
 commonplace index --vault "<vault-path>"
 ```
 
-### Step 6: Report
+### Step 7: Report
 
 After init, the vault path is stored in `CLAUDE_PLUGIN_DATA` (persistent directory that survives plugin updates). All `commonplace` commands auto-discover the vault — no `--vault` flag needed.
 

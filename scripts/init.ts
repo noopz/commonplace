@@ -16,6 +16,8 @@ import { join, dirname, resolve } from "path";
 import { fileURLToPath } from "url";
 import { glob } from "glob";
 import { resolveVault, loadDomainRegistry, saveDomainRegistry } from "./lib/vault.js";
+import { DEFAULT_CONVENTIONS, loadConventions } from "./lib/conventions.js";
+import type { Conventions, GenreDefinition } from "./lib/conventions.js";
 import type { DomainRegistry } from "./lib/types.js";
 import type { WikiConfig } from "./lib/types.js";
 
@@ -292,6 +294,109 @@ if (existsSync(sourcesDirAbs)) {
 
 saveDomainRegistry(config.wikiPath, discoveredRegistry);
 
+// ---- Step 4.5: Discover genre signals, write draft conventions.json ----
+
+// Init does what's deterministic: scans the sample for cssclasses values and
+// top-level dirs that look like distinct genres. The "intelligence" — what
+// rules each genre should follow (lead-link mode, citation requirement) —
+// is delegated to the wiki-conventions-tuner agent, which reads sample
+// notes per genre and proposes rules.
+
+function parseCssclasses(fmText: string): string[] {
+  const out: string[] = [];
+  const inline = fmText.match(/^cssclasses:\s*\[([^\]]*)\]/m);
+  if (inline) {
+    for (const v of inline[1].split(",").map((t) => t.trim().replace(/['"]/g, ""))) {
+      if (v) out.push(v);
+    }
+  }
+  const block = fmText.match(/^cssclasses:\s*\n((?:\s+-[^\n]+\n?)*)/m);
+  if (block) {
+    for (const m of block[1].matchAll(/^\s+-\s+(.+)$/gm)) {
+      const v = m[1].trim().replace(/['"]/g, "");
+      if (v) out.push(v);
+    }
+  }
+  return out;
+}
+
+const cssCounts = new Map<string, number>();
+const dirCounts = new Map<string, number>();
+// Only exclude concept/MOC dirs from path-prefix discovery — those have their
+// own classification and aren't lintable as sources. The sources dir IS a
+// meaningful genre (research papers, articles) and should appear here.
+const structureDirs = new Set(
+  [merged.structure.concepts, merged.structure.mocs].filter(Boolean),
+);
+
+for (const s of samples) {
+  for (const v of parseCssclasses(s.fm)) {
+    cssCounts.set(v, (cssCounts.get(v) ?? 0) + 1);
+  }
+  if (s.relDir && /^tags:/m.test(s.fm)) {
+    const top = s.relDir.split("/")[0];
+    if (top && top !== "raw") {
+      dirCounts.set(top, (dirCounts.get(top) ?? 0) + 1);
+    }
+  }
+}
+
+// Preserve user-tuned rules across re-init by indexing existing genres by name
+const existingConventions = loadConventions(config.wikiPath);
+const existingByName = new Map<string, GenreDefinition>();
+for (const g of existingConventions.genres) existingByName.set(g.name, g);
+
+const discoveredGenres: GenreDefinition[] = [];
+const MIN_GENRE_NOTES = 3;
+
+// 1. cssclasses-based genres — explicit user marking is the strongest signal
+for (const [value, count] of [...cssCounts.entries()].sort((a, b) => b[1] - a[1])) {
+  if (count < MIN_GENRE_NOTES) continue;
+  const existing = existingByName.get(value);
+  discoveredGenres.push(
+    existing ?? { name: value, detect: { "cssclasses-contains": value }, rules: {} },
+  );
+  existingByName.delete(value);
+}
+
+// 2. path-prefix genres — top-level dirs (excluding sources/concepts/mocs) with notes
+for (const [dir, count] of [...dirCounts.entries()].sort((a, b) => b[1] - a[1])) {
+  if (count < MIN_GENRE_NOTES) continue;
+  if (structureDirs.has(dir)) continue;
+  const cleanName = dir.replace(/^\d+\s*-\s*/, "");
+  const slug = cleanName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+  if (!slug) continue;
+  if (existingByName.has(slug)) {
+    discoveredGenres.push(existingByName.get(slug)!);
+    existingByName.delete(slug);
+    continue;
+  }
+  discoveredGenres.push({
+    name: slug,
+    detect: { "path-prefix": `${dir}/` },
+    rules: {},
+  });
+}
+
+// Preserve any remaining custom user-defined genres init didn't rediscover
+for (const g of existingByName.values()) discoveredGenres.push(g);
+
+const conventions: Conventions = {
+  version: 1,
+  genres: discoveredGenres,
+  default: existingConventions.default ?? DEFAULT_CONVENTIONS.default,
+  checks: existingConventions.checks ?? DEFAULT_CONVENTIONS.checks,
+};
+
+writeFileSync(
+  join(config.wikiPath, "conventions.json"),
+  JSON.stringify(conventions, null, 2) + "\n",
+);
+
+const untunedGenres = discoveredGenres
+  .filter((g) => Object.keys(g.rules).length === 0)
+  .map((g) => g.name);
+
 // ---- Step 5: Generate/update vault CLAUDE.md ----
 
 const REGISTRY_START = "<!-- DOMAIN_REGISTRY_START -->";
@@ -366,6 +471,14 @@ console.log(JSON.stringify({
     total: domainCount,
     new: newDomains.length ? newDomains : undefined,
     registry: discoveredRegistry.domains,
+  },
+  conventions: {
+    written: join(config.wikiPath, "conventions.json"),
+    total: discoveredGenres.length,
+    untuned: untunedGenres.length ? untunedGenres : undefined,
+    nextStep: untunedGenres.length
+      ? `Dispatch wiki-conventions-tuner agent to propose rules for: ${untunedGenres.join(", ")}`
+      : undefined,
   },
   lowConfidence: lowConfidence.length ? lowConfidence : undefined,
   sampledFiles: samples.length,
