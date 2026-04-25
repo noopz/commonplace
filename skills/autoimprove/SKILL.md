@@ -101,7 +101,7 @@ All agents have isolated context windows — they cannot see this conversation. 
 
 - **MOC sync**: Dispatch `wiki-moc-updater` agent. Include vault path and the list of MOCs needing updates from lint results.
 
-- **Inline linking**: Dispatch `wiki-concept-linker` agent (handles concepts, source notes, and MOC titles). Include vault path and the list of source notes to scan. The agent reads all three JSONL indexes and adds `[[wikilinks]]` at first mention — prioritizing summary sections where links should be front-loaded. See `references/linking-rules.md` for the full linking rules.
+- **Inline linking**: Dispatch `wiki-concept-linker` agent (handles concepts, source notes, and MOC titles). Include vault path and the list of source notes to scan. The agent reads all three JSONL indexes and adds `[[wikilinks]]` at first mention — prioritizing summary sections where links should be front-loaded. The agent has built-in linking and scope rules.
 
 - **Stub compilation**: Execute wiki-compile's workflow inline (this runs at main-model cost, not Haiku). Read source notes that reference the stub, synthesize a definition, write the compiled concept note. Cap at 5 stubs per round.
 

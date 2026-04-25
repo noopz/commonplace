@@ -24,11 +24,15 @@ Run `commonplace vault-path` to get the absolute vault path. Use it in all file 
 
 ## Rules
 
-Follow all rules in `references/linking-rules.md` — that file is the single source of truth for linking behavior. Read it and `.wiki/domains.json` before making any edits. Pay particular attention to:
-- **First occurrence only** — link once per note, not every mention
-- **Density cap** — if a note already has 15+ inline links, only add links central to the argument
+- **First occurrence only** — link each target once per note, on first mention
+- **Preserve original casing** — `[[Gradient Descent|gradient descent]]` if the text says "gradient descent"
+- **Never link inside** existing `[[wikilinks]]`, code blocks, or headings
+- **Word boundaries** — don't link partial words ("act" inside "ReAct" is not a match)
 - **No self-links** — never link a note to itself
+- **Density cap** — if a note already has 15+ inline links, only add links central to the argument
 - **Structural relevance** — link where it helps a reader follow the thread, not on passing mentions
+- **Front-load links in Summary** — the Summary section should be the most link-dense part of the note
+- **Body only** — never modify frontmatter
 
 ## Scope guard (mandatory)
 

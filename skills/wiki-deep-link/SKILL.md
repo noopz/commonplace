@@ -57,7 +57,7 @@ If zero candidates: "No hidden connections found — the vault's graph looks wel
 
 ### Step 3: Dispatch the linking agent
 
-If candidates were found, dispatch the `wiki-deep-linker` agent with the candidates JSON and vault path inline. The agent reads the actual text of each candidate pair, applies the linking rules from `references/linking-rules.md`, and adds wikilinks where warranted.
+If candidates were found, dispatch the `wiki-deep-linker` agent with the candidates JSON and vault path inline. The agent reads the actual text of each candidate pair, applies its built-in linking rules, and adds wikilinks where warranted.
 
 Agents have isolated context windows — they cannot see this conversation. Include the full candidates JSON and vault path in the agent prompt.
 

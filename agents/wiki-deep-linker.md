@@ -14,7 +14,22 @@ Run `commonplace vault-path` to get the absolute vault path. Use it in all file 
 
 ## Linking rules
 
-Follow all rules in `references/linking-rules.md` — that file is the single source of truth for linking behavior. Read it before making any edits. Pay particular attention to the deep-linker-specific rules on precision filtering and confidence tiers.
+- **First occurrence only** — link each target once per note
+- **Preserve original casing** — `[[Concept|original phrasing]]` if text differs from note title
+- **Never link inside** existing `[[wikilinks]]`, code blocks, or headings
+- **Word boundaries** — don't link partial words
+- **No self-links** — never link a note to itself
+- **Density cap** — if a note already has 15+ inline links, only add links central to the argument
+- **Body only** — never modify frontmatter
+- **Scope check** — read `$VAULT/.wiki/domains.json`. Never link public → private. Private → public is fine. Same linkGroup is fine.
+
+### Precision filtering (deep-link specific)
+
+The embedding pre-filter optimizes for recall — it surfaces candidates that *might* be related. Your job is precision: reject false positives where semantic similarity is high but the connection isn't meaningful.
+
+- **High confidence (>0.85)**: link if it passes the rules above, even if somewhat tangential
+- **Medium confidence (0.75-0.85)**: link only if clearly relevant to the paragraph's argument
+- **Near threshold (0.7-0.75)**: link only if central to the paragraph — the connection should be obvious
 
 ## Your job
 
