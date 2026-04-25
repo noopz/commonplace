@@ -386,34 +386,6 @@ try {
     timeout: 5000,
   });
 
-  // Get dirty .md files in content directories only
-  const statusOutput = execSync("git status --porcelain", {
-    cwd: config.vaultPath,
-    stdio: "pipe",
-    timeout: 10000,
-  }).toString();
-
-  const dirtyMdFiles = statusOutput
-    .split("\n")
-    .filter((line) => {
-      if (!line.trim()) return false;
-      // Extract file path (skip the 2-char status + space prefix)
-      const filePath = line.slice(3).replace(/^"(.*)"$/, "$1");
-      // Only count .md files in content dirs (00-99), exclude .obsidian, .wiki, .strata
-      return (
-        filePath.endsWith(".md") &&
-        /^\d{2}\s*-\s/.test(filePath) &&
-        !filePath.startsWith(".obsidian/") &&
-        !filePath.startsWith(".wiki/") &&
-        !filePath.startsWith(".strata/")
-      );
-    }).length;
-
-  const dirtyRatio =
-    classifiedNoteCount === 0
-      ? 1.0
-      : Math.max(0, 1 - dirtyMdFiles / classifiedNoteCount);
-
   // Get days since last commit
   let daysSinceCommit = 0;
   try {
@@ -434,9 +406,7 @@ try {
 
   const stalenessScore = Math.max(0, 1 - daysSinceCommit / 30);
 
-  hygieneRaw = (dirtyRatio + stalenessScore) / 2;
-  hygieneDetails.dirtyMdFiles = dirtyMdFiles;
-  hygieneDetails.dirtyRatio = Math.round(dirtyRatio * 1000) / 1000;
+  hygieneRaw = stalenessScore;
   hygieneDetails.daysSinceCommit = Math.round(daysSinceCommit * 10) / 10;
   hygieneDetails.stalenessScore = Math.round(stalenessScore * 1000) / 1000;
   hygieneDetails.isGitRepo = 1;

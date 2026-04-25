@@ -110,9 +110,9 @@ export function hasMalformedDateLine(raw: string): string | null {
 }
 
 const REQUIRED_FIELDS: Record<NoteType, string[]> = {
-  source: ["tags", "cssclasses", "created", "concepts", "mocs"],
-  concept: ["tags", "cssclasses", "created"],
-  moc: ["tags", "cssclasses", "created"],
+  source: ["tags", "created"],
+  concept: ["tags", "created"],
+  moc: ["tags", "created"],
   other: [],
 };
 
@@ -129,11 +129,8 @@ export function validateFrontmatter(
       continue;
     }
 
-    // Check arrays aren't empty for source notes
-    if (
-      noteType === "source" &&
-      (field === "concepts" || field === "mocs" || field === "tags")
-    ) {
+    // Check tags aren't empty for source notes
+    if (noteType === "source" && field === "tags") {
       const val = frontmatter[field];
       if (Array.isArray(val) && val.length === 0) {
         errors.push({ field, message: `${field} array is empty` });
