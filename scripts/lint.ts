@@ -76,6 +76,28 @@ const allNoteNames = new Set(
   allFiles.map((f) => basename(f, ".md"))
 );
 
+// Build alias lookup: aliases resolve wikilinks the same way filenames do
+for (const filePath of allFiles) {
+  try {
+    const parsed = parseNote(filePath, config.vaultPath);
+    const aliases = parsed.frontmatter.aliases;
+    if (Array.isArray(aliases)) {
+      for (const alias of aliases) {
+        if (typeof alias === "string" && alias.length > 0) {
+          allNoteNames.add(alias);
+        }
+      }
+    }
+  } catch {}
+}
+
+// Known attachment extensions — wikilinks to these are not note references
+const ATTACHMENT_EXTS = new Set([
+  ".pdf", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".bmp",
+  ".mp4", ".webm", ".mov", ".mp3", ".wav", ".ogg", ".flac",
+  ".zip", ".csv", ".xlsx", ".docx", ".pptx",
+]);
+
 const checksToRun = values.check ? [values.check] : [
   "unresolved",
   "stubs",
@@ -98,6 +120,7 @@ function shouldRun(check: string): boolean {
 // Additional exclusions can be configured in .wiki/config.json (lintExclude: string[]).
 function isLintExcluded(filePath: string, exclude: string[] = []): boolean {
   if (/\/CLAUDE\.md$/.test(filePath)) return true;
+  if (/\/Templates\//.test(filePath) || /\/00 - Templates\//.test(filePath)) return true;
   return exclude.some((pattern) => filePath.includes(pattern));
 }
 
@@ -112,7 +135,15 @@ if (shouldRun("unresolved")) {
       const allLinks = [...new Set([...bodyLinks, ...fmLinks])];
 
       for (const link of allLinks) {
-        if (!allNoteNames.has(link)) {
+        // Strip section anchors: [[Note#Section]] → Note
+        const noteName = link.includes("#") ? link.split("#")[0] : link;
+        if (!noteName) continue; // bare [[#section]] — internal link, skip
+
+        // Skip attachment references (PDFs, images, etc.)
+        const dotIdx = noteName.lastIndexOf(".");
+        if (dotIdx > 0 && ATTACHMENT_EXTS.has(noteName.slice(dotIdx).toLowerCase())) continue;
+
+        if (!allNoteNames.has(noteName)) {
           issues.push({
             check: "unresolved",
             severity: "critical",
