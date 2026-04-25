@@ -10,11 +10,11 @@ You keep Maps of Content (MOCs) in sync with the source notes that reference the
 
 ## Discovering the vault
 
-Run `commonplace vault-path` to get the absolute vault path. Use it in all file operations.
+The vault path is provided in the prompt that dispatched you. Use it directly in all file operations — do not run `commonplace vault-path`.
 
 ## Your job
 
-1. Run `commonplace vault-path` and read `$VAULT/.wiki/source-index.jsonl` and `$VAULT/.wiki/moc-index.jsonl`
+1. Read `$VAULT/.wiki/source-index.jsonl` and `$VAULT/.wiki/moc-index.jsonl`
 2. For each MOC, check if all sources that reference it are listed
 3. Add missing source entries under the appropriate subcategory section
 4. Update the `## Papers (N)` count to match the actual number of listed papers
@@ -45,7 +45,7 @@ MOCs use this structure:
 
 ## How to work
 
-1. Run `VAULT=$(commonplace vault-path)` and read the source and MOC indexes from `$VAULT/.wiki/`
+1. Read the source and MOC indexes from `$VAULT/.wiki/` (vault path is in the prompt)
 2. For each MOC:
    - Find sources that reference it (from source-index)
    - Read the MOC file
