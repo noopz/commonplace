@@ -122,7 +122,7 @@ export function autoRegisterDomain(
   wikiPath: string,
   registry: DomainRegistry,
 ): string | null {
-  const rel = filePath.startsWith(vaultPath)
+  const rel = filePath.startsWith(vaultPath + "/")
     ? filePath.slice(vaultPath.length + 1)
     : filePath;
   const dir = dirname(rel);
@@ -188,7 +188,7 @@ export function classifyNote(
   wikiConfig?: WikiConfig | null,
   registry?: DomainRegistry,
 ): NoteType {
-  const relative = filePath.startsWith(vaultPath)
+  const relative = filePath.startsWith(vaultPath + "/")
     ? filePath.slice(vaultPath.length + 1)
     : filePath;
 
@@ -227,7 +227,8 @@ export async function findAllNotes(vaultPath: string): Promise<string[]> {
 export function isInVault(filePath: string, vaultPath: string): boolean {
   const resolved = resolve(filePath);
   const vaultResolved = resolve(vaultPath);
-  return resolved.startsWith(vaultResolved) && resolved.endsWith(".md");
+  // Trailing "/" prevents `/Vault` matching `/VaultArchive/...`
+  return resolved.startsWith(vaultResolved + "/") && resolved.endsWith(".md");
 }
 
 /** Parse a JSONL file (one JSON object per line) into an array */

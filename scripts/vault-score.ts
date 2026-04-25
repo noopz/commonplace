@@ -11,8 +11,9 @@ import { readFileSync, writeFileSync, existsSync } from "fs";
 import { join } from "path";
 import { parseArgs } from "util";
 import { execSync } from "child_process";
-import { resolveVault, ensureIndex, loadIndexes } from "./lib/vault.js";
+import { resolveVault, ensureIndex, loadIndexes, findAllNotes } from "./lib/vault.js";
 import { parseNote, extractWikilinks } from "./lib/frontmatter.js";
+import { buildNameIndex, normalizeWikilinkTarget } from "./lib/resolve.js";
 import type {
   LintResult,
   VaultScore,
@@ -161,12 +162,28 @@ const conceptExtraction =
     : sourcesWithConcepts / sourceIndex.length;
 
 // Sub-metric: inline link density (vault note mentions in body that are actually wikilinked)
-// Covers concepts (non-stub), source notes, and MOCs
+// Covers concepts (non-stub), source notes, and MOCs.
+// 1-char names are too noisy for word-boundary matching; everything else is in.
 const linkTargetNames: string[] = [
   ...conceptIndex.filter((c) => !c.isStub).map((c) => c.name),
   ...sourceIndex.map((s) => s.title),
   ...mocIndex.map((m) => m.name),
-].filter((n) => n.length > 2); // skip very short names
+].filter((n) => n.length >= 2);
+
+// Build a vault-wide name index (filenames + aliases → canonical) so a
+// body wikilink to an alias counts as a link to its canonical target.
+const allFiles = await findAllNotes(config.vaultPath);
+const nameIndex = buildNameIndex(allFiles, config.vaultPath);
+
+function bodyLinkCanonicalSet(body: string): Set<string> {
+  const out = new Set<string>();
+  for (const link of extractWikilinks(body)) {
+    const key = normalizeWikilinkTarget(link);
+    if (!key) continue;
+    out.add((nameIndex.get(key) ?? key).toLowerCase());
+  }
+  return out;
+}
 
 let totalMentions = 0;
 let linkedMentions = 0;
@@ -175,13 +192,16 @@ for (const source of sourceIndex) {
   try {
     const parsed = parseNote(source.path, config.vaultPath);
     const body = parsed.body;
-    const bodyLinks = new Set(extractWikilinks(body).map((l) => l.toLowerCase()));
+    const bodyLinks = bodyLinkCanonicalSet(body);
 
-    // Strip wikilinks, code blocks, and headings for plain-text scanning
+    // Strip wikilinks (excluding `[` so a malformed `[[` doesn't gobble the
+    // text between two real wikilinks), fenced+inline code, indented code
+    // blocks, and headings before plain-text scanning.
     const stripped = body
-      .replace(/\[\[[^\]]+\]\]/g, "")
+      .replace(/\[\[[^\[\]]+\]\]/g, "")
       .replace(/```[\s\S]*?```/g, "")
       .replace(/`[^`]+`/g, "")
+      .replace(/^(?: {4,}|\t).*$/gm, "")
       .replace(/^#{1,3}\s+.+$/gm, "");
 
     for (const name of linkTargetNames) {
@@ -237,7 +257,10 @@ for (const source of sourceIndex) {
   if (source.concepts.length === 0) continue;
   try {
     const parsed = parseNote(source.path, config.vaultPath);
-    const bodyLinks = new Set(extractWikilinks(parsed.body).map((l) => l.toLowerCase()));
+    // bodyLinks holds canonical lowercase names — same form as source.concepts
+    // (which the indexer canonicalizes), so an alias body-link counts as a link
+    // to the canonical concept named in frontmatter.
+    const bodyLinks = bodyLinkCanonicalSet(parsed.body);
 
     for (const conceptName of source.concepts) {
       fmConceptsTotal++;
