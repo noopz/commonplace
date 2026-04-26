@@ -34,6 +34,7 @@ const SCRIPTS = {
   'deep-link':    'scripts/deep-link.ts',
   'post-write-research': 'scripts/post-write-research.ts',
   'session-context':     'scripts/session-context.ts',
+  'agent-guard':         'scripts/agent-guard.ts',
   // Paper pipeline
   'paper:fetch':          'scripts/paper/fetch-paper.ts',
   'paper:extract':        'scripts/paper/extract-sections.ts',
