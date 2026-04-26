@@ -105,7 +105,7 @@ Agent names use the `commonplace:` prefix. The exact names are:
 | Mechanical fixes | `commonplace:wiki-linter` |
 | Pruning | `commonplace:wiki-pruner` |
 | MOC sync | `commonplace:wiki-moc-updater` |
-| Inline linking | `commonplace:wiki-concept-linker` |
+| Inline linking | `commonplace link` (deterministic script — no agent) |
 | Deep linking | `commonplace:wiki-deep-linker` |
 | Freshness | `commonplace:wiki-freshness-checker` |
 | Domain management | `commonplace:wiki-domain-manager` |
@@ -116,7 +116,7 @@ Agent names use the `commonplace:` prefix. The exact names are:
 
 - **MOC sync**: Dispatch `commonplace:wiki-moc-updater`. Include vault path and the list of MOCs needing updates.
 
-- **Inline linking**: Dispatch `commonplace:wiki-concept-linker`. Include vault path and the list of source notes to scan. The agent has built-in linking and scope rules.
+- **Inline linking**: Run `commonplace link` (optionally with `--note <path>` repeated for the source notes you want to scan). Deterministic script — no LLM in the Edit path, structurally cannot corrupt frontmatter or splice mid-word. Replaced the old `wiki-concept-linker` agent after it produced repeat corruption incidents.
 
 - **Stub compilation**: Execute wiki-compile's workflow inline (this runs at main-model cost, not Haiku). Read source notes that reference the stub, synthesize a definition, write the compiled concept note. Cap at 5 stubs per round.
 

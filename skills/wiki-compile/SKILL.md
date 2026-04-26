@@ -87,7 +87,7 @@ One paragraph definition explaining what this concept is, written clearly enough
 ### Step 4: Post-compilation
 
 After writing a compiled concept:
-- Dispatch `wiki-concept-linker` agent. Include vault path and the concept name so it knows what to link in source notes that mention it but don't link it
+- Run `commonplace link --target "<concept name>"` to insert wikilinks for the new concept across any source notes that mention it but don't link it. Deterministic — safe to run without review.
 
 ### Batch Control
 

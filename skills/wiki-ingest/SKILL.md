@@ -164,7 +164,7 @@ After writing the source note and any new concept stubs:
 
 4. **Dispatch agents** for source files. Agents have isolated context windows — they cannot see this conversation. Include vault path and relevant data inline in each prompt:
    - Dispatch `wiki-moc-updater` agent with the new source note path and its `mocs:` frontmatter list so it knows which MOCs to update
-   - Dispatch `wiki-concept-linker` agent with the new source note path so it can scan for unlinked concept mentions
+   - Run `commonplace link --note "<new source note path>"` to wikilink any unlinked concept/source/MOC mentions in that note. Deterministic; no agent dispatch.
 
 5. **Log**: append to `$VAULT_PATH/.wiki/log.md`:
    ```bash
