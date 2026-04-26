@@ -22,6 +22,48 @@ export function getVaultConfig(vaultPath: string): VaultConfig {
   };
 }
 
+/**
+ * Predicate: is `cwd` inside the configured/discovered vault?
+ *
+ * Used by hook scripts (UserPromptSubmit) to decide whether the current
+ * session is vault-focused (full snapshot is appropriate) or external
+ * (lightweight pointer is appropriate). The plugin is installed
+ * globally, so a session in /some/random/project shouldn't get treated
+ * the same as one inside the vault.
+ *
+ * Resolution order matches resolveVault: walk up from cwd looking for a
+ * vault marker (.wiki/ or .obsidian/), then fall back to comparing
+ * against the configured .vault-path.
+ */
+export function isCwdInVault(cwd: string): { inVault: boolean; vaultPath?: string } {
+  let cur = resolve(cwd);
+  while (true) {
+    if (existsSync(join(cur, ".wiki")) || existsSync(join(cur, ".obsidian"))) {
+      return { inVault: true, vaultPath: cur };
+    }
+    const parent = resolve(cur, "..");
+    if (parent === cur) break;
+    cur = parent;
+  }
+  const dataDir = process.env.CLAUDE_PLUGIN_DATA;
+  const pluginRoot = resolve(import.meta.dirname!, "..", "..");
+  let vp: string | undefined;
+  for (const loc of [
+    ...(dataDir ? [join(dataDir, ".vault-path")] : []),
+    join(pluginRoot, ".vault-path"),
+  ]) {
+    try { const v = readFileSync(loc, "utf-8").trim(); if (v) { vp = v; break; } } catch {}
+  }
+  if (vp) {
+    const norm = (s: string) => s.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+    const v = norm(vp);
+    const c = norm(cwd);
+    if (c === v || c.startsWith(v + "/")) return { inVault: true, vaultPath: vp };
+    return { inVault: false, vaultPath: vp };
+  }
+  return { inVault: false };
+}
+
 export function discoverVault(startPath: string): string | null {
   let current = resolve(startPath);
   while (current !== "/") {
