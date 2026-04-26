@@ -33,8 +33,9 @@ const SCRIPTS = {
   'cross-domain': 'scripts/cross-domain.ts',
   'deep-link':    'scripts/deep-link.ts',
   'post-write-research': 'scripts/post-write-research.ts',
-  'session-context':     'scripts/session-context.ts',
+  'prompt-context':      'scripts/prompt-context.ts',
   'agent-guard':         'scripts/agent-guard.ts',
+  'cleanup-cache':       'scripts/cleanup-cache.ts',
   // Paper pipeline
   'paper:fetch':          'scripts/paper/fetch-paper.ts',
   'paper:extract':        'scripts/paper/extract-sections.ts',

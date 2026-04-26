@@ -21,6 +21,7 @@
 
 import { readFileSync } from "fs";
 import { join } from "path";
+import { hasVaultIntent } from "./lib/vault-signals.js";
 
 interface HookInput {
   tool_name: string;
@@ -59,32 +60,7 @@ for (const p of candidates) {
   } catch { /* try next */ }
 }
 
-// Vault-intent signals. Folder markers use [\\/] to match either separator
-// so a Windows path like .wiki\foo and a POSIX path like .wiki/foo both hit.
-const signals: RegExp[] = [
-  /\bwiki-(query|ingest|domain|compile|deep-linker|moc-updater|linter|pruner|freshness-checker|domain-manager|conventions-tuner|cross-domain-linker|impact-checker)\b/i,
-  /\bcommonplace\b/i,
-  /\bMOC\b/,
-  /\bobsidian\s+vault\b/i,
-  /\b(my|the)\s+vault\b/i,
-  /\b(concept|source|MOC)\s+note\b/i,
-  /\bmy\s+notes\s+(on|about|say)\b/i,
-  /\.wiki[\\/]/,
-  /\.obsidian[\\/]/,
-  /\[\[[^\[\]\n]+\]\]/, // [[Wikilink]] syntax — unmistakable vault-intent marker
-];
-
-function pathMentioned(text: string, vault: string): boolean {
-  // Normalize separators + case for cross-platform comparison
-  const norm = (s: string) => s.replace(/\\/g, "/").toLowerCase();
-  return norm(text).includes(norm(vault));
-}
-
-const matched =
-  signals.some((re) => re.test(prompt)) ||
-  (vaultPath !== undefined && pathMentioned(prompt, vaultPath));
-
-if (!matched) process.exit(0);
+if (!hasVaultIntent(prompt, vaultPath)) process.exit(0);
 
 const reason =
   `Vault-content question detected. Use the wiki-query skill instead — ` +

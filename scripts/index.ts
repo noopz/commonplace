@@ -16,6 +16,7 @@ import {
   classifyNote,
   getLastIndexTime,
   getFileMtime,
+  loadWikiConfig,
 } from "./lib/vault.js";
 import {
   parseNote,
@@ -30,7 +31,6 @@ import {
 } from "./lib/domain.js";
 import { normalizeWikilinkTarget } from "./lib/resolve.js";
 import { discoverGenres, loadGenreSamples } from "./lib/genre-discovery.js";
-import { loadWikiConfig } from "./lib/vault.js";
 import type {
   SourceNote,
   ConceptNote,

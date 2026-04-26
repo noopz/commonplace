@@ -9,31 +9,17 @@
           },
           {
             "type": "command",
-            "command": "node ${CLAUDE_PLUGIN_ROOT}/bin/commonplace index --incremental 2>/dev/null || true"
-          },
+            "command": "node ${CLAUDE_PLUGIN_ROOT}/bin/commonplace cleanup-cache 2>/dev/null || true"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
           {
             "type": "command",
-            "command": "node ${CLAUDE_PLUGIN_ROOT}/bin/commonplace score 2>/dev/null || true"
-          },
-          {
-            "type": "command",
-            "command": "node ${CLAUDE_PLUGIN_ROOT}/bin/commonplace prune 2>/dev/null || true"
-          },
-          {
-            "type": "command",
-            "command": "node ${CLAUDE_PLUGIN_ROOT}/bin/commonplace lint --instruct 2>/dev/null || true"
-          },
-          {
-            "type": "command",
-            "command": "echo '=== Recent plugin activity ===' && node ${CLAUDE_PLUGIN_ROOT}/bin/commonplace log --tail 60 2>/dev/null || true"
-          },
-          {
-            "type": "command",
-            "command": "node ${CLAUDE_PLUGIN_ROOT}/bin/commonplace raw --instruct 2>/dev/null || true"
-          },
-          {
-            "type": "command",
-            "command": "node ${CLAUDE_PLUGIN_ROOT}/bin/commonplace session-context 2>/dev/null || true"
+            "command": "node ${CLAUDE_PLUGIN_ROOT}/bin/commonplace prompt-context"
           }
         ]
       }
