@@ -493,7 +493,7 @@ if (values.instruct && result.summary.total > 0) {
   }
   const underlinkCount = result.improvement.filter(i => i.check === "underlinked").length;
   if (underlinkCount > 0) {
-    lines.push(`${underlinkCount} notes have vault note mentions without inline wikilinks — dispatch the wiki-linker agent to fix.`);
+    lines.push(`${underlinkCount} notes have vault note mentions without inline wikilinks — run \`commonplace link\` to fix.`);
   }
   const sparseSummaryCount = result.suggestion.filter(i => i.check === "underlinked" && i.message.includes("Summary section")).length;
   if (sparseSummaryCount > 0) {
@@ -501,7 +501,7 @@ if (values.instruct && result.summary.total > 0) {
   }
   const fmCoherenceCount = result.suggestion.filter(i => i.check === "underlinked" && i.message.includes("frontmatter concept")).length;
   if (fmCoherenceCount > 0) {
-    lines.push(`${fmCoherenceCount} notes have frontmatter concepts with no inline body link — the wiki-linker or deep-link can resolve.`);
+    lines.push(`${fmCoherenceCount} notes have frontmatter concepts with no inline body link — run \`commonplace link\` or \`commonplace deep-link\` to resolve.`);
   }
   lines.push(`Report this summary to the user and take the actions above.`);
   console.log(lines.join("\n"));

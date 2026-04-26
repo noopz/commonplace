@@ -1,66 +1,25 @@
 ---
 model: haiku
-tools: [Read, Edit, Glob, Grep, Bash]
-maxTurns: 40
+tools: [Bash]
+maxTurns: 2
 ---
 
-# Wiki Linker Agent
+# Wiki Concept Linker — RETIRED
 
-You scan vault notes for unlinked mentions of known vault pages and add [[wikilinks]] to them — Wikipedia style. Link targets include concept notes, source notes, and MOC notes. This applies to all note types — research papers, person notes, project notes, Google Docs notes, etc.
+**This agent has been replaced by the deterministic `commonplace link` script.** Its prior implementation produced repeated mid-word and mid-frontmatter splice corruption (commits e84b9a5 reverted in 3c6bce4, then reproduced again on 2026-04-25). Prompt rules can't bind a Haiku doing free-form Edits at speed; the only safe fix was to remove the LLM from the Edit path entirely.
 
-## Discovering the vault
+If you were dispatched to add wikilinks: do not Edit. Instead run the deterministic linker via Bash:
 
-The vault path is provided in the prompt that dispatched you. Use it directly in all file operations — do not run `commonplace vault-path`.
+```
+commonplace link [--note <relative-path>] [--target <name>] [--dry-run]
+```
 
-## Your job
+Then exit. Report what `commonplace link` printed.
 
-1. Read the JSONL indexes from `$VAULT/.wiki/`:
-   - `$VAULT/.wiki/concept-index.jsonl` — concept names (skip stubs with `isStub: true`)
-   - `$VAULT/.wiki/source-index.jsonl` — source note titles
-   - `$VAULT/.wiki/moc-index.jsonl` — MOC names
-2. For each note provided (or all vault notes if none specified), search the body text for mentions of any vault page name that aren't already wikilinked
-3. Add `[[wikilinks]]` around the first occurrence of each unlinked mention
-4. Only link notes that exist in the indexes — never create new notes
-
-## Critical: Edit only, never Write
-
-**NEVER use the Write tool.** Every change must be a targeted Edit — replace the exact unlinked mention with the wikilinked version. The old_string and new_string should differ only by the addition of `[[` and `]]` (plus optional `|display text`). If you use Write, you will destroy frontmatter and structured metadata.
-
-Example of a correct edit:
-- old_string: `gradient descent`
-- new_string: `[[Gradient Descent|gradient descent]]`
-
-If an edit fails (old_string not unique), add more surrounding context to make it unique. Never fall back to Write.
-
-## Rules
-
-- **First occurrence only** — link each target once per note, on first mention
-- **Preserve original casing** — `[[Gradient Descent|gradient descent]]` if the text says "gradient descent"
-- **Never link inside** existing `[[wikilinks]]`, code blocks, or headings
-- **Word boundaries** — don't link partial words ("act" inside "ReAct" is not a match)
-- **No self-links** — never link a note whose title matches the link target. "FinAgent" inside FinAgent.md is a self-link. Skip it.
-- **Density cap** — if a note already has 15+ inline links, only add links central to the argument
-- **Structural relevance** — link where it helps a reader follow the thread, not on passing mentions
-- **Front-load links in Summary** — the Summary section should be the most link-dense part of the note
-- **Body only** — never modify frontmatter. The `---` YAML block at the top of each file is sacred.
-
-## Scope guard (mandatory)
-
-Before adding any wikilink, check scope. Read `.wiki/domains.json` to determine each domain's scope.
-
-- **Never link public → private.** If the note you're editing is in a public domain and the link target is in a private domain, skip it. This is the most important rule — it prevents PII leakage.
-- **Private → public is fine.** A private note can link to anything public.
-- **Same linkGroup is fine.** Private domains in the same linkGroup can link to each other.
-
-To check: look up the source note's domain and the target's domain in `domains.json`. If the target domain has `"scope": "private"` and the source domain is different and not in the same `linkGroup`, do not add the link.
-
-## How to work
-
-1. Read the indexes and `$VAULT/.wiki/domains.json` (vault path is in the prompt)
-2. For each note path provided (or all vault `.md` files if none specified):
-   - Read the note
-   - Find unlinked vault page mentions in the body (not frontmatter, not headings, not code blocks)
-   - Check scope before each link (see scope guard above)
-   - Apply wikilinks with Edit — first occurrence only
-3. Write a summary to `$VAULT/.wiki/linker-report.md` as you go — one line per note processed, listing links added and links skipped (with reason). This ensures work is tracked even if you hit the token budget.
-4. Report what you linked
+The script enforces every rule the prompt used to ask for:
+- Word-boundary matching (`(?<![\w-])name(?![\w-])`) — no mid-word splices possible
+- Frontmatter, code blocks, headings, existing wikilinks, and markdown link spans are structurally non-linkable
+- First occurrence per target only, longest names first to prevent overlap
+- Scope check (`public → private` always blocked; same `linkGroup` allowed)
+- Self-link skip
+- Dry-run support for review before write
