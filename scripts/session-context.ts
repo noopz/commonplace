@@ -68,7 +68,8 @@ One JSON record per line — Grep returns complete records.
 Hard rules:
 - For research papers, use \`commonplace paper:*\` commands instead of pdftotext — they handle section detection, smart extraction, and metadata enrichment.
 - Never write Python scripts, shell one-liners, or custom code to parse indexes, check links, or analyze vault state. All analysis is built into \`commonplace\` commands which output human-readable summaries by default. Use \`--json\` flag when machine-parseable output is needed. Use the Grep tool to search JSONL indexes and the Read tool to read JSON files.
-- Files in raw/ are permanent originals — never delete, rename, or modify them after ingestion. They are the source of truth for re-ingestion.${untunedNotice}`;
+- Files in raw/ are permanent originals — never delete, rename, or modify them after ingestion. They are the source of truth for re-ingestion.
+- For any question whose answer might live in vault notes, dispatch the wiki-query skill before reaching for Grep yourself — it does the iterative search, graph traversal (hubs, MOCs, citation chains, bridge concepts), and file-back step you'd otherwise skip. Direct Grep is fine for narrow lookups (a known title, a specific path); wiki-query is for questions.${untunedNotice}`;
 
 console.log(JSON.stringify({
   hookSpecificOutput: {
