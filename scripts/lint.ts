@@ -5,7 +5,7 @@
  */
 
 import { readFileSync } from "fs";
-import { basename } from "path";
+import { basename, dirname, relative } from "path";
 import { parseArgs } from "util";
 import {
   resolveVault,
@@ -33,6 +33,7 @@ import {
   lookupScope,
 } from "./lib/domain.js";
 import { buildNameIndex, normalizeWikilinkTarget } from "./lib/resolve.js";
+import { loadConventions, matchGenre } from "./lib/conventions.js";
 import type {
   LintIssue,
   LintResult,
@@ -53,6 +54,7 @@ const { values } = parseArgs({
 const config = resolveVault(values.vault);
 const registry = loadDomainRegistry(config.wikiPath);
 const wikiConfig = loadWikiConfig(config);
+const conventions = loadConventions(config.wikiPath);
 const lintExclude: string[] = wikiConfig?.lintExclude ?? [];
 const issues: LintIssue[] = [];
 
@@ -89,6 +91,7 @@ const checksToRun = values.check ? [values.check] : [
   "near-duplicate-names",
   "malformed-concept-names",
   "underlinked",
+  "cluster-cohesion",
 ];
 
 function shouldRun(check: string): boolean {
@@ -398,18 +401,59 @@ if (shouldRun("underlinked")) {
         });
       }
 
-      // Check if the Summary/lead section has inline links
-      const summaryMatch = body.match(/^##\s+(?:Summary|Core Contribution|Overview)\s*\n([\s\S]*?)(?=\n##\s|\n$|$)/m);
-      if (summaryMatch) {
-        const summaryLinks = extractWikilinks(summaryMatch[1]);
-        if (summaryLinks.length === 0 && summaryMatch[1].trim().length > 100) {
-          issues.push({
-            check: "underlinked",
-            severity: "suggestion",
-            file: source.path,
-            message: `Summary section has no inline wikilinks — front-load links to key concepts and related work`,
-            fixable: true,
-          });
+      // Per-genre lead-link rule. The conventions.json file lets a vault
+      // declare that some genres don't need this check (skip), need a strict
+      // Summary section (strict), or just need links somewhere in the lead
+      // paragraphs (lenient — handbook/tutorial style, where strict is noise).
+      const genre = matchGenre(parsed, config.vaultPath, conventions);
+      const leadLinkMode = genre.rules["lead-link"];
+      const summaryHeadings = conventions.checks["lead-link"]["summary-headings"];
+      const headingPattern = summaryHeadings
+        .map((h) => h.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+        .join("|");
+      // Always also accept "Core Contribution" — historical paper-note default.
+      const summaryRegex = new RegExp(
+        `^##\\s+(?:${headingPattern}|Core Contribution)\\s*\\n([\\s\\S]*?)(?=\\n##\\s|\\n$|$)`,
+        "m",
+      );
+
+      if (leadLinkMode === "strict") {
+        const summaryMatch = body.match(summaryRegex);
+        if (summaryMatch) {
+          const summaryLinks = extractWikilinks(summaryMatch[1]);
+          if (summaryLinks.length === 0 && summaryMatch[1].trim().length > 100) {
+            issues.push({
+              check: "underlinked",
+              severity: "suggestion",
+              file: source.path,
+              message: `Summary section has no inline wikilinks — front-load links to key concepts and related work`,
+              fixable: true,
+            });
+          }
+        }
+      } else if (leadLinkMode === "lenient") {
+        // Either an explicit summary OR the lead paragraphs need to carry
+        // some inline links. If both are empty, the note's opening is link-poor.
+        const summaryMatch = body.match(summaryRegex);
+        const summaryLinkCount = summaryMatch
+          ? extractWikilinks(summaryMatch[1]).length
+          : 0;
+        if (summaryLinkCount === 0) {
+          const leadParaCount = conventions.checks["lead-link"]["lenient-paragraphs"];
+          const paragraphs = body
+            .split(/\n{2,}/)
+            .map((p) => p.trim())
+            .filter((p) => p.length > 0 && !p.startsWith("#") && !p.startsWith("```"));
+          const lead = paragraphs.slice(0, leadParaCount).join("\n\n");
+          if (lead.length > 200 && extractWikilinks(lead).length === 0) {
+            issues.push({
+              check: "underlinked",
+              severity: "suggestion",
+              file: source.path,
+              message: `Lead paragraphs have no inline wikilinks — front-load links to key concepts (genre: ${genre.name})`,
+              fixable: true,
+            });
+          }
         }
       }
 
@@ -462,6 +506,62 @@ if (shouldRun("underlinked")) {
   }
 }
 
+// === Check: cluster cohesion ===
+// A folder collecting ≥3 notes implies a topical cluster. If none of those
+// notes link to each other, the cluster is a junk drawer — its members exist
+// in the same physical location but aren't woven together as a knowledge
+// graph. Surface as a suggestion so the user can either add cross-references
+// or split the folder.
+if (shouldRun("cluster-cohesion")) {
+  const folderMap = new Map<string, SourceNote[]>();
+  for (const s of sourceIndex) {
+    const folder = dirname(s.path);
+    if (!folderMap.has(folder)) folderMap.set(folder, []);
+    folderMap.get(folder)!.push(s);
+  }
+
+  for (const [folder, sources] of folderMap) {
+    if (sources.length < 3) continue;
+
+    const folderTitles = new Set(sources.map((s) => s.title.toLowerCase()));
+    let hasInternalLink = false;
+
+    for (const source of sources) {
+      try {
+        const parsed = parseNote(source.path, config.vaultPath);
+        const allLinks = [
+          ...extractWikilinks(parsed.body),
+          ...extractAllFrontmatterLinks(parsed.frontmatter),
+        ];
+        for (const link of allLinks) {
+          const key = normalizeWikilinkTarget(link);
+          if (!key) continue;
+          const canonical = nameIndex.get(key);
+          if (!canonical) continue;
+          const canonLower = canonical.toLowerCase();
+          if (canonLower === source.title.toLowerCase()) continue;
+          if (folderTitles.has(canonLower)) {
+            hasInternalLink = true;
+            break;
+          }
+        }
+        if (hasInternalLink) break;
+      } catch { /* skip unparseable */ }
+    }
+
+    if (!hasInternalLink) {
+      const folderRel = relative(config.vaultPath, folder);
+      issues.push({
+        check: "cluster-cohesion",
+        severity: "suggestion",
+        file: sources[0].path,
+        message: `Folder "${folderRel}" has ${sources.length} notes but no wikilinks between them — add cross-references or split the cluster`,
+        fixable: false,
+      });
+    }
+  }
+}
+
 // Build result
 const result: LintResult = {
   critical: issues.filter((i) => i.severity === "critical"),
@@ -502,6 +602,10 @@ if (values.instruct && result.summary.total > 0) {
   const fmCoherenceCount = result.suggestion.filter(i => i.check === "underlinked" && i.message.includes("frontmatter concept")).length;
   if (fmCoherenceCount > 0) {
     lines.push(`${fmCoherenceCount} notes have frontmatter concepts with no inline body link — run \`commonplace link\` or \`commonplace deep-link\` to resolve.`);
+  }
+  const cohesionCount = result.suggestion.filter(i => i.check === "cluster-cohesion").length;
+  if (cohesionCount > 0) {
+    lines.push(`${cohesionCount} folder${cohesionCount > 1 ? "s have" : " has"} ≥3 notes with no wikilinks between them — review for missing cross-references or whether the cluster should be split.`);
   }
   lines.push(`Report this summary to the user and take the actions above.`);
   console.log(lines.join("\n"));
