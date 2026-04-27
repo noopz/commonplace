@@ -37,7 +37,13 @@ All analysis is built into the `commonplace` CLI. Never write Python scripts, sh
 - `commonplace score` → "Score: 78.6/100 (C)" with per-dimension breakdown
 - `commonplace scope-check` → JSON array of violations (empty = clean)
 
-If you need machine-parseable output, use `--json` flag. Never pipe through `python3` or `jq`.
+**Never pipe JSON to `python3` or `jq`.** Reflexes from training are wrong here — there is always a better path:
+
+- Need a quick read of vault state? Use the human-readable default (no `--json`).
+- Need to filter or count? `Grep` the `.wiki/*.jsonl` index files directly (they are line-delimited).
+- Need structured data for multiple steps? `commonplace lint --json > /tmp/lint.json` then `Read` the file.
+
+The `--json` flag exists for *other scripts* to consume, not for shell one-liners.
 
 ### Step 0: Resolve vault path and git checkpoint
 
