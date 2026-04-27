@@ -31,10 +31,12 @@ commonplace index
 commonplace lint
 ```
 
-This produces JSON with all issues organized by severity:
+This prints a human-readable summary with counts by severity:
 - **critical**: Broken wikilinks, frontmatter errors, scope violations, malformed dates
 - **improvement**: Stubs, stale MOC counts, duplicate entries, near-duplicate concept names
 - **suggestion**: Orphan notes, malformed concept names (sentence fragments)
+
+**Do not pipe to `python3` or `jq`.** The default output is already designed for you to read. If you genuinely need structured data (e.g. to drive a multi-step fix), write it to a file with `commonplace lint --json > /tmp/lint.json` and `Read` the file — never parse via shell one-liner.
 
 ### Step 3: Present the report
 
