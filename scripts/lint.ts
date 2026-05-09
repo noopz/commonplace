@@ -109,8 +109,70 @@ function isLintExcluded(filePath: string, exclude: string[] = []): boolean {
   return exclude.some((pattern) => filePath.includes(pattern));
 }
 
+/**
+ * Levenshtein distance with early-exit when distance exceeds `maxDist`.
+ * Returns Infinity if the bound is exceeded, so callers can cheaply skip.
+ */
+function levenshtein(a: string, b: string, maxDist: number): number {
+  const al = a.length;
+  const bl = b.length;
+  if (Math.abs(al - bl) > maxDist) return Infinity;
+  if (al === 0) return bl;
+  if (bl === 0) return al;
+  let prev = new Array<number>(bl + 1);
+  let curr = new Array<number>(bl + 1);
+  for (let j = 0; j <= bl; j++) prev[j] = j;
+  for (let i = 1; i <= al; i++) {
+    curr[0] = i;
+    let rowMin = curr[0];
+    for (let j = 1; j <= bl; j++) {
+      const cost = a.charCodeAt(i - 1) === b.charCodeAt(j - 1) ? 0 : 1;
+      curr[j] = Math.min(curr[j - 1] + 1, prev[j] + 1, prev[j - 1] + cost);
+      if (curr[j] < rowMin) rowMin = curr[j];
+    }
+    if (rowMin > maxDist) return Infinity;
+    [prev, curr] = [curr, prev];
+  }
+  return prev[bl];
+}
+
+/**
+ * Fuzzy-match a broken link against a candidate pool. A candidate qualifies
+ * if Levenshtein distance ≤ 3 OR similarity ratio ≥ 0.8 (1 - dist/maxLen).
+ * Returns matches sorted ascending by distance.
+ */
+function fuzzyMatch(
+  query: string,
+  candidates: string[],
+): Array<{ name: string; distance: number }> {
+  const q = query.toLowerCase();
+  const out: Array<{ name: string; distance: number }> = [];
+  for (const cand of candidates) {
+    const c = cand.toLowerCase();
+    const maxLen = Math.max(q.length, c.length);
+    const ratioBound = Math.ceil(maxLen * 0.2); // ratio ≥ 0.8 ↔ dist ≤ 0.2*maxLen
+    const cutoff = Math.max(3, ratioBound);
+    const d = levenshtein(q, c, cutoff);
+    if (d === Infinity) continue;
+    const ratio = maxLen === 0 ? 1 : 1 - d / maxLen;
+    if (d <= 3 || ratio >= 0.8) {
+      out.push({ name: cand, distance: d });
+    }
+  }
+  out.sort((a, b) => a.distance - b.distance);
+  return out;
+}
+
 // === Check: unresolved wikilinks ===
 if (shouldRun("unresolved")) {
+  // Build candidate pool for fuzzy matching: concept names, source titles, MOC names.
+  // Each carries its domain set so we can scope-filter suggestions.
+  type FuzzyCandidate = { name: string; domains: string[] };
+  const fuzzyPool: FuzzyCandidate[] = [];
+  for (const c of conceptIndex) fuzzyPool.push({ name: c.name, domains: c.domains });
+  for (const s of sourceIndex) fuzzyPool.push({ name: s.title, domains: [s.domain] });
+  for (const m of mocIndex) fuzzyPool.push({ name: m.name, domains: m.domains });
+
   for (const filePath of allFiles) {
     if (isLintExcluded(filePath, lintExclude)) continue;
     try {
@@ -119,17 +181,37 @@ if (shouldRun("unresolved")) {
       const fmLinks = extractAllFrontmatterLinks(parsed.frontmatter);
       const allLinks = [...new Set([...bodyLinks, ...fmLinks])];
 
+      // Determine the source's effective domain for scope filtering.
+      const fileDomain = inferSourceDomain(filePath, config.vaultPath, registry);
+
       for (const link of allLinks) {
         const key = normalizeWikilinkTarget(link);
         if (key === null) continue; // intra-doc anchor or attachment — not a broken note ref
 
         if (!nameIndex.has(key)) {
+          // Try fuzzy match. Filter pool by canLink so we never suggest a
+          // private target as a fix for a public note's broken link.
+          const reachable = fuzzyPool.filter((c) => {
+            if (c.domains.length === 0) return true;
+            return c.domains.some((d) => canLink(fileDomain, d, registry));
+          });
+          const matches = fuzzyMatch(link, reachable.map((c) => c.name));
+          let suggestionText = "";
+          let fixable = false;
+          if (matches.length > 0) {
+            const best = matches[0];
+            const strongOnly = matches.filter((m) => m.distance <= 1);
+            if (strongOnly.length === 1) fixable = true;
+            suggestionText = ` — did you mean [[${best.name}]]?`;
+          }
+
           issues.push({
             check: "unresolved",
             severity: "critical",
             file: filePath,
-            message: `Broken wikilink: [[${link}]]`,
-            fixable: false,
+            message: `Broken wikilink: [[${link}]]${suggestionText}`,
+            fixable,
+            ...(matches.length > 0 ? { suggestion: matches[0].name } : {}),
           });
         }
       }
