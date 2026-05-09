@@ -35,7 +35,7 @@ All commands auto-discover the vault via cwd (`.obsidian/` or `.wiki/` marker) o
 - `commonplace vault-path` — Print the configured vault path (no tsx spawn, instant)
 - `commonplace config` — Print `.wiki/config.json` contents (no tsx spawn, instant)
 - `commonplace index [--incremental]` — Build/update `.wiki/*.json` indexes (human-readable output by default)
-- `commonplace lint [--check <name>] [--json] [--rank-by-traffic]` — Vault health audit (human-readable summary by default, `--json` for machine-parseable; `--rank-by-traffic` sorts stub findings by backlink count, descending)
+- `commonplace lint [--check <name>] [--json] [--rank-by-traffic]` — Vault health audit (human-readable summary by default, `--json` for machine-parseable; `--rank-by-traffic` sorts stub findings by backlink count, descending). Checks include `unresolved`, `stubs`, `orphans`, `frontmatter`, `moc-staleness`, `scope-violations`, `duplicates`, `malformed-dates`, `near-duplicate-names`, `malformed-concept-names`, `underlinked`, `cluster-cohesion`, `bridge-thinness`, `weak-summary`, `cross-scope-bridge`.
 - `commonplace validate <file>` — Single file frontmatter validation
 - `commonplace scope-check [<file>]` — Domain scope enforcement
 - `commonplace score [--json]` — Compute vault quality score (human-readable by default, `--json` for machine-parseable)

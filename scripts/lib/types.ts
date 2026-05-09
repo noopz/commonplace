@@ -105,6 +105,8 @@ export interface LintIssue {
   file: string;
   message: string;
   fixable: boolean;
+  scope?: "public" | "private";
+  suggestion?: string;
 }
 
 export interface LintResult {

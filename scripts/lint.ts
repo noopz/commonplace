@@ -93,6 +93,7 @@ const checksToRun = values.check ? [values.check] : [
   "malformed-concept-names",
   "underlinked",
   "cluster-cohesion",
+  "bridge-thinness",
 ];
 
 function shouldRun(check: string): boolean {
@@ -560,6 +561,78 @@ if (shouldRun("cluster-cohesion")) {
         fixable: false,
       });
     }
+  }
+}
+
+// === Check: bridge-thinness ===
+// A bridge (concept appearing in ≥2 domains) carries cross-domain navigation
+// load. If its body is anemic relative to the load, the bridge is structurally
+// promising but informationally empty. Stratify by scope so a thin bridge
+// reachable only from private sources can be deprioritized.
+if (shouldRun("bridge-thinness")) {
+  // Pre-compute scope-stratified backlinks per concept from the source index.
+  const conceptByName = new Map(conceptIndex.map((c) => [c.name, c]));
+  const publicLoad = new Map<string, number>();
+  const privateLoad = new Map<string, number>();
+  for (const source of sourceIndex) {
+    for (const conceptName of source.concepts) {
+      const concept = conceptByName.get(conceptName);
+      if (!concept) continue;
+      // Reachable iff source can link to at least one of the concept's domains
+      const reachable =
+        concept.domains.length === 0 ||
+        concept.domains.some((d) => canLink(source.domain, d, registry));
+      if (!reachable) continue;
+      const bucket = source.scope === "public" ? publicLoad : privateLoad;
+      bucket.set(conceptName, (bucket.get(conceptName) ?? 0) + 1);
+    }
+  }
+
+  for (const concept of conceptIndex) {
+    if (concept.domains.length < 2) continue;
+
+    // Body word count: strip frontmatter, headings, wikilinks, then count words.
+    let bodyWordCount = 0;
+    try {
+      const parsed = parseNote(concept.path, config.vaultPath);
+      const stripped = parsed.body
+        .replace(/```[\s\S]*?```/g, " ")
+        .replace(/`[^`]+`/g, " ")
+        .replace(/^#{1,6}\s+.*$/gm, " ")
+        .replace(/\[\[[^\[\]]+\]\]/g, " ");
+      bodyWordCount = stripped.split(/\s+/).filter((w) => w.length > 0).length;
+    } catch {
+      continue;
+    }
+
+    const pubBL = publicLoad.get(concept.name) ?? 0;
+    const privBL = privateLoad.get(concept.name) ?? 0;
+    const dCount = concept.domains.length;
+
+    const thin = (backlinks: number): boolean => {
+      if (backlinks < 3) return false;
+      return bodyWordCount / (backlinks * dCount) < 15;
+    };
+
+    const pubThin = thin(pubBL);
+    const privThin = thin(privBL);
+    if (!pubThin && !privThin) continue;
+
+    const reachableOnlyPrivately = pubBL === 0 && privBL > 0;
+    const stratum = pubThin && privThin
+      ? `thin under public AND private load (public=${pubBL}, private=${privBL}, words=${bodyWordCount})`
+      : pubThin
+        ? `thin under public load (backlinks=${pubBL}, words=${bodyWordCount})`
+        : `thin under private load (backlinks=${privBL}, words=${bodyWordCount})`;
+
+    issues.push({
+      check: "bridge-thinness",
+      severity: "improvement",
+      file: concept.path,
+      message: `Bridge "${concept.name}" spans ${dCount} domains but is ${stratum}`,
+      fixable: false,
+      ...(reachableOnlyPrivately ? { scope: "private" as const } : {}),
+    });
   }
 }
 
