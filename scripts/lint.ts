@@ -94,6 +94,7 @@ const checksToRun = values.check ? [values.check] : [
   "underlinked",
   "cluster-cohesion",
   "bridge-thinness",
+  "weak-summary",
 ];
 
 function shouldRun(check: string): boolean {
@@ -633,6 +634,34 @@ if (shouldRun("bridge-thinness")) {
       fixable: false,
       ...(reachableOnlyPrivately ? { scope: "private" as const } : {}),
     });
+  }
+}
+
+// === Check: weak-summary ===
+// A source's ## Summary is the front-page hook — if it carries no wikilinks
+// at all, the note enters the graph cold. Suggestion only. Notes without a
+// Summary section are a different shape of problem (not flagged here).
+if (shouldRun("weak-summary")) {
+  const summaryRegex =
+    /^##\s+Summary\s*\n([\s\S]*?)(?=\n##\s|\n$|$)/m;
+  for (const source of sourceIndex) {
+    try {
+      const parsed = parseNote(source.path, config.vaultPath);
+      const m = parsed.body.match(summaryRegex);
+      if (!m) continue;
+      const summaryBody = m[1];
+      if (extractWikilinks(summaryBody).length === 0) {
+        issues.push({
+          check: "weak-summary",
+          severity: "suggestion",
+          file: source.path,
+          message: `Summary section has no wikilinks — front-load links to key concepts`,
+          fixable: true,
+        });
+      }
+    } catch {
+      // skip
+    }
   }
 }
 
