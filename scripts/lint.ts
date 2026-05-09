@@ -95,6 +95,7 @@ const checksToRun = values.check ? [values.check] : [
   "cluster-cohesion",
   "bridge-thinness",
   "weak-summary",
+  "cross-scope-bridge",
 ];
 
 function shouldRun(check: string): boolean {
@@ -743,6 +744,34 @@ if (shouldRun("weak-summary")) {
       }
     } catch {
       // skip
+    }
+  }
+}
+
+// === Check: cross-scope-bridge ===
+// A concept backlinked by both public and private sources is an
+// information-leakage surface — a public reader following the concept page
+// sees the private side's adjacency. Not a violation, but worth surfacing.
+if (shouldRun("cross-scope-bridge")) {
+  const pubCount = new Map<string, number>();
+  const privCount = new Map<string, number>();
+  for (const source of sourceIndex) {
+    const bucket = source.scope === "public" ? pubCount : privCount;
+    for (const conceptName of source.concepts) {
+      bucket.set(conceptName, (bucket.get(conceptName) ?? 0) + 1);
+    }
+  }
+  for (const concept of conceptIndex) {
+    const p = pubCount.get(concept.name) ?? 0;
+    const q = privCount.get(concept.name) ?? 0;
+    if (p > 0 && q > 0) {
+      issues.push({
+        check: "cross-scope-bridge",
+        severity: "suggestion",
+        file: concept.path,
+        message: `Concept "${concept.name}" is backlinked by ${p} public and ${q} private source${q > 1 ? "s" : ""} — leakage surface`,
+        fixable: false,
+      });
     }
   }
 }
