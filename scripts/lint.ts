@@ -48,6 +48,7 @@ const { values } = parseArgs({
     check: { type: "string" },
     instruct: { type: "boolean", default: false },
     json: { type: "boolean", default: false },
+    "rank-by-traffic": { type: "boolean", default: false },
   },
 });
 
@@ -560,6 +561,18 @@ if (shouldRun("cluster-cohesion")) {
       });
     }
   }
+}
+
+// --rank-by-traffic: sort stub findings by stub concept's backlinkCount desc.
+// High-traffic stubs are the highest-leverage targets for compilation work.
+if (values["rank-by-traffic"]) {
+  const stubBacklinks = new Map<string, number>();
+  for (const c of conceptIndex) stubBacklinks.set(c.path, c.backlinkCount);
+  const stubFindings = issues.filter((i) => i.check === "stubs");
+  const others = issues.filter((i) => i.check !== "stubs");
+  stubFindings.sort((a, b) => (stubBacklinks.get(b.file) ?? 0) - (stubBacklinks.get(a.file) ?? 0));
+  issues.length = 0;
+  issues.push(...others, ...stubFindings);
 }
 
 // Build result
