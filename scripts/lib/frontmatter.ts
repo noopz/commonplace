@@ -18,14 +18,11 @@ export function parseNote(filePath: string, vaultPath: string): ParsedNote {
   const { data, content } = matter(cleaned);
   const noteType = classifyNote(filePath, vaultPath);
 
-  // Extract title from first H1 or filename
-  const h1Match = content.match(/^#\s+(.+)$/m);
-  const title =
-    h1Match?.[1] ||
-    filePath
-      .split("/")
-      .pop()!
-      .replace(/\.md$/, "");
+  // Title is always the filename stem. Obsidian resolves [[wikilinks]] by
+  // filename, so the index's link-target field must match. The body's H1 is
+  // a separate display title and is intentionally allowed to diverge — see
+  // the `filename-h1-mismatch` lint check and the wiki-moc-updater agent.
+  const title = filePath.split("/").pop()!.replace(/\.md$/, "");
 
   return {
     filePath,
@@ -35,6 +32,32 @@ export function parseNote(filePath: string, vaultPath: string): ParsedNote {
     raw,
     noteType,
   };
+}
+
+/**
+ * Extract the first H1 line from a markdown body, ignoring lines inside fenced
+ * code blocks (``` … ``` or ~~~ … ~~~). Returns null if no H1 outside fences.
+ *
+ * Plain `^#\s+` regex matching is unsafe because code blocks frequently contain
+ * lines that begin with `#` (Python shebangs, comments, command output) which
+ * are not document titles.
+ */
+export function extractH1(body: string): string | null {
+  const lines = body.split("\n");
+  let fence: string | null = null;
+  for (const line of lines) {
+    const fenceMatch = line.match(/^(\s*)(```+|~~~+)/);
+    if (fenceMatch) {
+      const marker = fenceMatch[2][0];
+      if (fence === null) fence = marker;
+      else if (fence === marker) fence = null;
+      continue;
+    }
+    if (fence !== null) continue;
+    const h1 = line.match(/^#\s+(.+)$/);
+    if (h1) return h1[1].trim();
+  }
+  return null;
 }
 
 export function extractWikilinks(text: string): string[] {

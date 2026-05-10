@@ -18,6 +18,7 @@ import {
 } from "./lib/vault.js";
 import {
   parseNote,
+  extractH1,
   extractWikilinks,
   extractFrontmatterWikilinks,
   extractAllFrontmatterLinks,
@@ -382,9 +383,8 @@ if (shouldRun("filename-h1-mismatch")) {
     try {
       const filename = filePath.split("/").pop()!.replace(/\.md$/, "");
       const parsed = parseNote(filePath, config.vaultPath);
-      const h1Match = parsed.body.match(/^#\s+(.+)$/m);
-      if (!h1Match) continue;
-      const h1 = h1Match[1].trim();
+      const h1 = extractH1(parsed.body);
+      if (!h1) continue;
       if (h1 !== filename) {
         issues.push({
           check: "filename-h1-mismatch",
