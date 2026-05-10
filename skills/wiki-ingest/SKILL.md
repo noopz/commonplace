@@ -166,12 +166,18 @@ After writing the source note and any new concept stubs:
    - Dispatch `wiki-moc-updater` agent with the new source note path and its `mocs:` frontmatter list so it knows which MOCs to update
    - Run `commonplace link --note "<new source note path>"` to wikilink any unlinked concept/source/MOC mentions in that note. Deterministic; no agent dispatch.
 
-5. **Log**: append to `$VAULT_PATH/.wiki/log.md`:
+5. **Supersession scan** (hard prompt — do not skip): grep the new note's body for supersession declarations:
+   ```bash
+   grep -nE '(supersedes|replaces|replaced|migrated from|formerly|previously known as|in place of)\s+\[\[' "<new source note path>"
+   ```
+   If any match, the new note declares it supersedes an existing vault entity. Stop and route to `wiki-supersede` — pass the matched predecessor wikilink as `--old` and the new note path as `--new`. Without this, the predecessor's siblings will keep treating it as live. This is non-optional: a declared supersession that doesn't propagate is exactly the failure mode `wiki-supersede` exists to fix.
+
+6. **Log**: append to `$VAULT_PATH/.wiki/log.md`:
    ```bash
    commonplace log --entry "## [$(date +%Y-%m-%d)] ingest | {Note Title}\n- Concepts: N new, N existing. MOCs: N linked.\n"
    ```
 
-6. **Report**: Tell the user what was created (impact check and cross-domain analysis run automatically via hooks):
+7. **Report**: Tell the user what was created (impact check and cross-domain analysis run automatically via hooks):
    - Source note path
    - Number of concepts extracted (new + existing)
    - MOCs linked

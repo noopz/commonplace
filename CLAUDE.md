@@ -48,6 +48,10 @@ All commands auto-discover the vault via cwd (`.obsidian/` or `.wiki/` marker) o
 - `commonplace freshen --clear <relative-path>` — Clear stale flag after re-ingesting a note
 - `commonplace deep-link [--mode concepts|notes] [--threshold <n>] [--top <n>] [--note <path>]` — Find implicit concept connections via semantic similarity (requires Ollama + nomic-embed-text)
 - `commonplace log --entry "<text>"` — Append an entry to `.wiki/log.md` (use instead of printf/bash redirection)
+- `commonplace supersede --scan --old <name> [--new <name>] [--scope <path>] [--json]` — Find + classify prose mentions of a soon-to-be-retired entity (buckets: historical, comparison, already-retired, live, live-in-code, needs-review)
+- `commonplace supersede --retire --old <name> --new <name> --reason "..." [--date YYYY-MM-DD] [--dry-run]` — Rename old to "(Retired) <title>", inject warning callout, add `retired` tag, update wikilinks across vault, write breadcrumb to `.wiki/supersessions.jsonl`
+- `commonplace supersede --check [--json]` — Punch list: retired notes still mentioned in non-retired siblings + new notes declaring supersession with no breadcrumb
+- `commonplace supersede --list [--json]` — Show recorded supersessions
 
 Paper commands:
 - `commonplace paper:fetch <url-or-id>` — Download from arXiv/URLs
