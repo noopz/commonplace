@@ -373,11 +373,45 @@ if (shouldRun("malformed-dates")) {
 }
 
 // === Check: filename / H1 mismatch on source notes ===
-// Obsidian resolves [[X]] by filename, not H1. When they disagree, agents that
-// derive link text from H1 produce dead links (see wiki-moc-updater bug fix).
-// Severity is suggestion: shortening paper titles for filename hygiene is
-// legitimate, but the mismatch is worth surfacing so the author knows agents
-// must use the filename stem in [[...]].
+// Obsidian resolves [[X]] by filename, not H1. When they disagree in *substantive*
+// ways, agents that derive link text from H1 produce dead links (the wiki-moc-updater
+// bug). But filenames legitimately differ from H1s along well-defined patterns:
+// colons → hyphens, illegal chars (?*|<>\/) dropped, em-dashes → hyphens, curly
+// quotes → straight, trailing subtitles after `:` or `—` shortened away. The naive
+// strict-equality check produced ~80% false positives on a real vault. So we
+// normalize both sides and only flag if the filename's word sequence is NOT an
+// ordered subsequence of the H1's — i.e., the filename contains words the H1
+// dropped (system name, method name) or a word disagrees on spelling.
+//
+// To extend: add new char substitutions to normalizeMismatchSide(). The
+// subsequence direction is one-way (filename ⊆ H1) by design — the convention is
+// "filename is the shortened handle of the canonical H1," so only filename-words-
+// missing-from-H1 indicates a real problem.
+function normalizeMismatchSide(s: string): string[] {
+  const lowered = s.toLowerCase();
+  // Replace filesystem-illegal and typographic chars with hyphen so they tokenize
+  // to nothing or to a separator. Order matters: do char substitution before
+  // stripping quotes.
+  const subbed = lowered.replace(/[—–:?*|<>\\/]/g, "-");
+  // Strip apostrophes and curly/straight quotes entirely (filename hygiene removes
+  // them; H1s keep them). U+2018 U+2019 U+201A U+201B U+201C U+201D U+201E U+201F
+  const stripped = subbed.replace(/['‘’‚‛“”„‟"`]/g, "");
+  // Tokenize on whitespace, hyphens, underscores, parentheses. Empties dropped.
+  return stripped.split(/[\s\-_()]+/).filter((t) => t.length > 0);
+}
+
+function isOrderedSubsequence(needle: string[], haystack: string[]): boolean {
+  if (needle.length === 0) return true;
+  let i = 0;
+  for (const tok of haystack) {
+    if (tok === needle[i]) {
+      i++;
+      if (i === needle.length) return true;
+    }
+  }
+  return false;
+}
+
 if (shouldRun("filename-h1-mismatch")) {
   for (const s of sourceIndex) {
     const filePath = s.path;
@@ -386,15 +420,20 @@ if (shouldRun("filename-h1-mismatch")) {
       const parsed = parseNote(filePath, config.vaultPath);
       const h1 = extractH1(parsed.body);
       if (!h1) continue;
-      if (h1 !== filename) {
-        issues.push({
-          check: "filename-h1-mismatch",
-          severity: "suggestion",
-          file: filePath,
-          message: `Filename "${filename}" differs from H1 "${h1}" — agents and MOC entries must use the filename stem in [[wikilinks]] (Obsidian resolves by filename)`,
-          fixable: false,
-        });
-      }
+      const fnTokens = normalizeMismatchSide(filename);
+      const h1Tokens = normalizeMismatchSide(h1);
+      // No flag if filename's word sequence is contained in H1 — covers both
+      // exact-after-normalization (colon ↔ hyphen, em-dash, etc.) and the
+      // shortened-handle pattern (filename is a prefix-or-subset of the
+      // canonical H1, with H1 adding subtitle / parenthetical / leading "The").
+      if (isOrderedSubsequence(fnTokens, h1Tokens)) continue;
+      issues.push({
+        check: "filename-h1-mismatch",
+        severity: "suggestion",
+        file: filePath,
+        message: `Filename "${filename}" disagrees with H1 "${h1}" beyond known intentional patterns — filename has word(s) the H1 dropped or a word's spelling diverges (Obsidian resolves [[wikilinks]] by filename, so agents must use the filename stem)`,
+        fixable: false,
+      });
     } catch {
       // Skip unreadable files
     }
