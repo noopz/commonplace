@@ -1,6 +1,6 @@
 ---
 name: wiki-supersede
-description: "Retire a vault entity with prose mentions and propagate live→historical reframing across siblings — a recurring gap in wiki-ingest alone. Activate when the user retires, replaces, deprecates, or decommissions an entity with a named successor (\"mark X retired\", \"switched from X to Y\", \"Y supersedes X\", \"decommissioned X\"); when an ingested note declares supersession (`supersedes|replaces|replaced|migrated from|formerly|previously known as [[X]]`); or when a note gains a `retired` tag/callout, or wiki-query/wiki-pruner/wiki-impact-checker flags a retired-but-still-referenced entity. Skip for stale-link cleanup, typo renames, or live entities still in use."
+description: "Use this skill whenever the user retires, replaces, deprecates, or decommissions a vault entity with prose mentions — wiki-ingest doesn't retroactively reframe siblings, so they keep treating the retired thing as live. Activate on \"mark X retired\", \"switched from X to Y\", \"Y supersedes X\"; when an ingested note's body says `supersedes|replaces|migrated from|formerly|previously known as [[X]]`; or when a note gains a `retired` tag/callout or another wiki skill flags retired-but-live mentions. Skip for stale-link cleanup, typo renames, or live entities still in use."
 ---
 
 # Wiki Supersede
