@@ -122,6 +122,10 @@ At the end of your answer, briefly note any vault updates. Keep it short — one
 5. Answer with comparison table + wikilinks
 6. Mention: "Updated [[layered memory]] to note its connection to [[character design]]"
 
+## Retired Entities
+
+When a query lands on a note with a `retired` tag, a `> [!warning] Retired` callout, or a filename starting with `(Retired) `, answer the question but flag it: "Note: [[X]] is retired (superseded by [[Y]]). Treat this as historical." If you find live-prose mentions of the retired entity in *other* notes during graph traversal, surface them to the user and recommend running `wiki-supersede --check` to clear the debt. Do not silently rewrite siblings — route to `wiki-supersede`.
+
 ## Scope Rules
 
 When filing back connections:

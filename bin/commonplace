@@ -36,6 +36,7 @@ const SCRIPTS = {
   'prompt-context':      'scripts/prompt-context.ts',
   'agent-guard':         'scripts/agent-guard.ts',
   'cleanup-cache':       'scripts/cleanup-cache.ts',
+  'supersede':           'scripts/supersede.ts',
   // Paper pipeline
   'paper:fetch':          'scripts/paper/fetch-paper.ts',
   'paper:extract':        'scripts/paper/extract-sections.ts',
@@ -126,6 +127,7 @@ if (!cmd || cmd === '--help' || cmd === '-h') {
   console.error('  impact        Find existing notes affected by a source');
   console.error('  cross-domain  Find cross-domain bridge concepts for a source');
   console.error('  deep-link     Find implicit concept connections via embeddings (requires Ollama)');
+  console.error('  supersede     Retire an entity superseded by a successor; propagate live-framing rewrites');
   console.error('');
   console.error('  paper:fetch          Download paper from arXiv/URL');
   console.error('  paper:extract        Extract pages from PDF');
