@@ -1,6 +1,6 @@
 ---
 name: wiki-query
-description: "Answer research questions using vault knowledge and file novel insights back. ALWAYS use this skill when the user asks questions about topics covered in the vault — like \"how does X relate to Y\", \"what do the papers say about Z\", \"compare approaches to W\", or any question that could be answered from existing vault notes. Also activate when the user is discussing connections between concepts, since those discussions may reveal novel links worth filing back. Critically, also activate immediately after wiki-ingest when the user pivots from saving to asking how the just-ingested source relates to other vault topics (\"how does this relate to X\", \"what does this mean for Y\", \"how does this compare to Z\"). Do not synthesize from index metadata (titles, tags, concepts arrays) in that case — dispatch this skill so related notes are actually read and cross-domain insights get filed back."
+description: "ALWAYS use when the user asks a question answerable from vault notes — 'how does X relate to Y', 'what do the papers say about Z', 'compare approaches to W', or discussions of concept connections. Critically, also fire immediately after wiki-ingest when the user pivots from saving to asking how the new source relates to other vault topics — read the related notes, don't synthesize from index metadata. Files novel insights back into the vault."
 ---
 
 # Wiki Query

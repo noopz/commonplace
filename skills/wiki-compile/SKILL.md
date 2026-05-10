@@ -1,6 +1,6 @@
 ---
 name: wiki-compile
-description: "ALWAYS use this skill the moment the user wants concept stubs turned into real definitions — phrases like 'fill in the stubs', 'compile the concepts', 'flesh out the concepts', 'fill in the blanks', 'finish those Definition-pending notes', or any follow-up after wiki-lint reports stubs. Reads the source papers that reference each stub and synthesizes a definition grounded in the actual citations. Before compiling, verify the concept name is a real noun phrase (not a sentence fragment) — skip malformed names and flag them for manual review."
+description: "ALWAYS use when the user wants concept stubs filled with real definitions — 'fill in the stubs', 'compile the concepts', 'flesh out the concepts', or follow-up after wiki-lint reports stubs. Reads source papers referencing each stub and synthesizes a citation-grounded definition. Skip malformed names (sentence fragments, not noun phrases) and flag for manual review."
 ---
 
 # Wiki Compile

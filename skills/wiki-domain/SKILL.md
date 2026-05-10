@@ -1,6 +1,6 @@
 ---
 name: wiki-domain
-description: "ALWAYS use this skill when the user wants to set up, configure, rename, or list research domains in the vault — phrases like 'set up a domain for X', 'add a new domain', 'I want to start researching X', 'what domains exist', 'change the scope of the X domain', 'merge these domains'. Creates the domain folder, registers it in the registry, and configures scope/linkGroup. Do NOT speculatively activate on ingest-related prompts — wiki-ingest will hand off explicitly when no matching domain exists for an incoming source."
+description: "ALWAYS use when the user wants to set up, list, rename, or merge research domains — 'set up a domain for X', 'add a new domain', 'what domains exist', 'change scope of the X domain'. Creates domain folder, registers it, configures scope/linkGroup. Do NOT speculatively activate on ingest prompts — wiki-ingest hands off explicitly when no domain matches."
 ---
 
 # Wiki Domain

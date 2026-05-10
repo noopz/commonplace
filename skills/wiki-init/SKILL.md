@@ -1,6 +1,6 @@
 ---
 name: wiki-init
-description: "ALWAYS use this skill when the user wants commonplace pointed at a folder of markdown files for the first time, or wants to reconfigure which folder is the active vault — phrases like 'set up the wiki', 'initialize for this vault', 'configure the plugin', 'point the plugin at this vault', 'this is my knowledge depot', 'use this folder', 'set this up here'. Also activate when any commonplace script fails because no `.vault-path` exists yet — that's the canonical trigger condition. Writes the vault marker, scaffolds `.wiki/`, and discovers initial domains/genres."
+description: "ALWAYS use when the user wants commonplace pointed at a folder for the first time, or to reconfigure the active vault — 'set up the wiki', 'point the plugin at this vault', 'use this folder'. Also activate when any commonplace script fails because no `.vault-path` exists. Writes the vault marker, scaffolds `.wiki/`, discovers initial domains/genres."
 ---
 
 # Wiki Init

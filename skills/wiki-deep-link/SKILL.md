@@ -1,6 +1,6 @@
 ---
 name: wiki-deep-link
-description: "ALWAYS use this skill when the user wants the vault searched for hidden concept connections that wikilink scanning won't find — phrases like 'find hidden connections', 'deep link', 'semantic linking', 'what concepts am I missing links to', 'improve graph connectivity', 'connect related ideas the embeddings see'. Uses local embeddings to surface (sentence, concept) pairs that read as related but aren't currently wikilinked, then reviews and adds links where the connection holds up. Requires Ollama running locally with nomic-embed-text — check before dispatching and tell the user to start Ollama if it's down. On-demand only; never auto-triggers from ingestion."
+description: "ALWAYS use when the user wants hidden concept connections surfaced — 'find hidden connections', 'deep link', 'semantic linking', 'what links am I missing', 'improve graph connectivity'. Uses local embeddings to flag related-but-unlinked (sentence, concept) pairs, then adds wikilinks where the connection holds. Requires Ollama + nomic-embed-text running locally — check before dispatching. On-demand only; never auto-triggers."
 ---
 
 # Wiki Deep Link

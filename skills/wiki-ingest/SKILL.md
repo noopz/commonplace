@@ -1,6 +1,6 @@
 ---
 name: wiki-ingest
-description: "Ingest a source into the vault knowledge base. ALWAYS use this skill when the user shares a paper, article, URL, arXiv link, project, or any research finding they want to save. Activate when the user pastes an arXiv ID, shares a URL, says \"add this to the vault\", \"I found this interesting\", \"save this\", \"remember this\", or asks you to look at a paper. Also activate when the user describes a specific finding, technique, or project they want captured. Do NOT activate for general conversation about topics — only when there's explicit save intent or a concrete source (URL, paper ID, pasted content) to ingest."
+description: "ALWAYS use when the user wants a source saved to the vault — pastes an arXiv ID/URL, says 'add this to the vault', 'save this', 'remember this', 'I found this interesting', or describes a specific finding/technique/project to capture. Do NOT activate for general topic conversation — only when there's explicit save intent or a concrete source (URL, paper ID, pasted content)."
 ---
 
 # Wiki Ingest

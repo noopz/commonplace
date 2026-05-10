@@ -1,6 +1,6 @@
 ---
 name: autoimprove
-description: "ALWAYS use this skill whenever the user wants the vault made better autonomously — phrases like 'improve the vault', 'autoimprove', 'make the vault better', 'run the improvement loop', 'fix what you can', or asks 'what's the vault score' / 'how can the vault be improved'. Runs a score-gated loop that picks the highest-impact fix, executes, re-scores, repeats. Shows the score at minimum, runs rounds if there's actionable work. If the user only wants a read-only diagnostic ('what needs fixing', 'how's the vault'), defer to wiki-lint instead — autoimprove writes."
+description: "ALWAYS use when the user wants the vault made better autonomously — 'improve the vault', 'autoimprove', 'fix what you can', 'what's the vault score'. Runs a score-gated loop: pick highest-impact fix, execute, re-score, repeat. Defer to wiki-lint for read-only diagnostics — autoimprove writes."
 ---
 
 # Autoimprove
