@@ -48,6 +48,7 @@ const { values } = parseArgs({
     check: { type: "string" },
     instruct: { type: "boolean", default: false },
     json: { type: "boolean", default: false },
+    "rank-by-traffic": { type: "boolean", default: false },
   },
 });
 
@@ -92,6 +93,9 @@ const checksToRun = values.check ? [values.check] : [
   "malformed-concept-names",
   "underlinked",
   "cluster-cohesion",
+  "bridge-thinness",
+  "weak-summary",
+  "cross-scope-bridge",
 ];
 
 function shouldRun(check: string): boolean {
@@ -106,8 +110,70 @@ function isLintExcluded(filePath: string, exclude: string[] = []): boolean {
   return exclude.some((pattern) => filePath.includes(pattern));
 }
 
+/**
+ * Levenshtein distance with early-exit when distance exceeds `maxDist`.
+ * Returns Infinity if the bound is exceeded, so callers can cheaply skip.
+ */
+function levenshtein(a: string, b: string, maxDist: number): number {
+  const al = a.length;
+  const bl = b.length;
+  if (Math.abs(al - bl) > maxDist) return Infinity;
+  if (al === 0) return bl;
+  if (bl === 0) return al;
+  let prev = new Array<number>(bl + 1);
+  let curr = new Array<number>(bl + 1);
+  for (let j = 0; j <= bl; j++) prev[j] = j;
+  for (let i = 1; i <= al; i++) {
+    curr[0] = i;
+    let rowMin = curr[0];
+    for (let j = 1; j <= bl; j++) {
+      const cost = a.charCodeAt(i - 1) === b.charCodeAt(j - 1) ? 0 : 1;
+      curr[j] = Math.min(curr[j - 1] + 1, prev[j] + 1, prev[j - 1] + cost);
+      if (curr[j] < rowMin) rowMin = curr[j];
+    }
+    if (rowMin > maxDist) return Infinity;
+    [prev, curr] = [curr, prev];
+  }
+  return prev[bl];
+}
+
+/**
+ * Fuzzy-match a broken link against a candidate pool. A candidate qualifies
+ * if Levenshtein distance ≤ 3 OR similarity ratio ≥ 0.8 (1 - dist/maxLen).
+ * Returns matches sorted ascending by distance.
+ */
+function fuzzyMatch(
+  query: string,
+  candidates: string[],
+): Array<{ name: string; distance: number }> {
+  const q = query.toLowerCase();
+  const out: Array<{ name: string; distance: number }> = [];
+  for (const cand of candidates) {
+    const c = cand.toLowerCase();
+    const maxLen = Math.max(q.length, c.length);
+    const ratioBound = Math.ceil(maxLen * 0.2); // ratio ≥ 0.8 ↔ dist ≤ 0.2*maxLen
+    const cutoff = Math.max(3, ratioBound);
+    const d = levenshtein(q, c, cutoff);
+    if (d === Infinity) continue;
+    const ratio = maxLen === 0 ? 1 : 1 - d / maxLen;
+    if (d <= 3 || ratio >= 0.8) {
+      out.push({ name: cand, distance: d });
+    }
+  }
+  out.sort((a, b) => a.distance - b.distance);
+  return out;
+}
+
 // === Check: unresolved wikilinks ===
 if (shouldRun("unresolved")) {
+  // Build candidate pool for fuzzy matching: concept names, source titles, MOC names.
+  // Each carries its domain set so we can scope-filter suggestions.
+  type FuzzyCandidate = { name: string; domains: string[] };
+  const fuzzyPool: FuzzyCandidate[] = [];
+  for (const c of conceptIndex) fuzzyPool.push({ name: c.name, domains: c.domains });
+  for (const s of sourceIndex) fuzzyPool.push({ name: s.title, domains: [s.domain] });
+  for (const m of mocIndex) fuzzyPool.push({ name: m.name, domains: m.domains });
+
   for (const filePath of allFiles) {
     if (isLintExcluded(filePath, lintExclude)) continue;
     try {
@@ -116,17 +182,37 @@ if (shouldRun("unresolved")) {
       const fmLinks = extractAllFrontmatterLinks(parsed.frontmatter);
       const allLinks = [...new Set([...bodyLinks, ...fmLinks])];
 
+      // Determine the source's effective domain for scope filtering.
+      const fileDomain = inferSourceDomain(filePath, config.vaultPath, registry);
+
       for (const link of allLinks) {
         const key = normalizeWikilinkTarget(link);
         if (key === null) continue; // intra-doc anchor or attachment — not a broken note ref
 
         if (!nameIndex.has(key)) {
+          // Try fuzzy match. Filter pool by canLink so we never suggest a
+          // private target as a fix for a public note's broken link.
+          const reachable = fuzzyPool.filter((c) => {
+            if (c.domains.length === 0) return true;
+            return c.domains.some((d) => canLink(fileDomain, d, registry));
+          });
+          const matches = fuzzyMatch(link, reachable.map((c) => c.name));
+          let suggestionText = "";
+          let fixable = false;
+          if (matches.length > 0) {
+            const best = matches[0];
+            const strongOnly = matches.filter((m) => m.distance <= 1);
+            if (strongOnly.length === 1) fixable = true;
+            suggestionText = ` — did you mean [[${best.name}]]?`;
+          }
+
           issues.push({
             check: "unresolved",
             severity: "critical",
             file: filePath,
-            message: `Broken wikilink: [[${link}]]`,
-            fixable: false,
+            message: `Broken wikilink: [[${link}]]${suggestionText}`,
+            fixable,
+            ...(matches.length > 0 ? { suggestion: matches[0].name } : {}),
           });
         }
       }
@@ -560,6 +646,146 @@ if (shouldRun("cluster-cohesion")) {
       });
     }
   }
+}
+
+// === Check: bridge-thinness ===
+// A bridge (concept appearing in ≥2 domains) carries cross-domain navigation
+// load. If its body is anemic relative to the load, the bridge is structurally
+// promising but informationally empty. Stratify by scope so a thin bridge
+// reachable only from private sources can be deprioritized.
+if (shouldRun("bridge-thinness")) {
+  // Pre-compute scope-stratified backlinks per concept from the source index.
+  const conceptByName = new Map(conceptIndex.map((c) => [c.name, c]));
+  const publicLoad = new Map<string, number>();
+  const privateLoad = new Map<string, number>();
+  for (const source of sourceIndex) {
+    for (const conceptName of source.concepts) {
+      const concept = conceptByName.get(conceptName);
+      if (!concept) continue;
+      // Reachable iff source can link to at least one of the concept's domains
+      const reachable =
+        concept.domains.length === 0 ||
+        concept.domains.some((d) => canLink(source.domain, d, registry));
+      if (!reachable) continue;
+      const bucket = source.scope === "public" ? publicLoad : privateLoad;
+      bucket.set(conceptName, (bucket.get(conceptName) ?? 0) + 1);
+    }
+  }
+
+  for (const concept of conceptIndex) {
+    if (concept.domains.length < 2) continue;
+
+    // Body word count: strip frontmatter, headings, wikilinks, then count words.
+    let bodyWordCount = 0;
+    try {
+      const parsed = parseNote(concept.path, config.vaultPath);
+      const stripped = parsed.body
+        .replace(/```[\s\S]*?```/g, " ")
+        .replace(/`[^`]+`/g, " ")
+        .replace(/^#{1,6}\s+.*$/gm, " ")
+        .replace(/\[\[[^\[\]]+\]\]/g, " ");
+      bodyWordCount = stripped.split(/\s+/).filter((w) => w.length > 0).length;
+    } catch {
+      continue;
+    }
+
+    const pubBL = publicLoad.get(concept.name) ?? 0;
+    const privBL = privateLoad.get(concept.name) ?? 0;
+    const dCount = concept.domains.length;
+
+    const thin = (backlinks: number): boolean => {
+      if (backlinks < 3) return false;
+      return bodyWordCount / (backlinks * dCount) < 15;
+    };
+
+    const pubThin = thin(pubBL);
+    const privThin = thin(privBL);
+    if (!pubThin && !privThin) continue;
+
+    const reachableOnlyPrivately = pubBL === 0 && privBL > 0;
+    const stratum = pubThin && privThin
+      ? `thin under public AND private load (public=${pubBL}, private=${privBL}, words=${bodyWordCount})`
+      : pubThin
+        ? `thin under public load (backlinks=${pubBL}, words=${bodyWordCount})`
+        : `thin under private load (backlinks=${privBL}, words=${bodyWordCount})`;
+
+    issues.push({
+      check: "bridge-thinness",
+      severity: "improvement",
+      file: concept.path,
+      message: `Bridge "${concept.name}" spans ${dCount} domains but is ${stratum}`,
+      fixable: false,
+      ...(reachableOnlyPrivately ? { scope: "private" as const } : {}),
+    });
+  }
+}
+
+// === Check: weak-summary ===
+// A source's ## Summary is the front-page hook — if it carries no wikilinks
+// at all, the note enters the graph cold. Suggestion only. Notes without a
+// Summary section are a different shape of problem (not flagged here).
+if (shouldRun("weak-summary")) {
+  const summaryRegex =
+    /^##\s+Summary\s*\n([\s\S]*?)(?=\n##\s|\n$|$)/m;
+  for (const source of sourceIndex) {
+    try {
+      const parsed = parseNote(source.path, config.vaultPath);
+      const m = parsed.body.match(summaryRegex);
+      if (!m) continue;
+      const summaryBody = m[1];
+      if (extractWikilinks(summaryBody).length === 0) {
+        issues.push({
+          check: "weak-summary",
+          severity: "suggestion",
+          file: source.path,
+          message: `Summary section has no wikilinks — front-load links to key concepts`,
+          fixable: true,
+        });
+      }
+    } catch {
+      // skip
+    }
+  }
+}
+
+// === Check: cross-scope-bridge ===
+// A concept backlinked by both public and private sources is an
+// information-leakage surface — a public reader following the concept page
+// sees the private side's adjacency. Not a violation, but worth surfacing.
+if (shouldRun("cross-scope-bridge")) {
+  const pubCount = new Map<string, number>();
+  const privCount = new Map<string, number>();
+  for (const source of sourceIndex) {
+    const bucket = source.scope === "public" ? pubCount : privCount;
+    for (const conceptName of source.concepts) {
+      bucket.set(conceptName, (bucket.get(conceptName) ?? 0) + 1);
+    }
+  }
+  for (const concept of conceptIndex) {
+    const p = pubCount.get(concept.name) ?? 0;
+    const q = privCount.get(concept.name) ?? 0;
+    if (p > 0 && q > 0) {
+      issues.push({
+        check: "cross-scope-bridge",
+        severity: "suggestion",
+        file: concept.path,
+        message: `Concept "${concept.name}" is backlinked by ${p} public and ${q} private source${q > 1 ? "s" : ""} — leakage surface`,
+        fixable: false,
+      });
+    }
+  }
+}
+
+// --rank-by-traffic: sort stub findings by stub concept's backlinkCount desc.
+// High-traffic stubs are the highest-leverage targets for compilation work.
+if (values["rank-by-traffic"]) {
+  const stubBacklinks = new Map<string, number>();
+  for (const c of conceptIndex) stubBacklinks.set(c.path, c.backlinkCount);
+  const stubFindings = issues.filter((i) => i.check === "stubs");
+  const others = issues.filter((i) => i.check !== "stubs");
+  stubFindings.sort((a, b) => (stubBacklinks.get(b.file) ?? 0) - (stubBacklinks.get(a.file) ?? 0));
+  issues.length = 0;
+  issues.push(...others, ...stubFindings);
 }
 
 // Build result
