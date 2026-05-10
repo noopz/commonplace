@@ -13,7 +13,7 @@ The vault's value comes from interconnected knowledge, not isolated notes. Every
 
 ## Source Types
 
-Read `${CLAUDE_SKILL_DIR}/references/source-types.md` for detailed per-type handling. The high-level flow:
+Read `references/source-types.md` for detailed per-type handling. The high-level flow:
 
 **Source type routing** — detect before doing anything else:
 - Path or filename contains `raw/` → **technical-report flow** (skip paper-analyzer entirely)
@@ -163,7 +163,7 @@ After writing the source note and any new concept stubs:
    ```
 
 4. **Dispatch agents** for source files. Agents have isolated context windows — they cannot see this conversation. Include vault path and relevant data inline in each prompt:
-   - Dispatch `wiki-moc-updater` agent with the new source note path and its `mocs:` frontmatter list so it knows which MOCs to update
+   - Dispatch `wiki-moc-updater` agent with: (a) the absolute path to the new source note, (b) its `mocs:` frontmatter list, (c) the **canonical wikilink text** (= `basename(newSourcePath, '.md')`). State the wikilink text explicitly in the prompt — e.g. `Wikilink text to use: "Direct Corpus Interaction - Rethinking Retrieval for Agentic Search"`. Obsidian resolves links by filename, so the agent must use this exact string in `[[...]]`, not the note's H1.
    - Run `commonplace link --note "<new source note path>"` to wikilink any unlinked concept/source/MOC mentions in that note. Deterministic; no agent dispatch.
 
 5. **Supersession scan** (hard prompt — do not skip): grep the new note's body for supersession declarations:

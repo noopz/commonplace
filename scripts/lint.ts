@@ -89,6 +89,7 @@ const checksToRun = values.check ? [values.check] : [
   "scope-violations",
   "duplicates",
   "malformed-dates",
+  "filename-h1-mismatch",
   "near-duplicate-names",
   "malformed-concept-names",
   "underlinked",
@@ -365,6 +366,36 @@ if (shouldRun("malformed-dates")) {
       }
     } catch {
       // Skip
+    }
+  }
+}
+
+// === Check: filename / H1 mismatch on source notes ===
+// Obsidian resolves [[X]] by filename, not H1. When they disagree, agents that
+// derive link text from H1 produce dead links (see wiki-moc-updater bug fix).
+// Severity is suggestion: shortening paper titles for filename hygiene is
+// legitimate, but the mismatch is worth surfacing so the author knows agents
+// must use the filename stem in [[...]].
+if (shouldRun("filename-h1-mismatch")) {
+  for (const s of sourceIndex) {
+    const filePath = s.path;
+    try {
+      const filename = filePath.split("/").pop()!.replace(/\.md$/, "");
+      const parsed = parseNote(filePath, config.vaultPath);
+      const h1Match = parsed.body.match(/^#\s+(.+)$/m);
+      if (!h1Match) continue;
+      const h1 = h1Match[1].trim();
+      if (h1 !== filename) {
+        issues.push({
+          check: "filename-h1-mismatch",
+          severity: "suggestion",
+          file: filePath,
+          message: `Filename "${filename}" differs from H1 "${h1}" — agents and MOC entries must use the filename stem in [[wikilinks]] (Obsidian resolves by filename)`,
+          fixable: false,
+        });
+      }
+    } catch {
+      // Skip unreadable files
     }
   }
 }

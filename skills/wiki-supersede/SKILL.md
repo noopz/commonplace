@@ -55,7 +55,7 @@ If the successor doesn't exist yet, stop and route to `wiki-ingest` first.
 
 ### Step 2 — Scan and classify
 
-Run `commonplace supersede --scan --old <path> --new <path>`. Each hit is sorted into one of six buckets (`historical`, `comparison`, `already-retired`, `live`, `live-in-code`, `needs-review`). For the per-bucket meaning, what to leave alone, and how to handle rewrite candidates, read `${CLAUDE_SKILL_DIR}/references/classification.md`.
+Run `commonplace supersede --scan --old <path> --new <path>`. Each hit is sorted into one of six buckets (`historical`, `comparison`, `already-retired`, `live`, `live-in-code`, `needs-review`). For the per-bucket meaning, what to leave alone, and how to handle rewrite candidates, read `references/classification.md`.
 
 ### Step 3 — Sample classifications back to the user
 

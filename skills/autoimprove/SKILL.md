@@ -13,7 +13,7 @@ The vault accumulates entropy — stubs, stale MOC counts, missing wikilinks, me
 
 ## The Score
 
-The loop is gated by a deterministic 0–100 quality score. Run `commonplace score` to see it. For the full dimension breakdown and weights, read `${CLAUDE_SKILL_DIR}/references/scoring.md` — only needed when you have to interpret per-dimension deltas or explain the score to the user.
+The loop is gated by a deterministic 0–100 quality score. Run `commonplace score` to see it. For the full dimension breakdown and weights, read `references/scoring.md` — only needed when you have to interpret per-dimension deltas or explain the score to the user.
 
 ## Workflow
 
@@ -101,7 +101,7 @@ For each round (default max 3, configurable via `$ARGUMENTS` as `--rounds N`):
 | Freshness | `commonplace:wiki-freshness-checker` |
 | Domain management | `commonplace:wiki-domain-manager` |
 
-For the per-round mechanics (what to pass each agent, semantic-audit steps, cross-domain flow), read `${CLAUDE_SKILL_DIR}/references/rounds.md`. That file also covers the post-loop freshness check.
+For the per-round mechanics (what to pass each agent, semantic-audit steps, cross-domain flow), read `references/rounds.md`. That file also covers the post-loop freshness check.
 
 After each round, re-score:
 

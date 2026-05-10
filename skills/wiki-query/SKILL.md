@@ -35,7 +35,7 @@ Never load full index files — they grow without bound. Use Grep to target spec
 
 2. **Iterate with derived terms** — look at what you find and generate new search terms from it. If a source note mentions [[Concept X]], grep for that. If a concept appears in two domains, grep for it in both. Don't stop at the first pass.
 
-3. **Traverse the graph** — concepts are nodes, wikilinks are edges. Once you've found a relevant entry-point note, expand the cluster using hub detection, edge-following, MOC entry, citation chains, and bridge-concept analysis. For the full set of traversal patterns and when to use each, read `${CLAUDE_SKILL_DIR}/references/graph-traversal.md`.
+3. **Traverse the graph** — concepts are nodes, wikilinks are edges. Once you've found a relevant entry-point note, expand the cluster using hub detection, edge-following, MOC entry, citation chains, and bridge-concept analysis. For the full set of traversal patterns and when to use each, read `references/graph-traversal.md`.
 
 4. **Grep vault notes** for terms not caught by the index — use the Grep tool with your search term, path set to the vault, and glob `*.md`.
 

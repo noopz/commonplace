@@ -54,8 +54,8 @@ When you receive a paper to analyze (arXiv ID, URL, or PDF path):
 
 Use single-agent analysis:
 1. Run smart-extract (gets nearly everything)
-2. Read `${CLAUDE_SKILL_DIR}/references/analysis_structure.md` for the analysis framework
-3. Write the analysis following the output template at `${CLAUDE_SKILL_DIR}/assets/output_template.md`
+2. Read `references/analysis_structure.md` for the analysis framework
+3. Write the analysis following the output template at `assets/output_template.md`
 4. Run quality check
 
 ### Complex Papers (20+ pages, multi-domain, dense methodology)
@@ -80,7 +80,7 @@ The reflection loop is what makes analyses thorough — the reflection agent cat
 ### Multi-Paper Comparison
 
 When comparing multiple papers:
-1. Read `${CLAUDE_SKILL_DIR}/references/comparison_framework.md`
+1. Read `references/comparison_framework.md`
 2. Run comparison script:
    ```bash
    commonplace paper:compare <analysis1.md> <analysis2.md>
@@ -104,7 +104,7 @@ Target score: 80+ for production analyses. Scores below 60 indicate significant 
 
 ## Output Format
 
-Analyses use the template at `${CLAUDE_SKILL_DIR}/assets/output_template.md`. Key sections:
+Analyses use the template at `assets/output_template.md`. Key sections:
 - **Metadata**: Title, authors, publication, links, tags
 - **Core Contribution**: 2-3 sentences on what's new and why it matters
 - **Background & Motivation**: Problem, limitations, why this matters
@@ -125,6 +125,6 @@ If extracted text looks garbled or truncated, note this in the analysis and work
 
 ## Reference Files
 
-- `${CLAUDE_SKILL_DIR}/references/analysis_structure.md` — Detailed guide on structuring paper analyses with examples
-- `${CLAUDE_SKILL_DIR}/references/comparison_framework.md` — Framework for multi-paper comparative analysis
-- `${CLAUDE_SKILL_DIR}/assets/output_template.md` — Markdown template for analysis output
+- `references/analysis_structure.md` — Detailed guide on structuring paper analyses with examples
+- `references/comparison_framework.md` — Framework for multi-paper comparative analysis
+- `assets/output_template.md` — Markdown template for analysis output

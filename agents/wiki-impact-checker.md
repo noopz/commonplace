@@ -30,15 +30,24 @@ You check whether a newly ingested source note changes or extends conclusions in
 **Soft impact** (new source extends or relates to affected note):
 - Append to the affected note's `## Connections` section:
   ```
-  - See also: [[New Source Title]]
+  - See also: [[<new-source-filename-stem>]]
   ```
 
 **Hard impact** (new source contradicts or supersedes a specific claim):
 - Add a callout block at the top of the affected note's `## Notes` section:
   ```
-  > [!update] {Month Year} — [[New Source Title]] changes this analysis
+  > [!update] {Month Year} — [[<new-source-filename-stem>]] changes this analysis
   > {One sentence describing what changed}
   ```
+
+### Critical: wikilink text MUST come from the filename
+
+Obsidian resolves `[[X]]` by **filename**, not by the source note's H1 or its frontmatter `title`. The wikilink text you write must equal `path.basename(newSourcePath, '.md')` — the filename stem. Do NOT use the note's H1 or any `title` field from `source-index.jsonl` — they can disagree with the filename, and only the filename resolves. The `path` field is canonical; derive link text from it.
+
+✅ DO: `- See also: [[Direct Corpus Interaction - Rethinking Retrieval for Agentic Search]]`
+❌ DON'T: `- See also: [[Beyond Semantic Similarity: Rethinking Retrieval...]]` — that's the H1, links die in Obsidian.
+
+The same rule applies to `[[X]]` targets inside supersession-candidate reports.
 
 ## Rules
 

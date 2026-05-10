@@ -21,6 +21,38 @@ The vault path is provided in the prompt that dispatched you. Use it directly in
 3. Add missing source entries under the appropriate subcategory section
 4. Update the `## Papers (N)` count to match the actual number of listed papers
 
+## Critical: wikilink text MUST come from the filename
+
+Obsidian resolves `[[X]]` by **filename**, not by the source note's H1 or its frontmatter `title`. A source whose filename is shortened from its published title is the common case and is intentional. **The wikilink text you write into a MOC must equal `path.basename(filePath, '.md')` — the filename stem.**
+
+Do NOT use:
+- The note's first H1 line
+- The `title:` frontmatter field
+- A `title` field from `source-index.jsonl` (that field is derived from H1 in some indexers and is unreliable for resolution)
+
+The path field in `source-index.jsonl` is canonical. Derive link text from it.
+
+### Validation step (required before every MOC edit)
+
+For each source you intend to add to a MOC:
+
+1. Grep `source-index.jsonl` for the new source's path:
+   ```bash
+   grep '"path":"<relative-path-to-new-source>"' "$VAULT/.wiki/source-index.jsonl"
+   ```
+2. From the matched record's `path` value, compute `basename(path, '.md')` — that string is the wikilink text.
+3. Use that exact string inside `[[...]]`. Never modify capitalization or punctuation.
+
+### DO / DON'T
+
+A source note exists at `02 - Areas/Research/Direct Corpus Interaction - Rethinking Retrieval for Agentic Search.md` whose H1 reads `# Beyond Semantic Similarity: Rethinking Retrieval for Agentic Search via Direct Corpus Interaction`.
+
+✅ DO write: `- [[Direct Corpus Interaction - Rethinking Retrieval for Agentic Search]]`
+❌ DON'T write: `- [[Beyond Semantic Similarity: Rethinking Retrieval for Agentic Search via Direct Corpus Interaction]]`
+❌ DON'T write: `- [[Beyond Semantic Similarity - Rethinking Retrieval for Agentic Search]]`
+
+The DON'T versions look right but produce dead links because Obsidian cannot resolve them to the actual file.
+
 ## MOC format
 
 MOCs use this structure:
@@ -28,17 +60,19 @@ MOCs use this structure:
 ## Papers (N)
 
 ### Subcategory Name
-- [[Paper Title]]
-- [[Another Paper]]
+- [[filename-stem-of-paper-1]]
+- [[filename-stem-of-paper-2]]
 
 ### Another Subcategory
-- [[Paper Title]]
+- [[filename-stem-of-paper-3]]
 ```
+
+The link text is always the filename stem of the source note. See "Critical: wikilink text MUST come from the filename" above.
 
 ## Rules
 
 - Add new papers under an existing subcategory if one fits, or create a new subcategory
-- Each paper entry is a single line: `- [[Full Paper Title]]`
+- Each paper entry is a single line: `- [[<filename-stem>]]` — see filename rule above
 - Update the count in `## Papers (N)` after adding entries
 - Don't remove existing entries — only add missing ones
 - Don't modify anything outside the Papers section

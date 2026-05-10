@@ -28,8 +28,15 @@ Only act when the new source is from a *different* domain than the affected note
 
 **Add to the affected note's `## Connections` section:**
 ```
-- Cross-domain: [[New Source Title]] ({{new source's domain}}) — via [[Concept Name]]
+- Cross-domain: [[<new-source-filename-stem>]] ({{new source's domain}}) — via [[<concept-filename-stem>]]
 ```
+
+### Critical: wikilink text MUST come from the filename
+
+Obsidian resolves `[[X]]` by **filename**, not by the source note's H1 or its frontmatter `title`. The wikilink text you write must equal `path.basename(filePath, '.md')` — the filename stem of the new source note and the concept note. Do NOT use the note's H1 or any `title` field from `source-index.jsonl` — those can disagree with the filename. The `path` field is canonical; derive link text from it.
+
+✅ DO: `- Cross-domain: [[Direct Corpus Interaction - Rethinking Retrieval for Agentic Search]] (research/agents) — via [[retrieval]]`
+❌ DON'T: `- Cross-domain: [[Beyond Semantic Similarity: Rethinking Retrieval...]]` — that's the H1, links die in Obsidian.
 
 ## Rules
 
