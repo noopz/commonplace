@@ -1,4 +1,6 @@
 ---
+name: wiki-cross-domain-linker
+description: Identifies cross-domain concept bridges surfaced by a newly ingested source and adds connection callouts to affected notes in other domains. Dispatched after wiki-ingest when `cross-domain.ts` reports bridge concepts. Receives the script's JSON output inline.
 model: haiku
 tools: [Read, Edit, Glob, Grep, Bash]
 maxTurns: 20

@@ -1,6 +1,6 @@
 ---
 name: autoimprove
-description: "Autonomously improve vault quality using a score-gated improvement loop. Activate when the user says 'improve the vault', 'autoimprove', 'make the vault better', 'run the improvement loop', or asks 'what's the vault score'. Also activate when the user asks 'how can the vault be improved'. Shows the vault score at minimum, runs improvement rounds if there are actionable issues. If the user just wants a diagnostic report without autonomous fixing (e.g. 'what needs fixing', 'how's the vault'), defer to wiki-lint instead."
+description: "ALWAYS use this skill whenever the user wants the vault made better autonomously — phrases like 'improve the vault', 'autoimprove', 'make the vault better', 'run the improvement loop', 'fix what you can', or asks 'what's the vault score' / 'how can the vault be improved'. Runs a score-gated loop that picks the highest-impact fix, executes, re-scores, repeats. Shows the score at minimum, runs rounds if there's actionable work. If the user only wants a read-only diagnostic ('what needs fixing', 'how's the vault'), defer to wiki-lint instead — autoimprove writes."
 ---
 
 # Autoimprove
@@ -11,20 +11,9 @@ Autonomously improve vault quality by composing existing agents and skills into 
 
 The vault accumulates entropy — stubs, stale MOC counts, missing wikilinks, mechanical issues. Previously, every improvement required a human prompt. This skill picks the highest-impact improvement, executes it, measures the result, and repeats until the score plateaus or the budget runs out.
 
-## The Score: vault-score.ts
+## The Score
 
-The loop is gated by a deterministic 0-100 quality score. Run `commonplace score` to see it — output is human-readable by default. Use `commonplace score --json` only if you need to parse specific dimension values programmatically.
-
-| Dimension | Weight | What it measures |
-|-----------|--------|------------------|
-| Integrity | 15 | Broken links, frontmatter errors, scope violations |
-| Coverage | 15 | Concept definitions (vs stubs), note completeness (summary sections) |
-| Graph Structure | 10 | Backlink density, orphan ratio, MOC coverage, concept extraction |
-| Inline Linking | 15 | Vault note mentions in body text that are actually wikilinked |
-| Summary Links | 15 | Summary/lead sections with front-loaded inline links |
-| Frontmatter Coherence | 15 | Frontmatter concept entries with corresponding inline body links |
-| Consistency | 5 | MOC count accuracy, no duplicates |
-| Hygiene | 10 | Days since last commit |
+The loop is gated by a deterministic 0–100 quality score. Run `commonplace score` to see it. For the full dimension breakdown and weights, read `${CLAUDE_SKILL_DIR}/references/scoring.md` — only needed when you have to interpret per-dimension deltas or explain the score to the user.
 
 ## Workflow
 
@@ -100,11 +89,7 @@ Found 228 improvable issues:
 
 For each round (default max 3, configurable via `$ARGUMENTS` as `--rounds N`):
 
-**Pick the highest-priority category with remaining issues** and execute:
-
-All agents have isolated context windows — they cannot see this conversation. Every agent prompt **must** include the vault path as a literal string (e.g. "The vault is at /path/to/vault") so agents don't need to run `commonplace vault-path` themselves. Pass relevant data (lint results, file lists) inline in the prompt too.
-
-Agent names use the `commonplace:` prefix. The exact names are:
+**Pick the highest-priority category with remaining issues** and execute. Agent names use the `commonplace:` prefix:
 
 | Task | Agent name |
 |------|-----------|
@@ -116,34 +101,7 @@ Agent names use the `commonplace:` prefix. The exact names are:
 | Freshness | `commonplace:wiki-freshness-checker` |
 | Domain management | `commonplace:wiki-domain-manager` |
 
-- **Mechanical fixes**: Dispatch `commonplace:wiki-linter`. Include vault path and the lint output inline so it knows exactly what to fix.
-
-- **Pruning**: Dispatch `commonplace:wiki-pruner`. Include vault path.
-
-- **MOC sync**: Dispatch `commonplace:wiki-moc-updater`. Include vault path and the list of MOCs needing updates.
-
-- **Inline linking**: Run `commonplace link` (optionally with `--note <path>` repeated for the source notes you want to scan). Deterministic script — no LLM in the Edit path, structurally cannot corrupt frontmatter or splice mid-word. Replaced the old `wiki-concept-linker` agent after it produced repeat corruption incidents.
-
-- **Stub compilation**: Execute wiki-compile's workflow inline (this runs at main-model cost, not Haiku). Read source notes that reference the stub, synthesize a definition, write the compiled concept note. Cap at 5 stubs per round.
-
-- **Semantic audit**: Run at main-model cost. Steps:
-  1. Read the top 10-15 concept notes by `backlinkCount` (these are the corpus's most-referenced ideas)
-  2. **Contradiction detection**: look for concept notes with conflicting definitions, or source notes claiming different things about the same concept. Flag contradictions in the concept note's body under a `## Conflicting Claims` section for the user to resolve.
-  3. **Synthesis gap detection**: look for concept pairs that frequently co-occur in source frontmatter (`concepts:` arrays) but have no synthesis note connecting them. A pair appearing together in 5+ source notes is a strong signal.
-  4. **Generate synthesis pages**: for the top 1-2 synthesis gaps, generate a new vault page at `$VAULT_PATH/03 - Syntheses/{Title}.md` with a comparison or analysis. Cap at 2 per round (expensive).
-  5. Run scope-check on any new synthesis pages.
-
-- **Cross-domain synthesis**: Only run if current score ≥ 70. Run at main-model cost. Steps:
-  1. Run the cross-domain script:
-     ```bash
-     commonplace cross-domain --since <last-autoimprove-date>
-     ```
-  2. If no results with cross-domain hits → skip this round entirely.
-  3. For each cross-domain hit (up to 3): read both the new source note and the affected existing notes.
-  4. Determine: does the new source meaningfully change conclusions in the existing notes?
-  5. **Soft change**: update the existing note's `## Notes` section with a cross-reference callout.
-  6. **Hard change** (substantive — different domain conclusions conflict or merge): create a new Relationship note — check vault CLAUDE.md for the Relationships directory path, or place at `$VAULT_PATH/{structure.sources}/../Relationships/{Title}.md` relative to sources documenting the cross-domain connection.
-  7. Run scope-check on any new Relationship notes.
+For the per-round mechanics (what to pass each agent, semantic-audit steps, cross-domain flow), read `${CLAUDE_SKILL_DIR}/references/rounds.md`. That file also covers the post-loop freshness check.
 
 After each round, re-score:
 
@@ -163,18 +121,6 @@ Round 1 complete: 43.7 → 52.1 (+8.4)
 - **Plateau**: `delta < 0.5` → stop, no more easy wins.
 - **No issues remain**: all fixable issues resolved.
 - **Budget exhausted**: reached max rounds.
-
-### Post-loop: Freshness check (Tier 2, Haiku)
-
-After the score-gated rounds complete (regardless of final score), run a freshness sample:
-
-```bash
-commonplace freshen --sample 5
-```
-
-If `candidates` array is non-empty, dispatch `commonplace:wiki-freshness-checker` agent with the candidates JSON and vault path inline. The agent WebFetches each URL, compares to the note's Summary, and adds a `> [!stale]` callout to notes whose source content has substantially changed. Skip entirely if no candidates returned.
-
-This runs outside the score loop because staleness checking doesn't affect any vault score dimension — it's a maintenance step, not a quality improvement.
 
 ### Step 4: Report
 
@@ -223,11 +169,4 @@ commonplace log --entry "## [$(date +%Y-%m-%d)] autoimprove | Score: {before} �
 
 ## Cost Awareness
 
-Each round has different cost profiles:
-- **Rounds 1-2** (mechanical + MOC + linking): Cheap. Haiku agents, ~$0.01-0.02 per dispatch.
-- **Round 3** (stub compilation): Moderate. Main model reads source notes and synthesizes. ~$0.10-0.50 depending on stub count and source length.
-- **Round 4** (semantic audit): Expensive. Main model reads 10-15 full concept notes + source clusters. ~$0.50-2.00 depending on vault size. Skip if budget is tight.
-- **Round 5** (cross-domain synthesis): Expensive. Main model reads cross-domain source pairs. ~$0.25-1.00. Only runs if score ≥ 70 and rounds >= 5.
-- **Post-loop freshness check**: Cheap. Up to 5 WebFetches + Haiku comparison. ~$0.01-0.05 per run. Skipped if no eligible live-URL sources.
-
-The priority ordering ensures cheap wins happen first. If budget is tight, use `--rounds 2` to only do mechanical fixes and pruning. The semantic audit round only runs if explicitly included or if rounds >= 4. Cross-domain synthesis only runs if score ≥ 70 and rounds >= 5.
+Per-round cost profiles live in `references/scoring.md`. Default priority ordering ensures cheap rounds happen first; the user can cap with `--rounds N`. Semantic audit runs only at rounds ≥ 4; cross-domain synthesis only if score ≥ 70 and rounds ≥ 5.

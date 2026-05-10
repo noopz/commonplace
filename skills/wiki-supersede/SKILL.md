@@ -55,22 +55,11 @@ If the successor doesn't exist yet, stop and route to `wiki-ingest` first.
 
 ### Step 2 — Scan and classify
 
-Run `commonplace supersede --scan --old <path> --new <path>`. Each hit is classified into one of these buckets:
+Run `commonplace supersede --scan --old <path> --new <path>`. Each hit is sorted into one of six buckets (`historical`, `comparison`, `already-retired`, `live`, `live-in-code`, `needs-review`). For the per-bucket meaning, what to leave alone, and how to handle rewrite candidates, read `${CLAUDE_SKILL_DIR}/references/classification.md`.
 
-| Bucket | Meaning | Action |
-|---|---|---|
-| `historical` | Already past-tense ("we used X back when…") | Leave alone |
-| `comparison` | Discusses X vs Y, alternatives, tradeoffs | Leave alone |
-| `already-retired` | Mention is inside the old note itself or another already-retired note | Leave alone |
-| `live` | Bare-prose mention treating X as currently in use | **Rewrite candidate** |
-| `live-in-code` | Inside a fenced code block. If the fence has a language hint and the token is an identifier (matches `/^[\w@.\-]+$/`), it's safe to rename; otherwise mark `needs-review` because rewriting could break example code | Rewrite if rename-only safe; else escalate |
-| `needs-review` | Heuristics inconclusive — show paragraph context to the user | Ask user |
+### Step 3 — Sample classifications back to the user
 
-The script prints counts per bucket plus the file/paragraph context for everything that isn't `historical`/`already-retired`. Show the user the live-rewrite candidates before applying.
-
-### Step 3 — Sample 3–5 classifications back to the user
-
-Always show the user 3–5 representative classifications (mix of buckets) before any rewrite. This is non-negotiable: classification is heuristic and the user should sanity-check before mass edits.
+Show the user 3–5 representative classifications (mix of buckets) before any rewrite. Classification is heuristic; the user should sanity-check before mass edits.
 
 ### Step 4 — Apply
 
@@ -83,7 +72,7 @@ Run `commonplace supersede --retire --old <path> --new <path> --reason "<text>"`
 
 ### Step 5 — Live mentions
 
-For each `live` hit (and rename-safe `live-in-code`), rewrite the surrounding sentence into past tense or comparison framing. Use main-model judgment; do not attempt mechanical regex rewrites of prose. Keep the original wikilink target (it will resolve through the rename via the link rewrite in Step 4).
+Rewrite each `live` hit (and rename-safe `live-in-code`) per the guidance in `references/classification.md`.
 
 ### Step 6 — Verify
 

@@ -1,6 +1,6 @@
 ---
 name: wiki-domain
-description: "Create or manage research domains in the vault. Activate when the user wants to start researching a new topic area, mentions a new field of interest, or asks about what domains exist. Note: wiki-ingest's body will explicitly hand off to this skill if no matching domain exists — wiki-domain should NOT speculatively activate on ingest-related prompts."
+description: "ALWAYS use this skill when the user wants to set up, configure, rename, or list research domains in the vault — phrases like 'set up a domain for X', 'add a new domain', 'I want to start researching X', 'what domains exist', 'change the scope of the X domain', 'merge these domains'. Creates the domain folder, registers it in the registry, and configures scope/linkGroup. Do NOT speculatively activate on ingest-related prompts — wiki-ingest will hand off explicitly when no matching domain exists for an incoming source."
 ---
 
 # Wiki Domain

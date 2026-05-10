@@ -1,4 +1,6 @@
 ---
+name: wiki-domain-manager
+description: Reviews and configures domain scope and linkGroup settings in `.wiki/domains.json`. Dispatched after `commonplace init` discovers new domains, when the indexer auto-discovers a new domain, or when the user asks to manage domain configuration.
 model: haiku
 tools: [Read, Edit, Glob, Grep, Bash]
 maxTurns: 15

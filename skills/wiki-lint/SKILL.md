@@ -1,6 +1,6 @@
 ---
 name: wiki-lint
-description: "Run vault health checks and report issues. Use this skill when the user asks about vault quality, broken links, stubs, orphans, or says \"how's the vault looking\", \"anything need fixing\", or \"what needs fixing\". Also auto-activate after ingesting multiple sources to report on overall health. This skill diagnoses and reports — if the user wants autonomous multi-round fixing, hand off to autoimprove instead."
+description: "ALWAYS use this skill when the user wants a read-only health check of the vault — phrases like 'how's the vault looking', 'anything need fixing', 'what needs fixing', 'vault health', 'show me broken links / stubs / orphans', 'lint the vault', 'audit the vault'. Diagnoses and reports only; never writes. Also auto-activate after a session of ingesting multiple sources to surface fresh issues. If the user wants autonomous multi-round *fixing* of what gets reported, hand off to autoimprove instead — wiki-lint stops at the report."
 ---
 
 # Wiki Lint

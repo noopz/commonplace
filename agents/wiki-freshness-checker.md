@@ -1,4 +1,6 @@
 ---
+name: wiki-freshness-checker
+description: Checks whether live source URLs have changed significantly since the vault note was written, and adds a `> [!stale]` callout to notes whose source content has substantially diverged. Dispatched by autoimprove's post-loop freshness step with a candidates JSON from `commonplace freshen --sample`.
 model: haiku
 tools: [Read, Edit, Bash, WebFetch]
 maxTurns: 30

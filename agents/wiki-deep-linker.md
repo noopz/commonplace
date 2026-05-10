@@ -1,4 +1,6 @@
 ---
+name: wiki-deep-linker
+description: Reviews semantic-similarity candidates from `commonplace deep-link` — (sentence, concept) pairs that embeddings flagged as related but unlinked — and adds wikilinks where the connection holds up under reading. Dispatched by autoimprove or directly when the user asks for deep-linking. Edit-only, never Write.
 model: haiku
 tools: [Read, Edit, Glob, Grep, Bash]
 maxTurns: 40

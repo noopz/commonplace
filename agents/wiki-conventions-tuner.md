@@ -1,4 +1,6 @@
 ---
+name: wiki-conventions-tuner
+description: Proposes per-genre quality rules for `.wiki/conventions.json` by reading sample notes from each genre and synthesizing patterns the user actually uses. Dispatched directly by the user, by the indexer when new genres cross the 3-note threshold without rules, or in response to a SessionStart warning about empty rules.
 model: sonnet
 tools: [Read, Edit, Glob, Grep, Bash]
 maxTurns: 20

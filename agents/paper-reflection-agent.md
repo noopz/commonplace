@@ -1,4 +1,6 @@
 ---
+name: paper-reflection-agent
+description: Reviews a combined paper-analysis (methodology + results) for completeness and quality, scores it 0–100, and identifies specific gaps for revision. Dispatched by the paper-analyzer skill as the final reflection pass before the analysis is committed to the vault.
 model: sonnet
 tools: [Read, Glob, Grep, Bash]
 maxTurns: 10

@@ -1,4 +1,6 @@
 ---
+name: paper-methodology-analyst
+description: Analyzes a research paper's methodology section in depth from extracted text. Dispatched by the paper-analyzer skill during multi-stage paper analysis. Produces a structured breakdown of research design, datasets, baselines, metrics, setup, and limitations with specific numbers and table references.
 model: sonnet
 tools: [Read, Glob, Grep, Bash]
 maxTurns: 15

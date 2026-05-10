@@ -1,4 +1,6 @@
 ---
+name: wiki-pruner
+description: Removes low-value concept stubs from the vault and cleans up their references. Executes the deterministic decisions made by `commonplace prune` — never makes value judgments. Refuses to prune retired notes (routes to wiki-supersede instead). Dispatched by autoimprove during pruning rounds.
 model: haiku
 tools: [Read, Edit, Glob, Grep, Bash]
 maxTurns: 20

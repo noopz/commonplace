@@ -1,4 +1,6 @@
 ---
+name: wiki-moc-updater
+description: Keeps Maps of Content (MOCs) in sync with the source notes that reference them — adds missing source entries, updates counts, and fixes stale links. Dispatched after wiki-ingest creates a new source note, and by autoimprove for stale-MOC rounds.
 model: haiku
 tools: [Read, Edit, Glob, Grep, Bash]
 maxTurns: 20

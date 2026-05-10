@@ -1,6 +1,6 @@
 ---
 name: wiki-compile
-description: "Fill concept stubs with real definitions by reading their source papers. Activate when the user explicitly asks to fill stubs, mentions incomplete concepts, \"Definition pending\" notes, or says \"fill in the blanks\" or \"flesh out the concepts\". Also activate after wiki-lint reports stubs and the user asks to fix them. Before compiling a stub, verify the concept name is a real concept (a noun phrase, not a sentence fragment) — skip malformed names and flag for manual review."
+description: "ALWAYS use this skill the moment the user wants concept stubs turned into real definitions — phrases like 'fill in the stubs', 'compile the concepts', 'flesh out the concepts', 'fill in the blanks', 'finish those Definition-pending notes', or any follow-up after wiki-lint reports stubs. Reads the source papers that reference each stub and synthesizes a definition grounded in the actual citations. Before compiling, verify the concept name is a real noun phrase (not a sentence fragment) — skip malformed names and flag them for manual review."
 ---
 
 # Wiki Compile

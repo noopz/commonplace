@@ -1,4 +1,6 @@
 ---
+name: wiki-linter
+description: Fixes mechanical lint issues in the vault — malformed dates, stale MOC counts, duplicate frontmatter entries. Deterministic fixes only; never writes definitions or synthesizes content. Dispatched by autoimprove with the lint output inline.
 model: haiku
 tools: [Read, Edit, Glob, Grep, Bash]
 maxTurns: 30

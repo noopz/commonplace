@@ -1,4 +1,6 @@
 ---
+name: paper-results-interpreter
+description: Interprets a research paper's results tables, figures, and claims to validate whether conclusions follow from the data. Dispatched by the paper-analyzer skill during multi-stage paper analysis. Produces a quantitative breakdown with specific numbers, claim validation, and flagged overstatements.
 model: sonnet
 tools: [Read, Glob, Grep, Bash]
 maxTurns: 15

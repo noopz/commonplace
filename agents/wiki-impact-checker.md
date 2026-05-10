@@ -1,4 +1,6 @@
 ---
+name: wiki-impact-checker
+description: Checks whether a newly ingested source note changes or extends conclusions in existing source notes that share the same concepts, and surfaces supersession candidates. Dispatched by the post-write hook after wiki-ingest creates a new source note.
 model: haiku
 tools: [Read, Edit, Glob, Grep, Bash]
 maxTurns: 20

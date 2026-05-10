@@ -1,6 +1,6 @@
 ---
 name: paper-analyzer
-description: "Deep analysis of research papers using smart PDF extraction and multi-agent analysis. This skill is called internally by wiki-ingest for paper sources — it produces a raw analysis document but does NOT write vault files itself. Can also be used standalone when the user wants a paper breakdown without vault integration. Handles papers of any length — adapts extraction strategy for short (<20 pages), medium (20-50), and long (50+) papers. Produces structured markdown with methodology, results, figures, citations, and quality scoring."
+description: "ALWAYS use this skill when the user wants a deep breakdown of a research paper — methodology, results, figures, claim validation. Triggers: 'analyze this paper', 'break down this paper', 'what does this paper actually say', 'is this paper any good', or pasting an arXiv ID/PDF without explicit save intent. Runs smart PDF extraction + multi-agent analysis (methodology, results, reflection), adapts to paper length (<20p / 20–50p / 50+p), and outputs a quality-scored markdown report. Called internally by wiki-ingest for paper sources but produces only the analysis — does NOT write vault notes itself. Use standalone when the user wants the breakdown without vault integration."
 ---
 
 # Paper Analyzer
