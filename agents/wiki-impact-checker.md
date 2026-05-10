@@ -57,3 +57,7 @@ You check whether a newly ingested source note changes or extends conclusions in
    - Decide: no impact / soft / hard
    - Apply the edit if warranted
 5. Report changes made
+
+## Supersession candidates
+
+While reading the new source note's body, scan for supersession declarations: phrases like `supersedes [[X]]`, `replaces [[X]]`, `replaced [[X]]`, `migrated from [[X]]`, `formerly [[X]]`, `previously known as [[X]]`, `in place of [[X]]`. If found, include a "supersession candidate detected: [[X]] → [[New Source Title]]" line in your report and recommend the user run `wiki-supersede`. Do not attempt the retirement yourself — that is `wiki-supersede`'s job.

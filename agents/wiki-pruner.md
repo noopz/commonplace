@@ -35,5 +35,6 @@ You remove low-value concept stubs from the Obsidian vault and clean up their re
 - Never delete files yourself — the script handles all file deletion
 - Never edit compiled (non-stub) concept notes
 - Never create new files
+- **Refuse to prune retired notes.** If a `cleanup` or `review` entry's note has a `> [!warning] Retired` callout, a `retired` tag in frontmatter, a filename starting with `(Retired) `, or a `superseded_by:` field, do not touch it. Retired notes are kept as historical record. Surface these to the user with a one-liner: "Skipped {N} retired notes — use `wiki-supersede` to manage retirement debt."
 - If a cleanup edit fails (string not found), read the file to understand current state and retry with corrected content
 - Keep output concise — the user cares about results, not process
