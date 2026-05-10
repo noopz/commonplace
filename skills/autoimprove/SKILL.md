@@ -97,7 +97,6 @@ For each round (default max 3, configurable via `$ARGUMENTS` as `--rounds N`):
 | Pruning | `commonplace:wiki-pruner` |
 | MOC sync | `commonplace:wiki-moc-updater` |
 | Inline linking | `commonplace link` (deterministic script — no agent) |
-| Deep linking | `commonplace:wiki-deep-linker` |
 | Freshness | `commonplace:wiki-freshness-checker` |
 | Domain management | `commonplace:wiki-domain-manager` |
 
@@ -166,6 +165,7 @@ commonplace log --entry "## [$(date +%Y-%m-%d)] autoimprove | Score: {before} �
 - Answer research questions (that's wiki-query)
 - Delete notes or rename concepts (needs human judgment)
 - Revert changes automatically (git checkpoint is for manual recovery)
+- **Run `wiki-deep-link`**. Embedding-based candidate surfacing is opt-in only — the user runs `commonplace deep-link` (and the `wiki-deep-link` skill) manually when they suspect link-density gaps. Autoimprove sticks to grep-based linking via `commonplace link`. The `concept-density-without-source-links` lint check surfaces notes that would benefit from manual deep-link review.
 
 ## Cost Awareness
 

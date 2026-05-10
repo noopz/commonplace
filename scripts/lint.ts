@@ -98,6 +98,7 @@ const checksToRun = values.check ? [values.check] : [
   "bridge-thinness",
   "weak-summary",
   "cross-scope-bridge",
+  "concept-density-without-source-links",
 ];
 
 function shouldRun(check: string): boolean {
@@ -803,6 +804,42 @@ if (shouldRun("cross-scope-bridge")) {
         message: `Concept "${concept.name}" is backlinked by ${p} public and ${q} private source${q > 1 ? "s" : ""} — leakage surface`,
         fixable: false,
       });
+    }
+  }
+}
+
+// === Check: concept density without source-to-source links ===
+// A source note's concepts: frontmatter array signals topical breadth. If a note covers
+// many concepts but rarely wikilinks to other source notes, it's an isolated hub —
+// candidate for manual `commonplace deep-link` review. Lets the user decide when
+// embedding-based candidate surfacing is worth the Ollama call, instead of running
+// it implicitly. DCI's coverage_all evidence motivates surfacing link-density gaps.
+if (shouldRun("concept-density-without-source-links")) {
+  const sourceTitles = new Set(sourceIndex.map((s) => s.title.toLowerCase()));
+  for (const source of sourceIndex) {
+    const conceptCount = source.concepts.length;
+    if (conceptCount < 5) continue;
+    try {
+      const parsed = parseNote(source.path, config.vaultPath);
+      let outboundSourceLinks = 0;
+      for (const link of extractWikilinks(parsed.body)) {
+        const key = normalizeWikilinkTarget(link);
+        if (!key) continue;
+        const canonical = (nameIndex.get(key) ?? key).toLowerCase();
+        if (canonical === source.title.toLowerCase()) continue; // no self-links count
+        if (sourceTitles.has(canonical)) outboundSourceLinks++;
+      }
+      if (outboundSourceLinks < 2) {
+        issues.push({
+          check: "concept-density-without-source-links",
+          severity: "suggestion",
+          file: source.path,
+          message: `${conceptCount} concepts in frontmatter but only ${outboundSourceLinks} outbound link${outboundSourceLinks === 1 ? "" : "s"} to other sources — consider \`commonplace deep-link --note "${source.path}"\` to surface paraphrase-level connections`,
+          fixable: false,
+        });
+      }
+    } catch {
+      // Skip unreadable
     }
   }
 }
