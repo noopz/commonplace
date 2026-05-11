@@ -1,6 +1,11 @@
 #!/usr/bin/env tsx
 /**
- * Build .wiki/*.json indexes for the vault.
+ * Build .wiki/*.jsonl indexes for the vault:
+ *   - source-index.jsonl, concept-index.jsonl, moc-index.jsonl, domain-index.jsonl
+ *   - backlink-index.jsonl — inverted index of body wikilinks (target path → sources).
+ *     Frontmatter edges (concepts/mocs arrays) are intentionally excluded; they're
+ *     already in source-index.jsonl and conflating prose links with structural tags
+ *     loses a semantic distinction.
  * Usage: npx tsx scripts/index.ts --vault <path> [--incremental]
  */
 
@@ -227,16 +232,66 @@ for (const source of sources) {
   }
 }
 
+// Build name → absolute path index for backlink resolution. Wikilink targets
+// resolve case-insensitively and through `aliases:` frontmatter, so we need
+// the same lookup behavior as concept resolution but keyed by path (since the
+// backlink index records target paths, not names).
+const nameToPath = new Map<string, string>();
+for (const filePath of allFiles) {
+  const canonical = basename(filePath, ".md").toLowerCase();
+  if (!nameToPath.has(canonical)) nameToPath.set(canonical, filePath);
+  try {
+    const parsed = parseNote(filePath, config.vaultPath);
+    const aliases = parsed.frontmatter.aliases;
+    if (Array.isArray(aliases)) {
+      for (const alias of aliases) {
+        if (typeof alias === "string" && alias.length > 0) {
+          const key = alias.toLowerCase();
+          if (!nameToPath.has(key)) nameToPath.set(key, filePath);
+        }
+      }
+    }
+  } catch {}
+}
+
+// Inverted backlink index: target path → Map<source path, count>.
+// Body wikilinks only — frontmatter edges are already captured in
+// source-index.jsonl (concepts/mocs arrays) and conflating structural tags
+// with prose links would lose a real semantic distinction.
+const backlinkIndex = new Map<string, Map<string, number>>();
+const wikilinkPattern = /\[\[([^\[\]|]+)(?:\|[^\[\]]+)?\]\]/g;
+
 // Compute backlink counts: scan ALL vault files for wikilinks to concepts,
 // not just source frontmatter — so person notes, Google Docs notes, etc. count too
 const backlinkCounts = new Map<string, number>();
 
 for (const filePath of allFiles) {
   const noteType = classifyNote(filePath, config.vaultPath);
-  if (noteType === "concept") continue; // don't count self-links
 
   try {
     const parsed = parseNote(filePath, config.vaultPath);
+
+    // Backlink index: count duplicate mentions of the same target as repeated
+    // edges from one source, rather than emitting duplicate records.
+    const bodyLinkCounts = new Map<string, number>();
+    let m: RegExpExecArray | null;
+    wikilinkPattern.lastIndex = 0;
+    while ((m = wikilinkPattern.exec(parsed.body)) !== null) {
+      const raw = m[1].trim();
+      bodyLinkCounts.set(raw, (bodyLinkCounts.get(raw) ?? 0) + 1);
+    }
+    for (const [raw, count] of bodyLinkCounts) {
+      const key = normalizeWikilinkTarget(raw);
+      if (!key) continue;
+      const targetPath = nameToPath.get(key);
+      if (!targetPath || targetPath === filePath) continue;
+      if (!backlinkIndex.has(targetPath)) backlinkIndex.set(targetPath, new Map());
+      const sourceMap = backlinkIndex.get(targetPath)!;
+      sourceMap.set(filePath, (sourceMap.get(filePath) ?? 0) + count);
+    }
+
+    if (noteType === "concept") continue; // don't count self-links for concept backlinkCount
+
     const frontmatterLinks = extractFrontmatterWikilinks(parsed.frontmatter.concepts);
     const bodyLinks = extractWikilinks(parsed.body);
     const allLinks = new Set([...frontmatterLinks, ...bodyLinks]);
@@ -302,10 +357,22 @@ function toJsonl(arr: unknown[]): string {
   return arr.map(item => JSON.stringify(item)).join("\n") + "\n";
 }
 
+// Materialize the inverted backlink index. Sort targets and sources by path
+// so diffs between runs are deterministic.
+const backlinkRecords = [...backlinkIndex.entries()]
+  .sort(([a], [b]) => a.localeCompare(b))
+  .map(([target, sources]) => ({
+    target,
+    backlinks: [...sources.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([source, count]) => ({ source, count })),
+  }));
+
 writeFileSync(join(config.wikiPath, "source-index.jsonl"), toJsonl(sources));
 writeFileSync(join(config.wikiPath, "concept-index.jsonl"), toJsonl(concepts));
 writeFileSync(join(config.wikiPath, "moc-index.jsonl"), toJsonl(mocs));
 writeFileSync(join(config.wikiPath, "domain-index.jsonl"), toJsonl(domainSummaries));
+writeFileSync(join(config.wikiPath, "backlink-index.jsonl"), toJsonl(backlinkRecords));
 
 // Write last-index timestamp
 writeFileSync(
@@ -340,7 +407,7 @@ const result = {
   timestamp: new Date().toISOString(),
 };
 
-console.log(`Indexed ${processFiles.length} files: ${sources.length} sources, ${concepts.length} concepts, ${mocs.length} MOCs, ${domainSummaries.length} domains`);
+console.log(`Indexed ${processFiles.length} files: ${sources.length} sources, ${concepts.length} concepts, ${mocs.length} MOCs, ${domainSummaries.length} domains, ${backlinkRecords.length} backlink targets`);
 if (genreResult.newGenres.length > 0) {
   console.log(
     `Discovered ${genreResult.newGenres.length} new genre(s): ${genreResult.newGenres.join(", ")} — dispatch wiki-conventions-tuner to propose rules.`,
