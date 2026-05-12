@@ -1,6 +1,6 @@
 ---
 name: paper-analyzer
-description: "ALWAYS use when the user wants a deep paper breakdown — 'analyze this paper', 'break down this paper', 'is this paper any good', or arXiv ID/PDF without save intent. Smart PDF extraction + multi-agent analysis (methodology, results, reflection). Called by wiki-ingest for paper sources; usable standalone. Produces only the analysis — does NOT write vault notes."
+description: "Deep paper breakdown (does not write vault notes). Use when user says 'analyze this paper', 'break down this paper', 'is this paper any good', or sends an arXiv ID/PDF with no save intent. Do NOT use when user wants the paper saved — that's wiki-ingest."
 ---
 
 # Paper Analyzer

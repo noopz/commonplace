@@ -1,6 +1,7 @@
 ---
 name: wiki-init
-description: "ALWAYS use when the user wants commonplace pointed at a folder for the first time, or to reconfigure the active vault — 'set up the wiki', 'point the plugin at this vault', 'use this folder'. Also activate when any commonplace script fails because no `.vault-path` exists. Writes the vault marker, scaffolds `.wiki/`, discovers initial domains/genres."
+description: "User-invoked setup: point commonplace at a folder for the first time or reconfigure the active vault. Writes the vault marker, scaffolds `.wiki/`, discovers initial domains/genres. Invoke explicitly via /wiki-init."
+disable-model-invocation: true
 ---
 
 # Wiki Init

@@ -1,6 +1,6 @@
 ---
 name: wiki-query
-description: "ALWAYS use when the user asks a question answerable from vault notes — 'how does X relate to Y', 'what do the papers say about Z', 'compare approaches to W', or discussions of concept connections. Critically, also fire immediately after wiki-ingest when the user pivots from saving to asking how the new source relates to other vault topics — read the related notes, don't synthesize from index metadata. Files novel insights back into the vault."
+description: "Answer questions from vault notes. Use when user asks 'how does X relate to Y', 'what do the papers say about Z', 'compare approaches to W', or discusses concept connections. Also fire immediately after wiki-ingest when user pivots from saving to asking how the new source relates to other vault topics. Do NOT answer from memory — read the actual notes."
 ---
 
 # Wiki Query

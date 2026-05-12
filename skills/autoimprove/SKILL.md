@@ -1,6 +1,6 @@
 ---
 name: autoimprove
-description: "ALWAYS use when the user wants the vault made better autonomously — 'improve the vault', 'autoimprove', 'fix what you can', 'what's the vault score'. Runs a score-gated loop: pick highest-impact fix, execute, re-score, repeat. Defer to wiki-lint for read-only diagnostics — autoimprove writes."
+description: "Autonomous vault improvement loop (writes changes). Use when user says 'improve the vault', 'autoimprove', 'fix what you can', 'what's the vault score'. Do NOT use for read-only diagnostics — that's wiki-lint."
 ---
 
 # Autoimprove

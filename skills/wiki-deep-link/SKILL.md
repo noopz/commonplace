@@ -1,7 +1,8 @@
 ---
 name: wiki-deep-link
-description: "ALWAYS use when the user wants hidden concept connections surfaced — 'find hidden connections', 'deep link', 'semantic linking', 'what links am I missing', 'improve graph connectivity'. Uses local embeddings to flag related-but-unlinked (sentence, concept) pairs, then adds wikilinks where the connection holds. Requires Ollama + nomic-embed-text running locally — check before dispatching. On-demand only; never auto-triggers."
+description: "User-invoked: surface hidden concept connections via local embeddings (Ollama + nomic-embed-text). Flags related-but-unlinked (sentence, concept) pairs, then adds wikilinks where the connection holds. Invoke explicitly via /wiki-deep-link."
 compatibility: Requires Ollama running locally with the nomic-embed-text model pulled.
+disable-model-invocation: true
 ---
 
 # Wiki Deep Link

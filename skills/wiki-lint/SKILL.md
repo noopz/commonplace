@@ -1,6 +1,6 @@
 ---
 name: wiki-lint
-description: "ALWAYS use when the user wants a read-only health check — 'how's the vault', 'anything need fixing', 'lint the vault', 'audit the vault', 'show me broken links/stubs/orphans'. Diagnoses and reports only; never writes. Auto-activate after a session of multiple ingests. Hand off to autoimprove if the user wants autonomous multi-round fixing."
+description: "Read-only vault health check. Use when user says 'how's the vault', 'audit', 'lint', 'anything broken', 'show me broken links/stubs/orphans'. Do NOT use when user wants fixes applied — hand off to autoimprove."
 ---
 
 # Wiki Lint

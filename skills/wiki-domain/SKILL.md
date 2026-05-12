@@ -1,6 +1,6 @@
 ---
 name: wiki-domain
-description: "ALWAYS use when the user wants to set up, list, rename, or merge research domains — 'set up a domain for X', 'add a new domain', 'what domains exist', 'change scope of the X domain'. Creates domain folder, registers it, configures scope/linkGroup. Do NOT speculatively activate on ingest prompts — wiki-ingest hands off explicitly when no domain matches."
+description: "Set up, list, rename, or merge research domains. Use when user says 'add a domain for X', 'set up a domain', 'what domains exist', 'change scope of X domain', 'merge X and Y domains'. Do NOT speculatively fire on ingest prompts — wiki-ingest hands off explicitly when no domain matches."
 ---
 
 # Wiki Domain

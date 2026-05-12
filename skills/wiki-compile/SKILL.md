@@ -1,6 +1,6 @@
 ---
 name: wiki-compile
-description: "ALWAYS use when the user wants concept stubs filled with real definitions — 'fill in the stubs', 'compile the concepts', 'flesh out the concepts', or follow-up after wiki-lint reports stubs. Reads source papers referencing each stub and synthesizes a citation-grounded definition. Skip malformed names (sentence fragments, not noun phrases) and flag for manual review."
+description: "Fill concept stubs with citation-grounded definitions. Use when user says 'fill in the stubs', 'compile concepts', 'flesh out concepts', or as follow-up after wiki-lint reports stubs. Do NOT use for new sources not yet in vault — that's wiki-ingest."
 ---
 
 # Wiki Compile

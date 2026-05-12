@@ -89,14 +89,33 @@ if (noteType === "other") {
   process.exit(0);
 }
 
-const output: { validate?: unknown; index?: string; scopeCheck?: unknown } = {};
+const output: {
+  validate?: unknown;
+  index?: string;
+  scopeCheck?: unknown;
+  supersede?: { target: string; keyword: string };
+  sourceWritten?: boolean;
+} = {};
 
-// Step 1: Validate frontmatter
+if (noteType === "source") {
+  output.sourceWritten = true;
+}
+
+// Step 1: Validate frontmatter + scan body for supersession declarations
 try {
   const parsed = parseNote(filePath, config.vaultPath);
   const errors = validateFrontmatter(parsed.frontmatter, noteType);
   if (errors.length > 0) {
     output.validate = { valid: false, errors };
+  }
+  const supersedeMatch = parsed.body.match(
+    /\b(supersedes|replaces|formerly)\s+\[\[([^\]|]+)(?:\|[^\]]*)?\]\]/i,
+  );
+  if (supersedeMatch) {
+    output.supersede = {
+      keyword: supersedeMatch[1].toLowerCase(),
+      target: supersedeMatch[2].trim(),
+    };
   }
 } catch (err) {
   output.validate = {
@@ -132,7 +151,36 @@ try {
   // Scope check failed silently
 }
 
-// Only output if there were issues
-if (output.validate || output.scopeCheck) {
-  console.log(JSON.stringify(output));
+// Only output if there were issues or signals to surface
+if (
+  output.validate ||
+  output.scopeCheck ||
+  output.supersede ||
+  output.sourceWritten
+) {
+  const notes: string[] = [];
+  if (output.supersede) {
+    const { keyword, target } = output.supersede;
+    notes.push(
+      `This note ${keyword} [[${target}]]. To retroactively reframe sibling notes that still treat [[${target}]] as live, invoke the wiki-supersede skill (or run \`commonplace supersede --retire --old "${target}" --new "<this-note-title>" --reason "..."\`).`,
+    );
+  }
+  if (output.sourceWritten) {
+    notes.push(
+      `Source note written. Vault connectedness opportunity: consider running wiki-lint (orphans, underlinked, weak summaries, bridge thinness) and/or \`/wiki-deep-link\` (embedding-discovered concept connections, requires Ollama).`,
+    );
+  }
+  if (notes.length > 0) {
+    console.log(
+      JSON.stringify({
+        ...output,
+        hookSpecificOutput: {
+          hookEventName: "PostToolUse",
+          additionalContext: notes.join("\n\n"),
+        },
+      }),
+    );
+  } else {
+    console.log(JSON.stringify(output));
+  }
 }
