@@ -10,7 +10,7 @@
  */
 
 import { existsSync, mkdirSync, writeFileSync, readFileSync } from "fs";
-import { join, basename } from "path";
+import { join, basename, relative, sep } from "path";
 import { parseArgs } from "util";
 import {
   resolveVault,
@@ -357,20 +357,31 @@ function toJsonl(arr: unknown[]): string {
   return arr.map(item => JSON.stringify(item)).join("\n") + "\n";
 }
 
+// Convert absolute vault path → vault-relative with forward slashes. Indexes
+// store vault-relative paths so .wiki/ is portable across machines and renames.
+function toRel(abs: string): string {
+  const rel = relative(config.vaultPath, abs);
+  return sep === "\\" ? rel.split(sep).join("/") : rel;
+}
+
+const sourcesOut = sources.map((s) => ({ ...s, path: toRel(s.path) }));
+const conceptsOut = concepts.map((c) => ({ ...c, path: toRel(c.path) }));
+const mocsOut = mocs.map((m) => ({ ...m, path: toRel(m.path) }));
+
 // Materialize the inverted backlink index. Sort targets and sources by path
 // so diffs between runs are deterministic.
 const backlinkRecords = [...backlinkIndex.entries()]
   .sort(([a], [b]) => a.localeCompare(b))
   .map(([target, sources]) => ({
-    target,
+    target: toRel(target),
     backlinks: [...sources.entries()]
       .sort(([a], [b]) => a.localeCompare(b))
-      .map(([source, count]) => ({ source, count })),
+      .map(([source, count]) => ({ source: toRel(source), count })),
   }));
 
-writeFileSync(join(config.wikiPath, "source-index.jsonl"), toJsonl(sources));
-writeFileSync(join(config.wikiPath, "concept-index.jsonl"), toJsonl(concepts));
-writeFileSync(join(config.wikiPath, "moc-index.jsonl"), toJsonl(mocs));
+writeFileSync(join(config.wikiPath, "source-index.jsonl"), toJsonl(sourcesOut));
+writeFileSync(join(config.wikiPath, "concept-index.jsonl"), toJsonl(conceptsOut));
+writeFileSync(join(config.wikiPath, "moc-index.jsonl"), toJsonl(mocsOut));
 writeFileSync(join(config.wikiPath, "domain-index.jsonl"), toJsonl(domainSummaries));
 writeFileSync(join(config.wikiPath, "backlink-index.jsonl"), toJsonl(backlinkRecords));
 

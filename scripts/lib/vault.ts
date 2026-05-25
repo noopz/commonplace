@@ -282,16 +282,41 @@ function parseJsonl<T>(filePath: string): T[] {
     .map(line => JSON.parse(line) as T);
 }
 
+/**
+ * Resolve a vault-relative path from an index back to absolute.
+ * Tolerates legacy absolute paths (returns as-is) so a stale .wiki/ won't
+ * silently break; a warning is emitted once per load by loadIndexes.
+ */
+export function resolveIndexPath(p: string, vaultPath: string): string {
+  if (p.startsWith("/") || /^[A-Za-z]:[\\/]/.test(p)) return p;
+  return join(vaultPath, p);
+}
+
+let _staleIndexWarned = false;
+function warnIfStale(records: { path?: string }[]): void {
+  if (_staleIndexWarned) return;
+  const first = records.find((r) => typeof r.path === "string");
+  if (first && (first.path!.startsWith("/") || /^[A-Za-z]:[\\/]/.test(first.path!))) {
+    _staleIndexWarned = true;
+    console.error(
+      "warning: .wiki/ indexes contain absolute paths (legacy format). Run `commonplace index` to rebuild.",
+    );
+  }
+}
+
 export function loadIndexes(config: VaultConfig): {
   sources: SourceNote[];
   concepts: ConceptNote[];
   mocs: MocNote[];
 } {
-  return {
-    sources: parseJsonl<SourceNote>(join(config.wikiPath, "source-index.jsonl")),
-    concepts: parseJsonl<ConceptNote>(join(config.wikiPath, "concept-index.jsonl")),
-    mocs: parseJsonl<MocNote>(join(config.wikiPath, "moc-index.jsonl")),
-  };
+  const sources = parseJsonl<SourceNote>(join(config.wikiPath, "source-index.jsonl"));
+  const concepts = parseJsonl<ConceptNote>(join(config.wikiPath, "concept-index.jsonl"));
+  const mocs = parseJsonl<MocNote>(join(config.wikiPath, "moc-index.jsonl"));
+  warnIfStale([...sources, ...concepts, ...mocs]);
+  for (const s of sources) s.path = resolveIndexPath(s.path, config.vaultPath);
+  for (const c of concepts) c.path = resolveIndexPath(c.path, config.vaultPath);
+  for (const m of mocs) m.path = resolveIndexPath(m.path, config.vaultPath);
+  return { sources, concepts, mocs };
 }
 
 export function ensureIndex(config: VaultConfig): boolean {
