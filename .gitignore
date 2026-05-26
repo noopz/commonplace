@@ -4,3 +4,6 @@ node_modules/
 .strata/
 skills/wiki-query-workspace/
 .wiki/
+
+# Local brainstorming/specs — not checked in
+docs/superpowers/
