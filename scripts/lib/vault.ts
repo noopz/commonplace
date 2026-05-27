@@ -123,21 +123,16 @@ export function isCwdInVault(cwd: string): { inVault: boolean; vaultPath?: strin
     if (parent === cur) break;
     cur = parent;
   }
-  const dataDir = process.env.CLAUDE_PLUGIN_DATA;
-  const pluginRoot = resolve(import.meta.dirname!, "..", "..");
-  let vp: string | undefined;
-  for (const loc of [
-    ...(dataDir ? [join(dataDir, ".vault-path")] : []),
-    join(pluginRoot, ".vault-path"),
-  ]) {
-    try { const v = readFileSync(loc, "utf-8").trim(); if (v) { vp = v; break; } } catch {}
-  }
-  if (vp) {
+  // Not inside any vault by walk-up. Fall back to the registry's global
+  // default — a non-sensitive "anywhere" vault — so prompt-context can still
+  // point the user at it without leaking a specific (possibly private) vault.
+  const def = getDefaultEntry(loadVaultRegistry());
+  if (def) {
     const norm = (s: string) => s.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
-    const v = norm(vp);
     const c = norm(cwd);
-    if (c === v || c.startsWith(v + "/")) return { inVault: true, vaultPath: vp };
-    return { inVault: false, vaultPath: vp };
+    const v = norm(def.path);
+    if (c === v || c.startsWith(v + "/")) return { inVault: true, vaultPath: def.path };
+    return { inVault: false, vaultPath: def.path };
   }
   return { inVault: false };
 }
