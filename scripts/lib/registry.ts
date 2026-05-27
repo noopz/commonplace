@@ -46,3 +46,12 @@ export function parseRegistry(json: string): VaultRegistry {
     : null;
   return { default: def, vaults };
 }
+
+export function findById(reg: VaultRegistry, id: string): VaultRegistryEntry | undefined {
+  return reg.vaults.find((v) => v.id === id);
+}
+
+export function getDefaultEntry(reg: VaultRegistry): VaultRegistryEntry | undefined {
+  if (!reg.default) return undefined;
+  return findById(reg, reg.default);
+}
