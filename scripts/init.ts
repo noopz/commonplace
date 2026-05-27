@@ -4,7 +4,7 @@
  *
  * - Auto-detects vault structure (sources/concepts/mocs dirs, stub pattern)
  * - Writes .wiki/config.json (merges with existing, preserving user edits)
- * - Writes .vault-path at the plugin root (used by SessionStart hooks)
+ * - Registers the vault in vaults.json (mirrors .vault-path for back-compat)
  * - Generates/updates vault CLAUDE.md domain registry sentinel block
  *
  * Usage: npx tsx scripts/init.ts [--vault <path>]

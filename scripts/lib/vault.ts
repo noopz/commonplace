@@ -109,9 +109,10 @@ export function saveVaultRegistry(reg: VaultRegistry): void {
  * globally, so a session in /some/random/project shouldn't get treated
  * the same as one inside the vault.
  *
- * Resolution order matches resolveVault: walk up from cwd looking for a
- * vault marker (.wiki/ or .obsidian/), then fall back to comparing
- * against the configured .vault-path.
+ * Resolution: walk up from cwd looking for a vault marker (.wiki/ or
+ * .obsidian/); if none found, fall back to comparing cwd against the
+ * registry default vault's path. Note: for multi-vault setups this
+ * fallback only checks the default, not every registered vault.
  */
 export function isCwdInVault(cwd: string): { inVault: boolean; vaultPath?: string } {
   let cur = resolve(cwd);
