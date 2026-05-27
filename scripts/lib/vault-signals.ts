@@ -32,11 +32,13 @@ export const VAULT_SIGNALS: RegExp[] = [
   /\[\[(?!\s)[^\[\]\n]+\]\]/,
 ];
 
-export function hasVaultIntent(text: string, vaultPath?: string): boolean {
+export function hasVaultIntent(text: string, vaultPaths?: string | string[]): boolean {
   if (VAULT_SIGNALS.some((re) => re.test(text))) return true;
-  if (vaultPath) {
+  const paths = vaultPaths == null ? [] : Array.isArray(vaultPaths) ? vaultPaths : [vaultPaths];
+  if (paths.length > 0) {
     const norm = (s: string) => s.replace(/\\/g, "/").toLowerCase();
-    if (norm(text).includes(norm(vaultPath))) return true;
+    const t = norm(text);
+    if (paths.some((p) => p && t.includes(norm(p)))) return true;
   }
   return false;
 }
