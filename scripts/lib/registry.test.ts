@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { parseRegistry, EMPTY_REGISTRY } from "./registry.ts";
 import { findById, getDefaultEntry } from "./registry.ts";
+import { matchByPhrase } from "./registry.ts";
 
 test("parseRegistry reads a well-formed registry", () => {
   const reg = parseRegistry(JSON.stringify({
@@ -41,4 +42,26 @@ test("findById returns the matching entry or undefined", () => {
 test("getDefaultEntry resolves the default id", () => {
   assert.equal(getDefaultEntry(sample)?.id, "main");
   assert.equal(getDefaultEntry(EMPTY_REGISTRY), undefined);
+});
+
+test("matchByPhrase matches id, label, or alias case-insensitively", () => {
+  assert.deepEqual(matchByPhrase(sample, "search in alice").map((v) => v.id), ["alice"]);
+  assert.deepEqual(matchByPhrase(sample, "look in MAIN").map((v) => v.id), ["main"]);
+  // alias "a" must match as a whole word, not inside "search"
+  assert.deepEqual(matchByPhrase(sample, "the a vault").map((v) => v.id), ["alice"]);
+});
+
+test("matchByPhrase returns multiple entries when ambiguous", () => {
+  const reg = parseRegistry(JSON.stringify({
+    default: null,
+    vaults: [
+      { id: "alice", path: "/v/alice", label: "Alice", aliases: [] },
+      { id: "alice-work", path: "/v/alice-work", label: "Alice Work", aliases: [] },
+    ],
+  }));
+  assert.equal(matchByPhrase(reg, "in alice").length, 2);
+});
+
+test("matchByPhrase returns [] when nothing matches", () => {
+  assert.deepEqual(matchByPhrase(sample, "in zenith"), []);
 });

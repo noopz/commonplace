@@ -55,3 +55,30 @@ export function getDefaultEntry(reg: VaultRegistry): VaultRegistryEntry | undefi
   if (!reg.default) return undefined;
   return findById(reg, reg.default);
 }
+
+/**
+ * Find registry entries whose id, label, or any alias appears as a whole
+ * word in `phrase`. Whole-word matching avoids "a" matching inside
+ * "search". Returns ALL matches so the caller can disambiguate (ask the
+ * user) when more than one vault matches.
+ */
+export function matchByPhrase(reg: VaultRegistry, phrase: string): VaultRegistryEntry[] {
+  const hay = ` ${phrase.toLowerCase()} `;
+  const hasWord = (needle: string): boolean => {
+    const n = needle.toLowerCase().trim();
+    if (!n) return false;
+    // word boundary on both sides; escape regex metacharacters in the needle
+    const esc = n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return new RegExp(`(^|[^a-z0-9])${esc}([^a-z0-9]|$)`).test(hay);
+  };
+  const hasWordComponent = (needle: string): boolean => {
+    // Check if the whole needle matches, or any alphanumeric component of it
+    if (hasWord(needle)) return true;
+    // Split by non-alphanumerics and check if any component matches
+    const components = needle.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+    return components.some(hasWord);
+  };
+  return reg.vaults.filter((v) =>
+    hasWordComponent(v.id) || hasWordComponent(v.label) || v.aliases.some(hasWordComponent),
+  );
+}
