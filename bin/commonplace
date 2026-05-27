@@ -38,6 +38,7 @@ const SCRIPTS = {
   'cleanup-cache':       'scripts/cleanup-cache.ts',
   'moc:sync':            'scripts/moc-sync.ts',
   'supersede':           'scripts/supersede.ts',
+  'vaults':              'scripts/vaults.ts',
   // Paper pipeline
   'paper:fetch':          'scripts/paper/fetch-paper.ts',
   'paper:extract':        'scripts/paper/extract-sections.ts',
@@ -130,6 +131,7 @@ if (!cmd || cmd === '--help' || cmd === '-h') {
   console.error('  deep-link     Find implicit concept connections via embeddings (requires Ollama)');
   console.error('  moc:sync      Reconcile MOC headers/bullet lists with the source index');
   console.error('  supersede     Retire an entity superseded by a successor; propagate live-framing rewrites');
+  console.error('  vaults        List registered vaults or match one by name');
   console.error('');
   console.error('  paper:fetch          Download paper from arXiv/URL');
   console.error('  paper:extract        Extract pages from PDF');
