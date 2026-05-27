@@ -1,6 +1,10 @@
 node_modules/
 *.tsbuildinfo
 .vault-path
+vaults.json
 .strata/
 skills/wiki-query-workspace/
 .wiki/
+
+# Local brainstorming/specs — not checked in
+docs/superpowers/

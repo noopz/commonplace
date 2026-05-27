@@ -4,7 +4,7 @@
  *
  * - Auto-detects vault structure (sources/concepts/mocs dirs, stub pattern)
  * - Writes .wiki/config.json (merges with existing, preserving user edits)
- * - Writes .vault-path at the plugin root (used by SessionStart hooks)
+ * - Registers the vault in vaults.json (mirrors .vault-path for back-compat)
  * - Generates/updates vault CLAUDE.md domain registry sentinel block
  *
  * Usage: npx tsx scripts/init.ts [--vault <path>]
@@ -15,7 +15,8 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSy
 import { join, dirname, resolve } from "path";
 import { fileURLToPath } from "url";
 import { glob } from "glob";
-import { resolveVault, loadDomainRegistry, saveDomainRegistry } from "./lib/vault.js";
+import { resolveVault, loadDomainRegistry, saveDomainRegistry, loadVaultRegistry, saveVaultRegistry } from "./lib/vault.js";
+import { addVault } from "./lib/registry.js";
 import { discoverGenres } from "./lib/genre-discovery.js";
 import type { DomainRegistry } from "./lib/types.js";
 import type { WikiConfig } from "./lib/types.js";
@@ -186,15 +187,20 @@ if (existsSync(configPath)) {
 
 writeFileSync(configPath, JSON.stringify(merged, null, 2) + "\n");
 
-// ---- Step 3: Write .vault-path ----
+// ---- Step 3: Register the vault in vaults.json (mirrors .vault-path) ----
 
 const pluginRoot = process.env.CLAUDE_PLUGIN_ROOT
   ?? resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
-// Write to CLAUDE_PLUGIN_DATA (survives plugin updates), fall back to plugin root
-const dataDir = process.env.CLAUDE_PLUGIN_DATA;
-const vaultPathDest = dataDir ? join(dataDir, ".vault-path") : join(pluginRoot, ".vault-path");
-writeFileSync(vaultPathDest, config.vaultPath + "\n");
+const base = config.vaultPath.replace(/[\\/]+$/, "").split(/[\\/]/).pop() ?? "vault";
+const id = base.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "vault";
+const reg = addVault(loadVaultRegistry(), {
+  id,
+  path: config.vaultPath,
+  label: base,
+  aliases: [],
+});
+saveVaultRegistry(reg); // also writes the .vault-path back-compat mirror
 
 // Write reverse pointer in vault so agents running from vault context can find the plugin
 writeFileSync(join(config.wikiPath, "plugin-root"), pluginRoot + "\n");
@@ -384,7 +390,7 @@ console.log(JSON.stringify({
   vaultPath: config.vaultPath,
   configWritten: configPath,
   domainsWritten: join(config.wikiPath, "domains.json"),
-  vaultPathFile: vaultPathDest,
+  vaultRegistered: config.vaultPath,
   pluginRootFile: join(config.wikiPath, "plugin-root"),
   structure: merged.structure,
   stubPattern: merged.stubPattern,

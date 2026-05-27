@@ -20,7 +20,7 @@
 import { readFileSync } from "fs";
 import { join } from "path";
 import { hasVaultIntent } from "./lib/vault-signals.js";
-import { isCwdInVault } from "./lib/vault.js";
+import { isCwdInVault, loadVaultRegistry } from "./lib/vault.js";
 
 interface HookInput {
   prompt?: string;
@@ -34,7 +34,8 @@ const cwd = input.cwd ?? process.cwd();
 const { inVault, vaultPath } = isCwdInVault(cwd);
 
 if (!vaultPath) process.exit(0); // plugin not configured for any vault yet
-if (!hasVaultIntent(prompt, vaultPath)) process.exit(0);
+const vaultPaths = loadVaultRegistry().vaults.map((v) => v.path);
+if (!hasVaultIntent(prompt, vaultPaths)) process.exit(0);
 
 function emit(context: string): never {
   console.log(JSON.stringify({

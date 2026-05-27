@@ -20,8 +20,8 @@
  */
 
 import { readFileSync } from "fs";
-import { join } from "path";
 import { hasVaultIntent } from "./lib/vault-signals.js";
+import { loadVaultRegistry } from "./lib/vault.js";
 
 interface HookInput {
   tool_name: string;
@@ -42,25 +42,11 @@ if (subagentType !== "general-purpose") process.exit(0);
 
 const prompt = `${tool_input.prompt ?? ""} ${tool_input.description ?? ""}`;
 
-// Resolve vault path via the same mechanism scripts/session-context.ts uses.
-// Env vars are populated by Claude Code; .vault-path stores an absolute path
-// in OS-native form (forward slashes on POSIX, backslashes on Windows).
-let vaultPath: string | undefined;
-const candidates: string[] = [];
-if (process.env.CLAUDE_PLUGIN_DATA) {
-  candidates.push(join(process.env.CLAUDE_PLUGIN_DATA, ".vault-path"));
-}
-if (process.env.CLAUDE_PLUGIN_ROOT) {
-  candidates.push(join(process.env.CLAUDE_PLUGIN_ROOT, ".vault-path"));
-}
-for (const p of candidates) {
-  try {
-    const v = readFileSync(p, "utf-8").trim();
-    if (v) { vaultPath = v; break; }
-  } catch { /* try next */ }
-}
+// Test the prompt against EVERY registered vault path — with many vaults,
+// a path mention for any of them is vault intent, not just the default.
+const vaultPaths = loadVaultRegistry().vaults.map((v) => v.path);
 
-if (!hasVaultIntent(prompt, vaultPath)) process.exit(0);
+if (!hasVaultIntent(prompt, vaultPaths)) process.exit(0);
 
 const reason =
   `Vault-content question detected. Use the wiki-query skill instead — ` +

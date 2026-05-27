@@ -8,6 +8,7 @@
   },
   "description": "LLM-maintained knowledge base for Obsidian vaults",
   "scripts": {
+    "test": "node --import tsx --test \"scripts/**/*.test.ts\"",
     "index": "tsx scripts/index.ts",
     "lint": "tsx scripts/lint.ts",
     "validate": "tsx scripts/validate.ts",
