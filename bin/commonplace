@@ -64,6 +64,10 @@ if (cmd === 'vault-path' || cmd === 'config') {
     ...(dataDir ? [join(dataDir, '.vault-path')] : []),
     join(__dirname, '..', '.vault-path'),
   ];
+  const vaultsJsonLocs = [
+    ...(dataDir ? [join(dataDir, 'vaults.json')] : []),
+    join(__dirname, '..', 'vaults.json'),
+  ];
   // Scan all possible plugin data dirs (marketplace name varies)
   if (homeDir) {
     try {
@@ -71,11 +75,21 @@ if (cmd === 'vault-path' || cmd === 'config') {
       for (const dir of readdirSync(pluginDataRoot)) {
         if (dir.startsWith('commonplace-')) {
           locations.push(join(pluginDataRoot, dir, '.vault-path'));
+          vaultsJsonLocs.push(join(pluginDataRoot, dir, 'vaults.json'));
         }
       }
     } catch {}
   }
-  for (const loc of locations) {
+  // Prefer the registry's default vault.
+  for (const loc of vaultsJsonLocs) {
+    try {
+      const reg = JSON.parse(readFileSync(loc, 'utf-8'));
+      const def = (reg.vaults || []).find((v) => v.id === reg.default);
+      if (def && def.path) { vp = def.path; break; }
+    } catch {}
+  }
+  // Legacy .vault-path fallback.
+  if (!vp) for (const loc of locations) {
     try { vp = readFileSync(loc, 'utf-8').trim(); break; } catch {}
   }
   // Fall back to cwd discovery (walk up looking for .obsidian/ or .wiki/)
