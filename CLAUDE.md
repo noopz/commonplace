@@ -33,6 +33,7 @@ Command hooks (shell subprocesses) don't inherit the Bash tool PATH, so they use
 All commands auto-discover the vault via cwd (`.obsidian/` or `.wiki/` marker) or `.vault-path` fallback. The `--vault <path>` flag is optional — only needed for `init` or when overriding auto-discovery.
 
 - `commonplace vault-path` — Print the configured vault path (no tsx spawn, instant)
+- `commonplace vaults [--match "<phrase>"] [--json]` — List registered vaults, or match one by name (used by wiki-query to resolve "search in <name>")
 - `commonplace config` — Print `.wiki/config.json` contents (no tsx spawn, instant)
 - `commonplace index [--incremental]` — Build/update `.wiki/*.jsonl` indexes: `source-index`, `concept-index`, `moc-index`, `domain-index`, `backlink-index` (human-readable output by default)
 - `commonplace lint [--check <name>] [--json] [--rank-by-traffic]` — Vault health audit (human-readable summary by default, `--json` for machine-parseable; `--rank-by-traffic` sorts stub findings by backlink count, descending). Checks include `unresolved`, `stubs`, `orphans`, `frontmatter`, `moc-staleness`, `scope-violations`, `duplicates`, `malformed-dates`, `filename-h1-mismatch`, `near-duplicate-names`, `malformed-concept-names`, `underlinked`, `cluster-cohesion`, `bridge-thinness`, `weak-summary`, `cross-scope-bridge`, `concept-density-without-source-links`.
@@ -66,7 +67,7 @@ Paper commands:
 
 ## Vault Location
 
-The active vault is auto-discovered from `CLAUDE_PLUGIN_DATA/.vault-path` (written by `commonplace init`, survives plugin updates), falling back to cwd discovery (`.obsidian/` or `.wiki/` marker). Use `commonplace vault-path` to retrieve it. The vault's own CLAUDE.md defines the schema and conventions.
+The set of vaults lives in `vaults.json` under `CLAUDE_PLUGIN_DATA` (a registry of `{id, path, label, aliases}` plus a `default`). `commonplace init` appends to it; `.vault-path` is kept as a back-compat mirror of the default vault for instant `bin/commonplace` lookups. Selection precedence is: explicit `--vault <id|path>` → cwd walk-up (`.obsidian/`/`.wiki/`) → registry default. Per-vault `.wiki/` config/indexes are unchanged. The vault's own CLAUDE.md defines the schema and conventions.
 
 ## Domain System
 
