@@ -82,3 +82,22 @@ export function matchByPhrase(reg: VaultRegistry, phrase: string): VaultRegistry
     hasWordComponent(v.id) || hasWordComponent(v.label) || v.aliases.some(hasWordComponent),
   );
 }
+
+function slugify(s: string): string {
+  return s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "vault";
+}
+
+/** Return a new registry with `entry` added or replacing one of the same id/path. */
+export function addVault(reg: VaultRegistry, entry: VaultRegistryEntry): VaultRegistry {
+  const vaults = reg.vaults.filter((v) => v.id !== entry.id && v.path !== entry.path);
+  vaults.push(entry);
+  const def = reg.default ?? entry.id;
+  return { default: def, vaults };
+}
+
+/** Build a single-entry registry from a legacy `.vault-path` value. */
+export function migrateFromVaultPath(vaultPath: string): VaultRegistry {
+  const base = vaultPath.replace(/[\\/]+$/, "").split(/[\\/]/).pop() ?? "vault";
+  const id = slugify(base);
+  return { default: id, vaults: [{ id, path: vaultPath, label: base, aliases: [] }] };
+}

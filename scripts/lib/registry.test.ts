@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { parseRegistry, EMPTY_REGISTRY } from "./registry.ts";
 import { findById, getDefaultEntry } from "./registry.ts";
 import { matchByPhrase } from "./registry.ts";
+import { addVault, migrateFromVaultPath } from "./registry.ts";
 
 test("parseRegistry reads a well-formed registry", () => {
   const reg = parseRegistry(JSON.stringify({
@@ -64,4 +65,26 @@ test("matchByPhrase returns multiple entries when ambiguous", () => {
 
 test("matchByPhrase returns [] when nothing matches", () => {
   assert.deepEqual(matchByPhrase(sample, "in zenith"), []);
+});
+
+test("addVault appends and sets default when registry is empty", () => {
+  const reg = addVault(EMPTY_REGISTRY, { id: "main", path: "/v/main", label: "Main", aliases: [] });
+  assert.equal(reg.default, "main");
+  assert.equal(reg.vaults.length, 1);
+});
+
+test("addVault replaces an entry with the same id or path, keeps default", () => {
+  const base = addVault(EMPTY_REGISTRY, { id: "main", path: "/v/main", label: "Main", aliases: [] });
+  const reg = addVault(base, { id: "main", path: "/v/main", label: "Renamed", aliases: ["m"] });
+  assert.equal(reg.vaults.length, 1);
+  assert.equal(reg.vaults[0].label, "Renamed");
+  assert.equal(reg.default, "main");
+});
+
+test("migrateFromVaultPath builds a single-entry default registry", () => {
+  const reg = migrateFromVaultPath("/Users/z/vaults/My Notes");
+  assert.equal(reg.vaults.length, 1);
+  assert.equal(reg.vaults[0].path, "/Users/z/vaults/My Notes");
+  assert.equal(reg.vaults[0].id, "my-notes");
+  assert.equal(reg.default, "my-notes");
 });
