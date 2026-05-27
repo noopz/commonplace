@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, existsSync, statSync, readdirSync } from "fs";
+import { readFileSync, writeFileSync, existsSync, statSync, readdirSync, mkdirSync } from "fs";
 import { join, resolve, dirname, relative as relPath } from "path";
 import { glob } from "glob";
 import type {
@@ -10,6 +10,14 @@ import type {
   ConceptNote,
   MocNote,
 } from "./types.js";
+import {
+  type VaultRegistry,
+  EMPTY_REGISTRY as EMPTY_VAULT_REGISTRY,
+  parseRegistry,
+  findById,
+  getDefaultEntry,
+  migrateFromVaultPath,
+} from "./registry.js";
 
 const EMPTY_REGISTRY: DomainRegistry = { domains: {} };
 
@@ -20,6 +28,76 @@ export function getVaultConfig(vaultPath: string): VaultConfig {
     wikiPath: join(resolved, ".wiki"),
     claudeMdPath: join(resolved, "CLAUDE.md"),
   };
+}
+
+/**
+ * Candidate locations for vaults.json / .vault-path, in priority order.
+ * Mirrors the existing .vault-path search (CLAUDE_PLUGIN_DATA, plugin root,
+ * then any commonplace-* marketplace data dir).
+ */
+function pluginDataLocations(filename: string): string[] {
+  const dataDir = process.env.CLAUDE_PLUGIN_DATA;
+  const pluginRoot = resolve(import.meta.dirname!, "..", "..");
+  const homeDir = process.env.HOME || process.env.USERPROFILE || "";
+  const locs = [
+    ...(dataDir ? [join(dataDir, filename)] : []),
+    join(pluginRoot, filename),
+  ];
+  if (homeDir) {
+    try {
+      const root = join(homeDir, ".claude", "plugins", "data");
+      for (const dir of readdirSync(root)) {
+        if (dir.startsWith("commonplace-")) locs.push(join(root, dir, filename));
+      }
+    } catch {}
+  }
+  return locs;
+}
+
+/** Where new registry writes go: CLAUDE_PLUGIN_DATA if set, else plugin root. */
+function primaryDataDir(): string {
+  return process.env.CLAUDE_PLUGIN_DATA ?? resolve(import.meta.dirname!, "..", "..");
+}
+
+let _vaultRegistryCache: VaultRegistry | null = null;
+
+/**
+ * Load the vault registry. If vaults.json is absent but a legacy
+ * .vault-path exists, migrate it to a single-entry registry and persist
+ * (best-effort). Cached for the process lifetime.
+ */
+export function loadVaultRegistry(): VaultRegistry {
+  if (_vaultRegistryCache) return _vaultRegistryCache;
+  for (const loc of pluginDataLocations("vaults.json")) {
+    try {
+      const reg = parseRegistry(readFileSync(loc, "utf-8"));
+      if (reg.vaults.length > 0) { _vaultRegistryCache = reg; return reg; }
+    } catch {}
+  }
+  // Migrate legacy .vault-path
+  for (const loc of pluginDataLocations(".vault-path")) {
+    try {
+      const vp = readFileSync(loc, "utf-8").trim();
+      if (vp && existsSync(vp)) {
+        const reg = migrateFromVaultPath(resolve(vp));
+        try { saveVaultRegistry(reg); } catch {}
+        _vaultRegistryCache = reg;
+        return reg;
+      }
+    } catch {}
+  }
+  _vaultRegistryCache = EMPTY_VAULT_REGISTRY;
+  return EMPTY_VAULT_REGISTRY;
+}
+
+/** Persist the registry, and mirror the default path to .vault-path for back-compat. */
+export function saveVaultRegistry(reg: VaultRegistry): void {
+  const dir = primaryDataDir();
+  try { mkdirSync(dir, { recursive: true }); } catch {}
+  writeFileSync(join(dir, "vaults.json"), JSON.stringify(reg, null, 2) + "\n");
+  const def = getDefaultEntry(reg);
+  if (def) writeFileSync(join(dir, ".vault-path"), def.path + "\n");
+  _vaultRegistryCache = reg;
 }
 
 /**
@@ -76,55 +154,30 @@ export function discoverVault(startPath: string): string | null {
   return null;
 }
 
-export function resolveVault(explicitPath?: string): VaultConfig {
-  let vaultPath: string | null = null;
+export function resolveVault(explicit?: string): VaultConfig {
+  const reg = loadVaultRegistry();
 
-  if (explicitPath) {
-    vaultPath = resolve(explicitPath);
-  } else {
-    // Prefer configured vault — if the user ran `init`, that vault wins
-    // Check CLAUDE_PLUGIN_DATA first (survives plugin updates), fall back to plugin root
-    const dataDir = process.env.CLAUDE_PLUGIN_DATA;
-    const pluginRoot = resolve(import.meta.dirname!, "..", "..");
-    const homeDir = process.env.HOME || process.env.USERPROFILE || "";
-    const locations = [
-      ...(dataDir ? [join(dataDir, ".vault-path")] : []),
-      join(pluginRoot, ".vault-path"),
-    ];
-    // Scan all possible plugin data dirs (marketplace name varies)
-    if (homeDir) {
-      try {
-        const pluginDataRoot = join(homeDir, ".claude", "plugins", "data");
-        for (const dir of readdirSync(pluginDataRoot)) {
-          if (dir.startsWith("commonplace-")) {
-            locations.push(join(pluginDataRoot, dir, ".vault-path"));
-          }
-        }
-      } catch {}
-    }
-    for (const loc of locations) {
-      try {
-        const stored = readFileSync(loc, "utf-8").trim();
-        if (stored && existsSync(stored)) { vaultPath = stored; break; }
-      } catch {}
-    }
-
-    // Fall back to cwd discovery (walk up looking for .obsidian/ or .wiki/)
-    // Use caller's cwd if available (bin/commonplace sets COMMONPLACE_CALLER_CWD)
-    if (!vaultPath) {
-      const callerCwd = process.env.COMMONPLACE_CALLER_CWD || process.cwd();
-      vaultPath = discoverVault(callerCwd);
-    }
+  // 1. Explicit --vault: match a registry id first, else treat as a path (back-compat).
+  if (explicit) {
+    const byId = findById(reg, explicit);
+    if (byId) return getVaultConfig(byId.path);
+    return getVaultConfig(resolve(explicit));
   }
 
-  if (!vaultPath) {
-    console.error(
-      "Error: Could not find vault. Run from vault directory or pass --vault <path>"
-    );
-    process.exit(1);
-  }
+  // 2. cwd walk-up — finds any vault marker, registered or not (preserves
+  //    support for never-initialized Obsidian folders).
+  const callerCwd = process.env.COMMONPLACE_CALLER_CWD || process.cwd();
+  const discovered = discoverVault(callerCwd);
+  if (discovered) return getVaultConfig(discovered);
 
-  return getVaultConfig(vaultPath);
+  // 3. Global default.
+  const def = getDefaultEntry(reg);
+  if (def) return getVaultConfig(def.path);
+
+  console.error(
+    "Error: Could not find vault. Run from a vault directory, pass --vault <id|path>, or run `commonplace init`."
+  );
+  process.exit(1);
 }
 
 export function loadWikiConfig(config: VaultConfig): WikiConfig | null {
