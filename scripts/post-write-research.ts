@@ -9,8 +9,9 @@
  */
 
 import { readFileSync } from "fs";
-import { join } from "path";
+import { join, dirname } from "path";
 import { spawnSync } from "child_process";
+import { discoverVault } from "./lib/vault.js";
 
 // Read hook context from stdin
 let input = "";
@@ -33,16 +34,11 @@ if (!filePath.includes("/Research/")) {
   process.exit(0);
 }
 
-// Resolve vault path — check CLAUDE_PLUGIN_DATA first, fall back to plugin root
+// Discover the vault from the written file's own path so the impact /
+// cross-domain checks run against the vault that file actually lives in —
+// not whatever happens to be the registry default.
 const pluginRoot = join(import.meta.dirname!, "..");
-let vaultPath: string | undefined;
-const dataDir = process.env.CLAUDE_PLUGIN_DATA;
-for (const loc of [
-  ...(dataDir ? [join(dataDir, ".vault-path")] : []),
-  join(pluginRoot, ".vault-path"),
-]) {
-  try { vaultPath = readFileSync(loc, "utf-8").trim(); break; } catch {}
-}
+const vaultPath = discoverVault(dirname(filePath));
 if (!vaultPath) process.exit(0);
 
 const tsx = join(pluginRoot, "node_modules", ".bin", "tsx");
