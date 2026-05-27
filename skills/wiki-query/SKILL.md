@@ -13,11 +13,25 @@ Most knowledge bases are read-only — you search, you get an answer, nothing ch
 
 ## Workflow
 
-### Step 0: Resolve vault path
+### Step 0: Select the vault first
+
+This vault store may contain several vaults. Resolve exactly one before reading:
+
+1. If the user named a vault ("search in acme", "in the alice vault"), run
+   `commonplace vaults --match "<the user's phrasing>" --json` and read `matches`:
+   - **exactly one match** → use that vault's `path` (pass `--vault <id>` to commands).
+   - **multiple matches** → ask the user which one; do NOT guess (a wrong pick can read a vault they didn't intend).
+   - **no matches** → run `commonplace vaults` and ask the user which listed vault to search.
+2. If the user named no vault, default to the cwd vault if you are inside one
+   (`commonplace vault-path` resolves it), otherwise the registry default.
+
+Never read more than one vault for a single question, and never federate across vaults.
+
+### Step 1: Resolve vault path
 
 Run `commonplace vault-path` to get the vault path. Use it in all paths below.
 
-### Step 1: Search the vault
+### Step 2: Search the vault
 
 Never load full index files — they grow without bound. Use Grep to target specific entries.
 
@@ -43,14 +57,14 @@ Never load full index files — they grow without bound. Use Grep to target spec
 
 5. **Read relevant notes**: Once you find matches, read the full notes for context
 
-### Step 2: Synthesize the answer
+### Step 3: Synthesize the answer
 
 - Answer the user's question with specific references to vault notes
 - Use `[[wikilinks]]` when mentioning vault concepts or papers
 - Be specific — cite which paper said what, with details
 - If comparing: use a structured comparison (table or side-by-side)
 
-### Step 3: Identify what to file back
+### Step 4: Identify what to file back
 
 Every query is an opportunity to strengthen the vault. While synthesizing, decide what to file:
 
@@ -92,7 +106,7 @@ mocs:
 
 Path: check if a syntheses directory exists in the vault (e.g., `03 - Syntheses/` or similar). If not, create `$VAULT_PATH/03 - Syntheses/{Title}.md`.
 
-### Step 4: File back and log
+### Step 5: File back and log
 
 File everything identified in Step 3.
 
@@ -101,7 +115,7 @@ File everything identified in Step 3.
 commonplace log --entry "## [$(date +%Y-%m-%d)] query | {one-line question summary}\n- {what was found and filed back}\n"
 ```
 
-### Step 5: Mention what was filed
+### Step 6: Mention what was filed
 
 At the end of your answer, briefly note any vault updates. Keep it short — one line per update. The user cares about the answer, not a detailed changelog.
 
