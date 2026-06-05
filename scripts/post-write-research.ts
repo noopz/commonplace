@@ -43,6 +43,18 @@ if (!vaultPath) process.exit(0);
 
 const tsx = join(pluginRoot, "node_modules", ".bin", "tsx");
 
+// Refresh the index first. This hook and the `post-write` hook both fire on
+// Write and Claude Code runs matching hooks in parallel, so we cannot assume
+// `post-write` has already rebuilt the index — without this, impact.ts would
+// read a stale index that doesn't yet contain the file we just wrote and
+// silently find nothing. Incremental indexing is mtime-gated, so a redundant
+// run here is close to a no-op.
+spawnSync(tsx, [
+  join(pluginRoot, "scripts", "index.ts"),
+  "--vault", vaultPath,
+  "--incremental",
+], { encoding: "utf-8", cwd: pluginRoot, timeout: 15000 });
+
 // Run impact check
 const impactResult = spawnSync(tsx, [
   join(pluginRoot, "scripts", "impact.ts"),

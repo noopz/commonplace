@@ -5,6 +5,7 @@
  */
 
 import { parseArgs } from "util";
+import { basename } from "path";
 import {
   resolveVault,
   loadDomainRegistry,
@@ -158,8 +159,66 @@ function checkFile(fp: string): void {
   }
 }
 
+// When a single private note is created/edited, its outbound links are covered
+// by checkFile, but links *into* it from existing public notes only become
+// resolvable now and would otherwise go unreported until a full-vault scan.
+// Scan for inbound wikilinks and flag any whose source domain can't link in.
+// Gated to private targets: canLink always permits links to a public target,
+// so a public note can never be the target of an inbound violation.
+async function checkInboundLinks(targetFp: string): Promise<void> {
+  if (!isInVault(targetFp, config.vaultPath)) return;
+
+  const targetDomain = inferSourceDomain(targetFp, config.vaultPath, registry);
+  if (lookupScope(targetDomain, registry) !== "private") return;
+
+  // The names the target resolves under: its filename + any frontmatter aliases.
+  const names = new Set<string>([basename(targetFp, ".md").toLowerCase()]);
+  try {
+    const aliases = parseNote(targetFp, config.vaultPath).frontmatter.aliases;
+    if (Array.isArray(aliases)) {
+      for (const a of aliases) {
+        if (typeof a === "string" && a.length > 0) names.add(a.toLowerCase());
+      }
+    }
+  } catch {}
+
+  const allVaultFiles = await findAllNotes(config.vaultPath);
+  for (const fp of allVaultFiles) {
+    if (fp === targetFp) continue;
+    let parsed;
+    try {
+      parsed = parseNote(fp, config.vaultPath);
+    } catch {
+      continue;
+    }
+    const links = [
+      ...extractFrontmatterWikilinks(parsed.frontmatter.concepts),
+      ...extractWikilinks(parsed.body),
+    ];
+    const linksToTarget = links.some((l) => {
+      const key = normalizeWikilinkTarget(l);
+      return key && names.has(key);
+    });
+    if (!linksToTarget) continue;
+
+    const linkerDomain = inferSourceDomain(fp, config.vaultPath, registry);
+    if (!canLink(linkerDomain, targetDomain, registry)) {
+      violations.push({
+        sourceFile: fp,
+        targetFile: targetFp,
+        sourceDomain: linkerDomain,
+        targetDomain,
+        sourceScope: lookupScope(linkerDomain, registry),
+        targetScope: lookupScope(targetDomain, registry),
+        reason: `Domain "${linkerDomain}" (${lookupScope(linkerDomain, registry)}) cannot link to "${basename(targetFp, ".md")}" in domain "${targetDomain}" (private)`,
+      });
+    }
+  }
+}
+
 if (filePath) {
   checkFile(filePath);
+  await checkInboundLinks(filePath);
 } else {
   // Check all vault notes (not just indexed sources)
   const allVaultFiles = await findAllNotes(config.vaultPath);
