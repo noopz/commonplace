@@ -64,12 +64,18 @@ export interface SourceNote {
   usesMethod: string[];
 }
 
+export interface CompiledFromEntry {
+  path: string;
+  hash: string;
+}
+
 export interface ConceptNote {
   name: string;
   path: string;
   domains: string[];
   backlinkCount: number;
   isStub: boolean;
+  compiledFrom?: CompiledFromEntry[];
 }
 
 export interface MocNote {
