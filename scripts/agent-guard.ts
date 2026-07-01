@@ -11,17 +11,25 @@
  * Triggers ONLY when:
  *   1. tool is Agent / Task
  *   2. subagent_type is "general-purpose" (or unspecified)
- *   3. prompt contains strong vault-intent signals
+ *   3. cwd is NOT inside commonplace's own source repo
+ *   4. prompt contains strong vault-intent signals
  *
  * Code-specific subagents (code-explorer, code-reviewer, etc.) pass
  * through. Prompts without vault-intent signals pass through. The hook
  * is a no-op outside vault contexts and on code work that happens to
  * mention the vault generically.
+ *
+ * Exemption: when cwd is inside commonplace's own repo (walk-up finds a
+ * package.json named "commonplace"), the gate is skipped entirely before
+ * hasVaultIntent() even runs. Working on commonplace's source is
+ * necessarily dense with wiki-shaped vocabulary (wikilink, wiki-*,
+ * .wiki/) without being a vault-content question — there's no vault
+ * being queried, just code that implements one.
  */
 
 import { readFileSync } from "fs";
 import { hasVaultIntent } from "./lib/vault-signals.js";
-import { loadVaultRegistry } from "./lib/vault.js";
+import { loadVaultRegistry, isCwdInCommonplaceRepo } from "./lib/vault.js";
 
 interface HookInput {
   tool_name: string;
@@ -30,15 +38,19 @@ interface HookInput {
     prompt?: string;
     description?: string;
   };
+  cwd?: string;
 }
 
 const input = JSON.parse(readFileSync(0, "utf-8")) as HookInput;
 const { tool_name, tool_input } = input;
+const cwd = input.cwd ?? process.cwd();
 
 if (tool_name !== "Agent" && tool_name !== "Task") process.exit(0);
 
 const subagentType = tool_input.subagent_type ?? "general-purpose";
 if (subagentType !== "general-purpose") process.exit(0);
+
+if (isCwdInCommonplaceRepo(cwd)) process.exit(0);
 
 const prompt = `${tool_input.prompt ?? ""} ${tool_input.description ?? ""}`;
 

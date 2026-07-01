@@ -138,6 +138,37 @@ export function isCwdInVault(cwd: string): { inVault: boolean; vaultPath?: strin
   return { inVault: false };
 }
 
+/**
+ * Predicate: is `cwd` inside commonplace's own source repo (i.e. the
+ * package.json at some ancestor directory declares `"name": "commonplace"`)?
+ *
+ * Used by agent-guard to distinguish "working on commonplace itself" (code
+ * work that happens to be dense with vault-shaped vocabulary — wikilink,
+ * wiki-*, .wiki/ — because the task IS commonplace) from "asking about
+ * vault content while inside a configured vault", which should still be
+ * routed through wiki-query.
+ *
+ * Resolution: walk up from cwd looking for a package.json whose "name"
+ * field is exactly "commonplace". Malformed/unreadable package.json files
+ * are treated as non-matches and the walk continues upward.
+ */
+export function isCwdInCommonplaceRepo(cwd: string): boolean {
+  let cur = resolve(cwd);
+  while (true) {
+    const pkgPath = join(cur, "package.json");
+    if (existsSync(pkgPath)) {
+      try {
+        const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"));
+        if (pkg?.name === "commonplace") return true;
+      } catch {}
+    }
+    const parent = resolve(cur, "..");
+    if (parent === cur) break;
+    cur = parent;
+  }
+  return false;
+}
+
 export function discoverVault(startPath: string): string | null {
   let current = resolve(startPath);
   while (current !== "/") {

@@ -32,6 +32,7 @@ const SCRIPTS = {
   'impact':       'scripts/impact.ts',
   'cross-domain': 'scripts/cross-domain.ts',
   'deep-link':    'scripts/deep-link.ts',
+  'hub-score':    'scripts/hub-score.ts',
   'post-write-research': 'scripts/post-write-research.ts',
   'prompt-context':      'scripts/prompt-context.ts',
   'agent-guard':         'scripts/agent-guard.ts',
