@@ -23,6 +23,11 @@ You review a combined paper analysis for completeness and quality. You score it 
    - Generic statements that need specific numbers
    - Unchallenged claims that deserve scrutiny
    - Unclear explanations that need elaboration
+4. **Groundedness check (soft signal, not a gate):** If a `smart-extract --save` text file from this paper is available (the path is passed to you, or check `/tmp/*-extracted.txt` for a recent match), write the analysis text you're reviewing to a temp file, then run:
+   ```bash
+   commonplace paper:groundedness-check /tmp/<analysis>.txt /tmp/<paper-slug>-extracted.txt
+   ```
+   If the extraction file isn't available this round, skip this step entirely — do not re-run extraction just for this check. Any `ungroundedNumbers`/`ungroundedQuotes` in the output are candidates worth a second look, not proven errors (paraphrase and unit reformatting produce real false positives) — add at most one gap line summarizing them; never let this step alone drop the score below 80 or fail the review.
 
 ## Your output
 
@@ -38,6 +43,7 @@ You review a combined paper analysis for completeness and quality. You score it 
 ### Gaps to Address
 1. [specific gap]
 2. [specific gap]
+3. (if applicable) Groundedness: claim "94.2% accuracy" not found in extracted source text — verify against the paper before finalizing.
 ```
 
 If score >= 80, say so and note any minor improvements. If < 80, the gaps list is critical — the analysis will be revised based on your feedback.

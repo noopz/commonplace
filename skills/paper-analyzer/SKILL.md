@@ -27,11 +27,12 @@ When you receive a paper to analyze (arXiv ID, URL, or PDF path):
 
 3. **Smart extraction** (adapts to paper length):
    ```bash
-   commonplace paper:smart-extract <pdf>
+   commonplace paper:smart-extract <pdf> --save /tmp/<paper-slug>-extracted.txt
    ```
    - <20 pages: Extracts everything except references
    - 20-50 pages: Critical + high-importance sections only
    - 50+ pages: Introduction + critical sections only
+   - `--save` writes the extracted section text to a plain text file — reused later by the groundedness check in the reflection step (see `paper-reflection-agent`)
 
 4. **Enrich metadata** from external sources:
    ```bash
@@ -53,7 +54,7 @@ When you receive a paper to analyze (arXiv ID, URL, or PDF path):
 ### Simple Papers (< 20 pages, single domain)
 
 Use single-agent analysis:
-1. Run smart-extract (gets nearly everything)
+1. Run smart-extract with `--save` (gets nearly everything)
 2. Read `references/analysis_structure.md` for the analysis framework
 3. Write the analysis following the output template at `assets/output_template.md`
 4. Run quality check
@@ -61,10 +62,10 @@ Use single-agent analysis:
 ### Complex Papers (20+ pages, multi-domain, dense methodology)
 
 Use multi-agent analysis for deeper coverage:
-1. Run smart-extract
+1. Run smart-extract with `--save`
 2. Dispatch `paper-methodology-analyst` and `paper-results-interpreter` agents **in parallel**
 3. Synthesize their outputs into a cohesive narrative
-4. Dispatch `paper-reflection-agent` to review quality (scores 0-100)
+4. Dispatch `paper-reflection-agent` to review quality (scores 0-100) — pass it the `--save` file path so it can run the groundedness check
 5. If score < 80: extract additional sections identified as gaps, revise, re-score
 6. Write final analysis using the output template
 
