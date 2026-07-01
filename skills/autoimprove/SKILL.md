@@ -155,10 +155,15 @@ Score trend:
 
 ### Log
 
-Append a summary entry to `$VAULT_PATH/.wiki/log.md` after the run:
+Append one entry per round to `$VAULT_PATH/.wiki/log.md`, not one aggregate line for the whole run — each round already has a defined scope and dispatch mode (agent vs. inline); make that visible in the permanent record:
 ```bash
-commonplace log --entry "## [$(date +%Y-%m-%d)] autoimprove | Score: {before} → {after}\n- Rounds: N. {Summary of changes}\n"
+commonplace log --entry "## [$(date +%Y-%m-%d)] autoimprove round {N} | Score: {before} → {after}
+- Scope: {category, e.g. \"mechanical fixes\"}
+- Executed by: {commonplace:wiki-linter | commonplace link (inline) | ...}
+- {one-line summary of what changed}
+"
 ```
+Run this after each round completes, not just once at the end of the whole run.
 
 ## What This Skill Does NOT Do
 
