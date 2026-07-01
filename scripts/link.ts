@@ -17,11 +17,12 @@
  */
 
 import { readFileSync, writeFileSync } from "fs";
-import { join, basename } from "path";
+import { join, basename, relative } from "path";
 import { parseArgs } from "util";
 import { resolveVault, loadDomainRegistry, findAllNotes, classifyNote } from "./lib/vault.js";
 import { inferSourceDomain } from "./lib/domain.js";
 import { linkNoteContent, type LinkTarget } from "./lib/linker.js";
+import { appendLineage } from "./lib/lineage.js";
 
 const { values } = parseArgs({
   options: {
@@ -129,6 +130,11 @@ for (const filePath of notesToScan) {
 
   if (result.newContent && !values["dry-run"]) {
     writeFileSync(filePath, result.newContent);
+    appendLineage(config.wikiPath, {
+      note: relative(config.vaultPath, filePath),
+      source: `link (${result.edits.map((e) => e.name).join(", ")})`,
+      writer: "link",
+    });
   }
 
   if (result.edits.length > 0) {
