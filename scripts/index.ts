@@ -158,12 +158,18 @@ for (const filePath of processFiles) {
     // so we can resolve user-typed names to canonical concept names.
   } else if (noteType === "concept") {
     const name = basename(filePath, ".md");
+    const compiledFrom = Array.isArray(fm.compiledFrom)
+      ? fm.compiledFrom
+          .filter((e): e is { path: unknown; hash: unknown } => typeof e === "object" && e !== null)
+          .map((e) => ({ path: String((e as { path: unknown }).path), hash: String((e as { hash: unknown }).hash) }))
+      : [];
     concepts.push({
       name,
       path: filePath,
       domains: [], // Filled in below
       backlinkCount: 0, // Filled in below
       isStub: isStub(parsed.body),
+      ...(compiledFrom.length > 0 ? { compiledFrom } : {}),
     });
   } else if (noteType === "moc") {
     const name = basename(filePath, ".md");
