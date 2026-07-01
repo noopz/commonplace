@@ -34,6 +34,7 @@ import {
   lookupScope,
 } from "./lib/domain.js";
 import { buildNameIndex, normalizeWikilinkTarget } from "./lib/resolve.js";
+import { currentHash } from "./lib/git-hash.js";
 import { loadConventions, matchGenre } from "./lib/conventions.js";
 import type {
   LintIssue,
@@ -87,6 +88,7 @@ const checksToRun = values.check ? [values.check] : [
   "orphans",
   "frontmatter",
   "moc-staleness",
+  "compiled-staleness",
   "scope-violations",
   "duplicates",
   "malformed-dates",
@@ -296,6 +298,29 @@ if (shouldRun("moc-staleness")) {
         message: `MOC "${moc.name}" declares ${moc.declaredCount} papers but ${moc.sourceCount} sources reference it`,
         fixable: true,
       });
+    }
+  }
+}
+
+// === Check: compiled-source staleness ===
+// A concept note records which git commit each source it was compiled from was
+// at (ConceptNote.compiledFrom). If a source has since been re-committed, the
+// concept's synthesized claims may no longer match — flag it. This catches
+// edits to a source note's own body, which freshen.ts's external-URL check
+// structurally cannot see.
+if (shouldRun("compiled-staleness")) {
+  for (const concept of conceptIndex) {
+    for (const entry of concept.compiledFrom ?? []) {
+      const latest = currentHash(config.vaultPath, entry.path);
+      if (latest !== null && latest !== entry.hash) {
+        issues.push({
+          check: "compiled-staleness",
+          severity: "improvement",
+          file: concept.path,
+          message: `Concept "${concept.name}" was compiled from "${entry.path}" at ${entry.hash.slice(0, 8)}, but that source is now at ${latest.slice(0, 8)} — re-check the definition still matches`,
+          fixable: false,
+        });
+      }
     }
   }
 }
