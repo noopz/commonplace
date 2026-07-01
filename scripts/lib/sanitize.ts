@@ -14,6 +14,21 @@ const REMOTE_IMAGE_EMBED_RE = /!\[([^\]]*)\]\((https?:\/\/[^\s)]+)\)/g;
 const BARE_URL_RE = /https?:\/\/[^\s)\]]+/g;
 const MAX_URL_LENGTH = 300;
 
+/**
+ * Split a note's raw file text into its frontmatter block (delimiters
+ * included, byte-for-byte as written) and everything after it. Callers that
+ * need to rewrite only the body — e.g. post-write's sanitization step —
+ * should splice into this `body` half and reassemble with `frontmatterBlock`
+ * untouched, rather than re-serializing frontmatter through a YAML dumper
+ * (which silently reformats arrays/dates, e.g. turning an Obsidian-native
+ * bare `YYYY-MM-DD` date into a full ISO timestamp).
+ */
+export function splitFrontmatterRaw(raw: string): { frontmatterBlock: string; body: string } {
+  const match = raw.match(/^---\r?\n[\s\S]*?\r?\n---\r?\n/);
+  if (!match) return { frontmatterBlock: "", body: raw };
+  return { frontmatterBlock: match[0], body: raw.slice(match[0].length) };
+}
+
 export function sanitizeIngestedBody(body: string): SanitizeResult {
   const stripped: string[] = [];
 

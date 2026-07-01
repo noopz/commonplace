@@ -11,10 +11,9 @@
 import { parseArgs } from "util";
 import { existsSync, writeFileSync } from "fs";
 import { resolve, dirname } from "path";
-import matter from "gray-matter";
 import { discoverVault, getVaultConfig, isInVault, classifyNote } from "./lib/vault.js";
 import { parseNote, validateFrontmatter } from "./lib/frontmatter.js";
-import { sanitizeIngestedBody } from "./lib/sanitize.js";
+import { sanitizeIngestedBody, splitFrontmatterRaw } from "./lib/sanitize.js";
 import { execSync } from "child_process";
 
 const { values } = parseArgs({
@@ -109,9 +108,10 @@ try {
   const parsed = parseNote(filePath, config.vaultPath);
 
   if (noteType === "source") {
-    const { body: cleanBody, stripped } = sanitizeIngestedBody(parsed.body);
+    const { frontmatterBlock, body: rawBody } = splitFrontmatterRaw(parsed.raw);
+    const { body: cleanBody, stripped } = sanitizeIngestedBody(rawBody);
     if (stripped.length > 0) {
-      writeFileSync(filePath, matter.stringify(cleanBody, parsed.frontmatter));
+      writeFileSync(filePath, frontmatterBlock + cleanBody);
       output.sanitized = stripped;
     }
   }
