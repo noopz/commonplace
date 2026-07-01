@@ -50,6 +50,7 @@ const SCRIPTS = {
   'paper:figures':        'scripts/paper/extract-figures.ts',
   'paper:quality':        'scripts/paper/quality-check.ts',
   'paper:compare':        'scripts/paper/compare-papers.ts',
+  'paper:groundedness-check': 'scripts/paper/groundedness-check.ts',
 };
 
 const [,, cmd, ...args] = process.argv;
