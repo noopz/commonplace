@@ -9,10 +9,12 @@
  */
 
 import { parseArgs } from "util";
-import { existsSync } from "fs";
+import { existsSync, writeFileSync } from "fs";
 import { resolve, dirname } from "path";
+import matter from "gray-matter";
 import { discoverVault, getVaultConfig, isInVault, classifyNote } from "./lib/vault.js";
 import { parseNote, validateFrontmatter } from "./lib/frontmatter.js";
+import { sanitizeIngestedBody } from "./lib/sanitize.js";
 import { execSync } from "child_process";
 
 const { values } = parseArgs({
@@ -95,6 +97,7 @@ const output: {
   scopeCheck?: unknown;
   supersede?: { target: string; keyword: string };
   sourceWritten?: boolean;
+  sanitized?: string[];
 } = {};
 
 if (noteType === "source") {
@@ -104,6 +107,15 @@ if (noteType === "source") {
 // Step 1: Validate frontmatter + scan body for supersession declarations
 try {
   const parsed = parseNote(filePath, config.vaultPath);
+
+  if (noteType === "source") {
+    const { body: cleanBody, stripped } = sanitizeIngestedBody(parsed.body);
+    if (stripped.length > 0) {
+      writeFileSync(filePath, matter.stringify(cleanBody, parsed.frontmatter));
+      output.sanitized = stripped;
+    }
+  }
+
   const errors = validateFrontmatter(parsed.frontmatter, noteType);
   if (errors.length > 0) {
     output.validate = { valid: false, errors };
@@ -156,9 +168,15 @@ if (
   output.validate ||
   output.scopeCheck ||
   output.supersede ||
-  output.sourceWritten
+  output.sourceWritten ||
+  output.sanitized
 ) {
   const notes: string[] = [];
+  if (output.sanitized) {
+    notes.push(
+      `Sanitized ${output.sanitized.length} item(s) from this note's body before indexing:\n- ${output.sanitized.join("\n- ")}`,
+    );
+  }
   if (output.supersede) {
     const { keyword, target } = output.supersede;
     notes.push(
