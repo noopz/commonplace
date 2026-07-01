@@ -45,6 +45,11 @@ For each valid stub:
    Also check `backlinkCount` in `concept-index.jsonl` (Grep for the concept name) — high backlink counts mean the concept is referenced widely across the corpus and deserves a richer definition.
 2. **Read those source notes**: Understand how the concept is used in context
 3. **Synthesize a definition**: Write a real definition based on how the concept appears across sources
+4. **Record source hashes**: For each source note cited, record its current commit in the `compiledFrom` frontmatter array so staleness can be detected later:
+   ```bash
+   git -C "$VAULT_PATH" log -1 --format=%H -- "<source note's vault-relative path>"
+   ```
+   If the vault isn't a git repo (the command errors or prints nothing), omit `compiledFrom` entirely rather than writing a placeholder hash.
 
 ### What a Good Concept Note Looks Like
 
@@ -56,6 +61,9 @@ tags: [concept, wikilinks]
 cssclasses: []
 created: 2025-11-07
 updated: 2026-04-04
+compiledFrom:
+  - path: 01 - Sources/Foo.md
+    hash: <git commit hash of Foo.md at compile time>
 ---
 
 # Concept Name
