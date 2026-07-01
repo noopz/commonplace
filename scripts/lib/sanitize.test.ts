@@ -86,3 +86,43 @@ test("splitFrontmatterRaw returns the whole text as body when there is no frontm
   assert.equal(frontmatterBlock, "");
   assert.equal(body, raw);
 });
+
+test("splitFrontmatterRaw stops at the first closing --- delimiter, not capturing body's later --- lines (non-greedy match for horizontal rules)", () => {
+  const raw = [
+    "---",
+    "title: Test Note",
+    "tags: [source]",
+    "created: 2026-06-30",
+    "---",
+    "# Main Section",
+    "",
+    "Some content here.",
+    "",
+    "---",
+    "",
+    "Another section below the horizontal rule.",
+  ].join("\n");
+
+  const { frontmatterBlock, body } = splitFrontmatterRaw(raw);
+
+  // Frontmatter should contain exactly the opening ---, metadata, and closing ---
+  assert.equal(
+    frontmatterBlock,
+    "---\ntitle: Test Note\ntags: [source]\ncreated: 2026-06-30\n---\n",
+  );
+
+  // Body should contain everything after frontmatter's closing ---, including the horizontal rule ---
+  const expectedBody = [
+    "# Main Section",
+    "",
+    "Some content here.",
+    "",
+    "---",
+    "",
+    "Another section below the horizontal rule.",
+  ].join("\n");
+  assert.equal(body, expectedBody);
+
+  // Verify body contains the --- that would break a greedy match
+  assert.equal(body.includes("---"), true);
+});
