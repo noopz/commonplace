@@ -9,8 +9,10 @@
  */
 
 import { readFileSync, writeFileSync } from "fs";
+import { relative } from "path";
 import { parseArgs } from "util";
 import { resolveVault, ensureIndex, loadIndexes } from "./lib/vault.js";
+import { appendLineage } from "./lib/lineage.js";
 
 const { values } = parseArgs({
   options: {
@@ -124,7 +126,14 @@ for (const moc of mocs) {
   const newRaw =
     raw.slice(0, headerStart) + newHeader + newSection + raw.slice(sectionEnd);
 
-  if (!values["dry-run"]) writeFileSync(moc.path, newRaw, "utf-8");
+  if (!values["dry-run"]) {
+    writeFileSync(moc.path, newRaw, "utf-8");
+    appendLineage(config.wikiPath, {
+      note: relative(config.vaultPath, moc.path),
+      source: "moc-sync",
+      writer: "moc-sync",
+    });
+  }
   modified++;
   const tag = values["dry-run"] ? " (dry-run)" : "";
   const detail =
