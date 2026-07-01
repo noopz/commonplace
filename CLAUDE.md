@@ -9,6 +9,14 @@ LLM-maintained knowledge base for any folder of notes. Transforms raw sources in
 - **Haiku agents** handle mechanical fixes (cheap)
 - **Main model** handles synthesis only (expensive, used sparingly)
 
+## No RAG — grep finds, reading connects
+
+commonplace is not a RAG system. Never substitute keyword/concept-string matching for an actual relevance judgment — that's exactly the blind spot RAG has: it misses real connections that don't share a literal string, and manufactures false confidence in the ones that happen to match.
+
+**Mental model:** `Grep` against the JSONL indexes is a jumping-off point, not an answer. It tells you which few notes are worth reading. The relevance judgment itself comes from `Read`ing those notes and reasoning about whether they actually connect — not from whether a keyword or concept name matched.
+
+This applies anywhere a "does X relate to Y" decision gets made — cross-domain bridging, deep-linking, pre-ingest triage, wiki-query. A note can be highly relevant to another with zero shared concept names or strings (e.g. an export-control story bearing on an IPO thesis's "Government Contract Dependency" angle without ever naming the company). If a check only compares index fields and stops there, it isn't finished — it must follow the grep hit to the real file and read it before concluding anything.
+
 ## Never use Python or shell one-liners to parse JSON
 
 **This is a hard rule.** Never do this:
