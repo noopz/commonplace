@@ -37,7 +37,8 @@ import {
   existsSync,
   appendFileSync,
 } from "fs";
-import { basename, dirname, join, resolve } from "path";
+import { appendLineage } from "./lib/lineage.js";
+import { basename, dirname, join, resolve, relative } from "path";
 import { parseArgs } from "util";
 import {
   resolveVault,
@@ -443,6 +444,11 @@ if (values.retire) {
   if (!dryRun) {
     writeFileSync(oldPath, oldRaw, "utf-8");
     renameSync(oldPath, newRetiredPath);
+    appendLineage(config.wikiPath, {
+      note: relative(config.vaultPath, newRetiredPath),
+      source: `supersede --retire --old "${old}" --new "${newTitle}"`,
+      writer: "supersede",
+    });
   } else {
     console.log(`(dry-run) would write callout + tag to ${oldPath}`);
     console.log(`(dry-run) would rename ${oldPath} → ${newRetiredPath}`);
@@ -470,7 +476,14 @@ if (values.retire) {
     });
     if (replaced !== body) {
       filesTouched.push(f);
-      if (!dryRun) writeFileSync(f, replaced, "utf-8");
+      if (!dryRun) {
+        writeFileSync(f, replaced, "utf-8");
+        appendLineage(config.wikiPath, {
+          note: relative(config.vaultPath, f),
+          source: `supersede --retire (wikilink update: "${oldBase}" → "${newRetiredBase}")`,
+          writer: "supersede",
+        });
+      }
     }
   }
 
@@ -488,7 +501,14 @@ if (values.retire) {
       } else {
         newRaw = newRaw.trimEnd() + `\n\n## Related\n- ${backref} — historical predecessor (retired ${date})\n`;
       }
-      if (!dryRun) writeFileSync(newPath, newRaw, "utf-8");
+      if (!dryRun) {
+        writeFileSync(newPath, newRaw, "utf-8");
+        appendLineage(config.wikiPath, {
+          note: relative(config.vaultPath, newPath),
+          source: `supersede --retire (back-reference to "${newRetiredBase}")`,
+          writer: "supersede",
+        });
+      }
       filesTouched.push(newPath);
     }
   }
