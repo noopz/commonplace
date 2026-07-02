@@ -1,6 +1,6 @@
 ---
 name: wiki-query
-description: "Answer questions from vault notes. Use when user asks 'how does X relate to Y', 'what do the papers say about Z', 'compare approaches to W', or discusses concept connections. Also fire immediately after wiki-ingest when user pivots from saving to asking how the new source relates to other vault topics. Do NOT answer from memory — read the actual notes."
+description: "Answer questions from vault notes. Use when user asks 'how does X relate to Y', 'what do the papers say about Z', 'compare approaches to W', or discusses concept connections. Also fire immediately after wiki-ingest when user pivots from saving to asking how the new source relates to other vault topics. Also fire as a pre-ingest relevance check: before newly-shared content is dismissed as not vault-worthy, check whether it connects to existing vault notes. Do NOT answer from memory — read the actual notes."
 ---
 
 # Wiki Query
@@ -132,6 +132,19 @@ At the end of your answer, briefly note any vault updates. Keep it short — one
 4. Notice: both papers reference [[layered memory]] but the concept note doesn't mention [[character design]] as related → file back
 5. Answer with comparison table + wikilinks
 6. Mention: "Updated [[layered memory]] to note its connection to [[character design]]"
+
+## Pre-Ingest Relevance Check
+
+A second invocation mode: the query subject is content that is **not yet in the vault**.
+
+**When:** newly-discussed external information (an article, an announcement, a finding) is about to be dismissed as not worth saving. Run this check *before* the dismissal is finalized. This is a behavioral requirement, not a trigger pattern — by the time a dismissal is being weighed, the content has already been read in conversation, so no keyword needs to detect it.
+
+**How** — the same workflow with a different subject:
+
+1. Treat the candidate's title/summary as the query subject and run Steps 0–2 as for a normal query: Grep the indexes with terms derived from the candidate, iterate with derived terms, traverse the graph from any entry-point hits, and **read** the top notes to judge relevance. A keyword hit is a scoping step, not a verdict; a real connection may share no literal string with the candidate (see CLAUDE.md, "No RAG — grep finds, reading connects").
+2. **Scope filter (required):** infer the candidate's likely domain — the same judgment used when placing content for ingest, even though this candidate isn't being ingested. Only read or compare against notes in domains that likely domain could link to under Scope Rules below; never read a private domain's notes for a public candidate. If no likely domain is inferable, compare against public domains only — never widen to private domains.
+3. **Report before the skip:** state any connection found ("this also touches [[X]] in <domain>") and let the human decide whether to capture it. If the candidate is too thin to judge (a bare headline, no body), say so honestly instead of reporting "no connection."
+4. Do not file anything back — the candidate isn't in the vault. Log the check per Step 5 (`query | pre-ingest check: <candidate title>` with what was found or "no connection found").
 
 ## Retired Entities
 
