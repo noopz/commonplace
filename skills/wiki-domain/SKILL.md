@@ -70,10 +70,10 @@ When the user wants a new domain:
 
 ## Example
 
-User: "I want to start tracking Retro Consoles builds"
+User: "I want to start tracking retro console restorations"
 
 → Create directory `{structure.sources}/Retro Consoles/`
 → Add to `.wiki/domains.json`: `"retro-consoles": { "path": "{structure.sources}/Retro Consoles", "scope": "private" }`
 → Create `{structure.mocs}/Retro Consoles MOC.md`
 → Notes in this domain should have `scope: private` in frontmatter
-→ Report: "Created Retro Consoles domain (private scope). It's isolated — concepts won't cross into your public research. If you later add related gaming domains, I can group them with a linkGroup so they share concepts."
+→ Report: "Created Retro Consoles domain (private scope). It's isolated — concepts won't cross into your public research. If you later add related hobby domains, I can group them with a linkGroup so they share concepts."

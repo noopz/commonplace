@@ -35,7 +35,7 @@ When unsure, default to `public`. The user can always change it later.
 ## How to determine linkGroups
 
 Look for domains that:
-- Share a parent directory (e.g., `08 - Worldbuilding/Craft` and `08 - Worldbuilding/Lore`)
+- Share a parent directory (e.g., `08 - Fiction/Settings` and `08 - Fiction/Characters`)
 - Reference each other's concepts in their notes
 - Cover related topics that should cross-pollinate but stay isolated from the rest of the vault
 
