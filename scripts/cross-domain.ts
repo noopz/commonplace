@@ -6,7 +6,8 @@
  */
 
 import { parseArgs } from "util";
-import { resolveVault, ensureIndex, loadIndexes } from "./lib/vault.js";
+import { resolveVault, ensureIndex, loadIndexes, loadDomainRegistry } from "./lib/vault.js";
+import { canLink } from "./lib/domain.js";
 
 const { values } = parseArgs({
   options: {
@@ -17,6 +18,10 @@ const { values } = parseArgs({
 });
 
 const config = resolveVault(values.vault);
+
+// Scope filter: results are surfaced in conversation by post-write-research,
+// so a domain the source can't link to must never appear in output at all.
+const registry = loadDomainRegistry(config.wikiPath);
 
 if (!ensureIndex(config)) {
   console.log(JSON.stringify({ results: [], sinceFilter: values.since ?? null }));
@@ -50,13 +55,26 @@ const results = sourcesToCheck.flatMap((source) => {
   if (bridges.length === 0) return [];
 
   const bridgeDetails = bridges.map((bridgeName) => {
-    const affectedDomains = bridgeConceptMap.get(bridgeName) ?? [];
-    // Find other sources in different domains that share this concept
+    // Surfacing an affected note involves two disclosures: (a) its title is
+    // spoken in conversation anchored to the source — needs
+    // canLink(source, affected) — and (b) the downstream instruction writes
+    // "[[Source Title]]" INTO the affected note, a link pointing at the
+    // source — which per canLink's own semantics needs canLink(affected,
+    // source). Both directions must hold or one of the two writes leaks.
+    const affectedDomains = (bridgeConceptMap.get(bridgeName) ?? []).filter(
+      (d) => canLink(source.domain, d, registry) && canLink(d, source.domain, registry)
+    );
+    // Find other sources in different domains that share this concept —
+    // canLink runs before the concept scan (cheap lookup vs. array scan),
+    // and drops private-domain notes the source has no scope path to
+    // (in either direction — see comment above).
     const affectedSources = sources
       .filter(
         (s) =>
           s.path !== source.path &&
           s.domain !== source.domain &&
+          canLink(source.domain, s.domain, registry) &&
+          canLink(s.domain, source.domain, registry) &&
           s.concepts.some((c) => normalizeConcept(c) === bridgeName)
       )
       .map((s) => ({ path: s.path, title: s.title, domain: s.domain }));

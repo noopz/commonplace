@@ -11,7 +11,8 @@
 import { readFileSync } from "fs";
 import { join, dirname } from "path";
 import { spawnSync } from "child_process";
-import { discoverVault } from "./lib/vault.js";
+import { discoverVault, loadDomainRegistry } from "./lib/vault.js";
+import { inferSourceDomain } from "./lib/domain.js";
 
 // Read hook context from stdin
 let input = "";
@@ -29,17 +30,21 @@ try {
   process.exit(0);
 }
 
-// Only act on Research/ files
-if (!filePath.includes("/Research/")) {
-  process.exit(0);
-}
-
-// Discover the vault from the written file's own path so the impact /
-// cross-domain checks run against the vault that file actually lives in —
-// not whatever happens to be the registry default.
+// Only act on files that resolve to a registered vault domain. Discover the
+// vault from the written file's own path so the impact / cross-domain checks
+// run against the vault that file actually lives in — not whatever happens
+// to be the registry default. (The old gate matched the literal substring
+// "/Research/", which never matches numbered folder conventions like
+// "02 - Research/" — the character before "Research" is a space, not a
+// slash — so for such vaults this hook never fired at all.)
 const pluginRoot = join(import.meta.dirname!, "..");
 const vaultPath = discoverVault(dirname(filePath));
 if (!vaultPath) process.exit(0);
+
+const registry = loadDomainRegistry(join(vaultPath, ".wiki")); // domains.json lives under .wiki/
+if (inferSourceDomain(filePath, vaultPath, registry) === "unknown") {
+  process.exit(0);
+}
 
 const tsx = join(pluginRoot, "node_modules", ".bin", "tsx");
 
@@ -116,6 +121,8 @@ if (hasCross) {
     "- Read the new source's Summary and the affected note's Connections section",
     "- If the cross-domain link is substantive: append `- Cross-domain: [[Source Title]] (domain) — via [[Concept]]` to the affected note's Connections section",
     "- Skip if link already exists or concept is too generic",
+    "",
+    "Also mention this to the user directly, in conversation — not only as a file edit: this source connects to <affected domain>'s <affected note title> (via <bridge concept>). If anything else discussed in this session relates to that same connection, say so and ask whether it should be captured too.",
   );
 }
 
