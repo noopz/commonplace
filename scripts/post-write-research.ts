@@ -121,6 +121,8 @@ if (hasCross) {
     "- Read the new source's Summary and the affected note's Connections section",
     "- If the cross-domain link is substantive: append `- Cross-domain: [[Source Title]] (domain) — via [[Concept]]` to the affected note's Connections section",
     "- Skip if link already exists or concept is too generic",
+    "",
+    "Also mention this to the user directly, in conversation — not only as a file edit: this source connects to <affected domain>'s <affected note title> (via <bridge concept>). If anything else discussed in this session relates to that same connection, say so and ask whether it should be captured too.",
   );
 }
 

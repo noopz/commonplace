@@ -48,6 +48,10 @@ test("registered-domain write surfaces the cross-domain bridge, excluding privat
     assert.ok(ctx.includes("Cross-domain"), "no cross-domain section in additionalContext");
     assert.ok(ctx.includes("Beta Bridge Target"), "bridge target missing");
     assert.ok(!ctx.includes("Gamma Private Note"), "private note leaked into additionalContext");
+    assert.ok(
+      ctx.includes("mention this to the user directly"),
+      "conversational-surfacing instruction missing from additionalContext"
+    );
   } finally {
     removeFixtureVault(vaultRoot);
   }
