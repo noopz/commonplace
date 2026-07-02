@@ -55,18 +55,26 @@ const results = sourcesToCheck.flatMap((source) => {
   if (bridges.length === 0) return [];
 
   const bridgeDetails = bridges.map((bridgeName) => {
-    const affectedDomains = (bridgeConceptMap.get(bridgeName) ?? []).filter((d) =>
-      canLink(source.domain, d, registry)
+    // Surfacing an affected note involves two disclosures: (a) its title is
+    // spoken in conversation anchored to the source — needs
+    // canLink(source, affected) — and (b) the downstream instruction writes
+    // "[[Source Title]]" INTO the affected note, a link pointing at the
+    // source — which per canLink's own semantics needs canLink(affected,
+    // source). Both directions must hold or one of the two writes leaks.
+    const affectedDomains = (bridgeConceptMap.get(bridgeName) ?? []).filter(
+      (d) => canLink(source.domain, d, registry) && canLink(d, source.domain, registry)
     );
     // Find other sources in different domains that share this concept —
     // canLink runs before the concept scan (cheap lookup vs. array scan),
-    // and drops private-domain notes the source has no scope path to.
+    // and drops private-domain notes the source has no scope path to
+    // (in either direction — see comment above).
     const affectedSources = sources
       .filter(
         (s) =>
           s.path !== source.path &&
           s.domain !== source.domain &&
           canLink(source.domain, s.domain, registry) &&
+          canLink(s.domain, source.domain, registry) &&
           s.concepts.some((c) => normalizeConcept(c) === bridgeName)
       )
       .map((s) => ({ path: s.path, title: s.title, domain: s.domain }));

@@ -64,13 +64,13 @@ test("private-domain slugs are excluded from affectedDomains for a public source
   }
 });
 
-test("private source still sees same-linkGroup private notes and public notes, but not other private domains", () => {
+test("private source sees only same-linkGroup private notes; public notes are excluded because the write-back would store a private title in a public note", () => {
   const { vaultRoot, paths } = makeFixtureVault();
   try {
     const out = runCrossDomain(vaultRoot, paths.deltaNote);
     const titles = out.results[0].bridgeConcepts[0].affectedSources.map((s) => s.title);
     assert.ok(titles.includes("Epsilon Private Note"), "same-linkGroup private note wrongly dropped");
-    assert.ok(titles.includes("Beta Bridge Target"), "public note wrongly dropped");
+    assert.ok(!titles.includes("Beta Bridge Target"), "public note wrongly included — writing [[Delta Private Note]] into it would leak a private title");
     assert.ok(!titles.includes("Gamma Private Note"), "different-group private note leaked");
   } finally {
     removeFixtureVault(vaultRoot);

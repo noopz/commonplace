@@ -52,12 +52,17 @@ export function makeFixtureVault(): {
     },
   }, null, 2));
 
+  // alpha/beta/gamma additionally share "Second Bridge Concept" so that
+  // impact.ts's 2+-shared-concept threshold is met for those pairs — this
+  // lets impact.test.ts exercise its scope filter without perturbing
+  // cross-domain.test.ts, which only keys off "Shared Bridge Concept"
+  // (the sole entry in concept-index.jsonl's bridge map).
   const notes = [
-    { rel: "02 - Research/Alpha/Alpha Source Note.md", title: "Alpha Source Note", domain: "alpha", scope: "public", key: "alphaNote" },
-    { rel: "02 - Research/Beta/Beta Bridge Target.md", title: "Beta Bridge Target", domain: "beta", scope: "public", key: "betaNote" },
-    { rel: "04 - Explorations/Gamma/Gamma Private Note.md", title: "Gamma Private Note", domain: "gamma", scope: "private", key: "gammaNote" },
-    { rel: "04 - Explorations/Delta/Delta Private Note.md", title: "Delta Private Note", domain: "delta", scope: "private", key: "deltaNote" },
-    { rel: "04 - Explorations/Epsilon/Epsilon Private Note.md", title: "Epsilon Private Note", domain: "epsilon", scope: "private", key: "epsilonNote" },
+    { rel: "02 - Research/Alpha/Alpha Source Note.md", title: "Alpha Source Note", domain: "alpha", scope: "public", key: "alphaNote", extraConcepts: ["Second Bridge Concept"] },
+    { rel: "02 - Research/Beta/Beta Bridge Target.md", title: "Beta Bridge Target", domain: "beta", scope: "public", key: "betaNote", extraConcepts: ["Second Bridge Concept"] },
+    { rel: "04 - Explorations/Gamma/Gamma Private Note.md", title: "Gamma Private Note", domain: "gamma", scope: "private", key: "gammaNote", extraConcepts: ["Second Bridge Concept"] },
+    { rel: "04 - Explorations/Delta/Delta Private Note.md", title: "Delta Private Note", domain: "delta", scope: "private", key: "deltaNote", extraConcepts: [] },
+    { rel: "04 - Explorations/Epsilon/Epsilon Private Note.md", title: "Epsilon Private Note", domain: "epsilon", scope: "private", key: "epsilonNote", extraConcepts: [] },
   ] as const;
 
   const paths = {} as Record<(typeof notes)[number]["key"], string>;
@@ -73,7 +78,7 @@ export function makeFixtureVault(): {
       domain: n.domain,
       scope: n.scope,
       tags: [],
-      concepts: ["Shared Bridge Concept"],
+      concepts: ["Shared Bridge Concept", ...n.extraConcepts],
       mocs: [],
       buildsOn: [],
       comparesWith: [],

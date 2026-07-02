@@ -6,7 +6,8 @@
  */
 
 import { parseArgs } from "util";
-import { resolveVault, ensureIndex, loadIndexes } from "./lib/vault.js";
+import { resolveVault, ensureIndex, loadIndexes, loadDomainRegistry } from "./lib/vault.js";
+import { canLink } from "./lib/domain.js";
 
 const { values } = parseArgs({
   options: {
@@ -21,6 +22,10 @@ if (!values.source) {
 }
 
 const config = resolveVault(values.vault);
+
+// Scope filter: results are surfaced in conversation by post-write-research,
+// so a domain the source can't link to must never appear in output at all.
+const registry = loadDomainRegistry(config.wikiPath);
 
 if (!ensureIndex(config)) {
   console.log(JSON.stringify({ affected: [] }));
@@ -52,9 +57,19 @@ if (!newSource) {
 
 const newConcepts = new Set(newSource.concepts.map(normalizeConcept));
 
-// Find other sources that share 2+ concepts, sorted by overlap count descending
+// Find other sources that share 2+ concepts, sorted by overlap count descending.
+// Same two-disclosure rationale as cross-domain.ts: a note's title is spoken in
+// conversation anchored to the new source (needs canLink(new, s)), and the
+// downstream instruction writes "[[New Source Title]]" INTO the affected note
+// (needs canLink(s, new)) — both directions must hold or one of the two writes
+// leaks a private title.
 const affected = sources
-  .filter((s) => s.path !== newSource.path)
+  .filter(
+    (s) =>
+      s.path !== newSource.path &&
+      canLink(newSource.domain, s.domain, registry) &&
+      canLink(s.domain, newSource.domain, registry)
+  )
   .flatMap((s) => {
     const overlap = s.concepts
       .map(normalizeConcept)
