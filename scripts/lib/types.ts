@@ -65,6 +65,8 @@ export interface SourceNote {
   usesMethod: string[];
   /** Indexed retrieval key: ~6-12 word noun-phrase descriptor. Absent on un-migrated notes. */
   abstraction?: string;
+  /** Outgoing wikilink display texts — the note's cue anchors (Tier B seed keys). */
+  anchors?: string[];
 }
 
 export interface CompiledFromEntry {
@@ -80,6 +82,8 @@ export interface ConceptNote {
   isStub: boolean;
   /** Indexed retrieval key: ~6-12 word noun-phrase descriptor. Absent on un-migrated notes. */
   abstraction?: string;
+  /** Outgoing wikilink display texts — the note's cue anchors (Tier B seed keys). */
+  anchors?: string[];
   compiledFrom?: CompiledFromEntry[];
 }
 

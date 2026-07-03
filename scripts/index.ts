@@ -27,6 +27,7 @@ import {
   parseNote,
   extractFrontmatterWikilinks,
   extractWikilinks,
+  extractWikilinkDisplayTexts,
   computeIsStub,
 } from "./lib/frontmatter.js";
 import {
@@ -141,6 +142,7 @@ for (const filePath of processFiles) {
     // We collect body links here; after the concept index is built, we filter to
     // only those that match actual concept notes (deferred to post-processing below).
     const bodyLinks = extractWikilinks(parsed.body);
+    const bodyAnchors = extractWikilinkDisplayTexts(parsed.body);
     const allConceptRefs = [...new Set([...fmConcepts, ...bodyLinks])];
 
     sources.push({
@@ -157,6 +159,7 @@ for (const filePath of processFiles) {
       ...(typeof fm.abstraction === "string" && fm.abstraction.trim().length > 0
         ? { abstraction: fm.abstraction.trim() }
         : {}),
+      ...(bodyAnchors.length > 0 ? { anchors: bodyAnchors } : {}),
     });
 
     // Source-domain refs are populated after the concept index is built,
@@ -168,6 +171,7 @@ for (const filePath of processFiles) {
           .filter((e): e is { path: unknown; hash: unknown } => typeof e === "object" && e !== null)
           .map((e) => ({ path: String((e as { path: unknown }).path), hash: String((e as { hash: unknown }).hash) }))
       : [];
+    const conceptAnchors = extractWikilinkDisplayTexts(parsed.body);
     concepts.push({
       name,
       path: filePath,
@@ -177,6 +181,7 @@ for (const filePath of processFiles) {
       ...(typeof fm.abstraction === "string" && fm.abstraction.trim().length > 0
         ? { abstraction: fm.abstraction.trim() }
         : {}),
+      ...(conceptAnchors.length > 0 ? { anchors: conceptAnchors } : {}),
       ...(compiledFrom.length > 0 ? { compiledFrom } : {}),
     });
   } else if (noteType === "moc") {

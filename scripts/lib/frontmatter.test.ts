@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { computeIsStub } from "./frontmatter.ts";
+import { computeIsStub, extractWikilinkDisplayTexts } from "./frontmatter.ts";
 
 const SENTINEL_BODY = "# X\n\nA concept. *Definition pending - please update.*\n";
 const REAL_BODY = "# X\n\nA real definition paragraph.\n";
@@ -20,4 +20,13 @@ test("flag on: missing or empty abstraction also marks a stub", () => {
 
 test("flag on: sentinel still wins even with an abstraction", () => {
   assert.equal(computeIsStub(SENTINEL_BODY, { abstraction: "a usable retrieval key" }, true), true);
+});
+
+test("extractWikilinkDisplayTexts prefers alias display text and dedupes", () => {
+  const body = "See [[Cue Anchors|anchor keys]] and [[Graph Traversal]], plus [[Graph Traversal]] again.";
+  assert.deepEqual(extractWikilinkDisplayTexts(body), ["anchor keys", "Graph Traversal"]);
+});
+
+test("extractWikilinkDisplayTexts returns empty for link-free text", () => {
+  assert.deepEqual(extractWikilinkDisplayTexts("No links here."), []);
 });

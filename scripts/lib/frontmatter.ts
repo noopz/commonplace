@@ -70,6 +70,23 @@ export function extractWikilinks(text: string): string[] {
   return [...new Set(links)];
 }
 
+/**
+ * Outgoing wikilink DISPLAY texts — `[[Target|shown text]]` yields "shown
+ * text", `[[Target]]` yields "Target". These are the note's cue anchors:
+ * the phrases its author chose to surface links under (mixed-key seeding
+ * Tier B).
+ */
+export function extractWikilinkDisplayTexts(text: string): string[] {
+  const regex = /\[\[([^\[\]|]+)(?:\|([^\[\]]+))?\]\]/g;
+  const out: string[] = [];
+  let match;
+  while ((match = regex.exec(text)) !== null) {
+    const display = (match[2] ?? match[1]).trim();
+    if (display.length > 0) out.push(display);
+  }
+  return [...new Set(out)];
+}
+
 export function extractFrontmatterWikilinks(
   value: unknown
 ): string[] {
