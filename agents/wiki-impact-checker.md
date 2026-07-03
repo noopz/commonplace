@@ -72,3 +72,31 @@ The same rule applies to `[[X]]` targets inside supersession-candidate reports.
 ## Supersession candidates
 
 While reading the new source note's body, scan for supersession declarations: phrases like `supersedes [[X]]`, `replaces [[X]]`, `replaced [[X]]`, `migrated from [[X]]`, `formerly [[X]]`, `previously known as [[X]]`, `in place of [[X]]`. If found, include a "supersession candidate detected: [[X]] → [[New Source Title]]" line in your report and recommend the user run `wiki-supersede`. Do not attempt the retirement yourself — that is `wiki-supersede`'s job.
+
+## Consolidation candidates
+
+The impact JSON also carries a `consolidation` array: existing sources whose
+`abstraction` substantially overlaps the new source's (lexical similarity ≥
+the vault's configured threshold). These are flag-and-link candidates —
+**source notes are NEVER merged**; they carry citation identity and
+provenance.
+
+For each candidate (up to 3, ordered by similarity descending):
+
+1. Read BOTH notes in full — the abstraction overlap is a lead, not a verdict.
+2. Decide one of three outcomes:
+   - **Supersession** — the two notes cover the same finding and one clearly
+     replaces the other (newer edition, corrected result, same source
+     re-published). Include a "consolidation → supersession candidate:
+     [[<older filename stem>]] → [[<newer filename stem>]]" line in your
+     report and recommend the user run `wiki-supersede`. Do not attempt the
+     retirement yourself.
+   - **Complementary** — same territory, different findings or angles. Add a
+     `- See also: [[<other filename stem>]]` line to EACH note's
+     `## Connections` section (both directions; skip a direction whose link
+     already exists).
+   - **False positive** — the abstractions rhyme but the notes don't
+     actually overlap. Note it in your report ("consolidation candidate
+     dropped: <A> vs <B> — <one-line reason>") and move on.
+3. Never delete, merge, or rewrite either note's body — the same
+   Connections/Notes-only rule as above applies.

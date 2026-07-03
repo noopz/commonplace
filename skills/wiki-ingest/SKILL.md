@@ -180,12 +180,14 @@ After writing the source note and any new concept stubs:
    ```
    If any match, the new note declares it supersedes an existing vault entity. Stop and route to `wiki-supersede` — pass the matched predecessor wikilink as `--old` and the new note path as `--new`. Without this, the predecessor's siblings will keep treating it as live. This is non-optional: a declared supersession that doesn't propagate is exactly the failure mode `wiki-supersede` exists to fix.
 
-6. **Log**: append to `$VAULT_PATH/.wiki/log.md`:
+6. **Consolidation awareness**: the post-write hook compares the new note's `abstraction` against existing sources and surfaces consolidation candidates when they substantially overlap. If it does, follow its instructions (dispatch `commonplace:wiki-impact-checker`). Flag-and-link only — **never merge source notes**; genuine replacements route through `wiki-supersede`.
+
+7. **Log**: append to `$VAULT_PATH/.wiki/log.md`:
    ```bash
    commonplace log --entry "## [$(date +%Y-%m-%d)] ingest | {Note Title}\n- Concepts: N new, N existing. MOCs: N linked.\n"
    ```
 
-7. **Report**: Tell the user what was created (impact check and cross-domain analysis run automatically via hooks):
+8. **Report**: Tell the user what was created (impact check and cross-domain analysis run automatically via hooks):
    - Source note path
    - Number of concepts extracted (new + existing)
    - MOCs linked
