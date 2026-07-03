@@ -102,6 +102,8 @@ For each round (default max 3, configurable via `$ARGUMENTS` as `--rounds N`):
 | Freshness | `commonplace:wiki-freshness-checker` |
 | Domain management | `commonplace:wiki-domain-manager` |
 
+**Quarantine check (before any dispatch):** if `$VAULT_PATH/.wiki/quarantine.json` exists, Read it. Hard-skip any agent or round whose name appears in a `doNotInvoke` list with `status` of `open` or `quarantined` — note the skip in the round summary instead of dispatching. See `docs/known-bugs.md` for the schema.
+
 For the per-round mechanics (what to pass each agent, semantic-audit steps, cross-domain flow), read `references/rounds.md`. That file also covers the post-loop freshness check.
 
 After each round, re-score:

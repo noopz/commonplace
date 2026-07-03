@@ -11,7 +11,7 @@ Surface implicit concept connections that string-matching can't find. A paragrap
 
 ## Why This Exists
 
-The concept-linker handles exact name matches. But as the vault grows, agents traversing the knowledge graph hit blind spots where two things are clearly related but no wikilink connects them. This skill uses embedding similarity as a cheap pre-filter to surface candidates, then a Haiku agent reads the actual text and decides which connections to add.
+Deterministic linking (`commonplace link`) handles exact name matches. But as the vault grows, agents traversing the knowledge graph hit blind spots where two things are clearly related but no wikilink connects them. This skill uses embedding similarity as a cheap pre-filter to surface candidates, then a Haiku agent reads the actual text and decides which connections to add.
 
 This is not RAG. Nothing is retrieved at query time. This is a batch graph-improvement tool that strengthens the links future agents will traverse via wiki-query.
 

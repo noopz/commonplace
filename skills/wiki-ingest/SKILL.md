@@ -164,7 +164,7 @@ After writing the source note and any new concept stubs:
    commonplace scope-check "<file-path>"
    ```
 
-4. **Dispatch agents** for source files. Agents have isolated context windows — they cannot see this conversation. Include vault path and relevant data inline in each prompt:
+4. **Dispatch agents** for source files. First, if `$VAULT_PATH/.wiki/quarantine.json` exists, Read it and hard-skip any agent named in a `doNotInvoke` list with `status` of `open` or `quarantined` (see `docs/known-bugs.md`). Agents have isolated context windows — they cannot see this conversation. Include vault path and relevant data inline in each prompt:
    - Dispatch `wiki-moc-updater` agent with: (a) the absolute path to the new source note, (b) its `mocs:` frontmatter list, (c) the **canonical wikilink text** (= `basename(newSourcePath, '.md')`). State the wikilink text explicitly in the prompt — e.g. `Wikilink text to use: "Direct Corpus Interaction - Rethinking Retrieval for Agentic Search"`. Obsidian resolves links by filename, so the agent must use this exact string in `[[...]]`, not the note's H1.
    - Run `commonplace link --note "<new source note path>"` to wikilink any unlinked concept/source/MOC mentions in that note. Deterministic; no agent dispatch.
 
