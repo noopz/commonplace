@@ -42,6 +42,7 @@ const SCRIPTS = {
   'vaults':              'scripts/vaults.ts',
   'eval:retrieval':      'evals/retrieval/run.ts',
   'abstract':            'scripts/abstract.ts',
+  'seed':                'scripts/seed.ts',
   // Paper pipeline
   'paper:fetch':          'scripts/paper/fetch-paper.ts',
   'paper:extract':        'scripts/paper/extract-sections.ts',
