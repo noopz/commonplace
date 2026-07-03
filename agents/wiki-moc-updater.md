@@ -74,6 +74,7 @@ The link text is always the filename stem of the source note. See "Critical: wik
 - Add new papers under an existing subcategory if one fits, or create a new subcategory
 - Each paper entry is a single line: `- [[<filename-stem>]]` — see filename rule above
 - Update the count in `## Papers (N)` after adding entries
+- **Over-cap MOCs: allow-but-flag.** If a MOC you are adding to already lists more than `moc.softCap` sources (read `.wiki/config.json`; default 25), still add the entry — never skip a source — and include one line in your report flagging the MOC for a split (`commonplace lint --check moc-size` / the wiki-moc-splitter agent).
 - Don't remove existing entries — only add missing ones
 - Don't modify anything outside the Papers section
 - Update the date line at the bottom if one exists (format: `*Last updated YYYY-MM-DD*`)

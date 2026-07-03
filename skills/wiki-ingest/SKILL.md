@@ -149,6 +149,7 @@ Only create concepts for genuine noun-phrase concepts (e.g., "reinforcement lear
 1. Check existing MOCs in `.wiki/moc-index.jsonl`
 2. Add relevant MOCs to the source note's `mocs:` array
 3. If no existing MOC fits, consider whether a new one is warranted (only if this domain has 3+ sources)
+4. **Size guard (allow-but-flag):** check the chosen MOC's `sourceCount` in `.wiki/moc-index.jsonl`. If it exceeds `moc.softCap` from `commonplace config` (default 25), STILL add the link — a full MOC never blocks ingest — but flag it in your final summary: "MOC <name> is over its soft cap (<n> sources); consider a split (`commonplace lint --check moc-size`)."
 
 ## Post-Creation Steps
 
