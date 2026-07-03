@@ -1,0 +1,8 @@
+{"id":"q1","question":"What do the notes say about frontier ranking?","expected_notes":["02 - Research/Alpha/Frontier Ranking Study.md"],"type":"single-hop"}
+{"id":"q2","question":"Summarize the Harmonic Retrieval Survey.","expected_notes":["02 - Research/Alpha/Harmonic Retrieval Survey.md"],"type":"single-hop"}
+{"id":"q3","question":"Which note covers combining stored memories into fewer entries?","expected_notes":["02 - Research/Beta/Beta Consolidation Report.md"],"type":"single-hop"}
+{"id":"q4","question":"What are the failure modes of consolidation?","expected_notes":["02 - Research/Beta/Consolidation Failure Modes.md"],"type":"single-hop"}
+{"id":"q5","question":"How do cue anchors relate to authority ranking?","expected_notes":["02 - Research/Alpha/Latent Anchor Methods.md","02 - Research/Alpha/Anchor Precision Benchmarks.md","02 - Research/Alpha/Frontier Ranking Study.md"],"type":"multi-hop"}
+{"id":"q6","question":"Which methods help decide what to read first when exploring the graph?","expected_notes":["02 - Research/Alpha/Frontier Ranking Study.md","02 - Research/Alpha/Anchor Precision Benchmarks.md"],"type":"multi-hop"}
+{"id":"q7","question":"Do anchor methods appear in the consolidation work?","expected_notes":["02 - Research/Alpha/Latent Anchor Methods.md","02 - Research/Beta/Beta Consolidation Report.md"],"type":"cross-domain"}
+{"id":"q8","question":"Does the archival material connect to how we pick starting points for search?","expected_notes":["02 - Research/Beta/Beta Archive Overview.md","02 - Research/Alpha/Harmonic Retrieval Survey.md"],"type":"cross-domain"}
