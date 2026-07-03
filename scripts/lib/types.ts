@@ -24,6 +24,10 @@ export interface WikiConfig {
     requireSubsectionsAt?: number; // listing size at which ### subsections are expected
     minSourcesForNewMoc?: number;  // minimum sources to justify creating a sub-MOC
   };
+  /** Ingest consolidation-as-flag (near-duplicate-content lint, impact.ts). */
+  consolidation?: {
+    threshold?: number; // abstraction Jaccard similarity at which two sources flag as candidates (default 0.5)
+  };
 }
 
 export interface DomainEntry {
