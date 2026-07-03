@@ -6,8 +6,8 @@
  */
 
 import { parseArgs } from "util";
-import { resolveVault, classifyNote, isInVault } from "./lib/vault.js";
-import { parseNote, validateFrontmatter } from "./lib/frontmatter.js";
+import { resolveVault, classifyNote, isInVault, loadWikiConfig } from "./lib/vault.js";
+import { parseNote, validateFrontmatter, isStub } from "./lib/frontmatter.js";
 import type { ValidationResult } from "./lib/types.js";
 
 const { values, positionals } = parseArgs({
@@ -52,7 +52,11 @@ if (noteType === "other") {
 
 try {
   const parsed = parseNote(filePath, config.vaultPath);
-  const errors = validateFrontmatter(parsed.frontmatter, noteType);
+  const wikiCfg = loadWikiConfig(config);
+  const requireAbstraction =
+    wikiCfg?.abstractions === true &&
+    !(noteType === "concept" && isStub(parsed.body));
+  const errors = validateFrontmatter(parsed.frontmatter, noteType, { requireAbstraction });
   const result: ValidationResult = {
     valid: errors.length === 0,
     errors,

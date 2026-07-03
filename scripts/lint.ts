@@ -842,6 +842,54 @@ if (shouldRun("weak-summary")) {
       // skip
     }
   }
+
+  // Abstraction quality — only once the vault has adopted the abstraction
+  // layer (config.json "abstractions": true), so un-migrated vaults see
+  // no new noise. Stub concepts are exempt: their missing abstraction IS
+  // the stub marker, and the `stubs` check already covers them.
+  if (wikiConfig?.abstractions === true) {
+    const contentWordCount = (s: string) =>
+      s.split(/\s+/).filter((w) => w.replace(/[^\w-]/g, "").length >= 3).length;
+    const checkAbstraction = (
+      abstraction: string | undefined,
+      title: string,
+      path: string,
+    ) => {
+      if (!abstraction || abstraction.trim().length === 0) {
+        issues.push({
+          check: "weak-summary",
+          severity: "suggestion",
+          file: path,
+          message: "Missing abstraction — run `commonplace abstract` or add a 6-12 word descriptor",
+          fixable: true,
+        });
+        return;
+      }
+      if (abstraction.trim().toLowerCase() === title.trim().toLowerCase()) {
+        issues.push({
+          check: "weak-summary",
+          severity: "suggestion",
+          file: path,
+          message: "Abstraction merely repeats the title — rewrite as a 6-12 word noun-phrase descriptor",
+          fixable: false,
+        });
+      } else if (contentWordCount(abstraction) < 4) {
+        issues.push({
+          check: "weak-summary",
+          severity: "suggestion",
+          file: path,
+          message: "Abstraction too thin (<4 content words) — expand to a 6-12 word descriptor",
+          fixable: false,
+        });
+      }
+    };
+    for (const source of sourceIndex) {
+      checkAbstraction(source.abstraction, source.title, source.path);
+    }
+    for (const concept of conceptIndex) {
+      if (!concept.isStub) checkAbstraction(concept.abstraction, concept.name, concept.path);
+    }
+  }
 }
 
 // === Check: cross-scope-bridge ===

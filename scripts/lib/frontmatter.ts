@@ -161,7 +161,8 @@ const REQUIRED_FIELDS: Record<NoteType, string[]> = {
 
 export function validateFrontmatter(
   frontmatter: Record<string, unknown>,
-  noteType: NoteType
+  noteType: NoteType,
+  opts?: { requireAbstraction?: boolean }
 ): ValidationError[] {
   const errors: ValidationError[] = [];
   const required = REQUIRED_FIELDS[noteType];
@@ -205,6 +206,23 @@ export function validateFrontmatter(
         }
         seen.add(str);
       }
+    }
+  }
+
+  // Abstraction requirement — only for vaults that have adopted the
+  // abstraction layer (see computeIsStub), and never for stubs (the
+  // caller excludes them: a stub's missing abstraction is its marker).
+  if (
+    opts?.requireAbstraction &&
+    (noteType === "source" || noteType === "concept")
+  ) {
+    const a = frontmatter.abstraction;
+    if (typeof a !== "string" || a.trim().length === 0) {
+      errors.push({
+        field: "abstraction",
+        message:
+          "Missing required field: abstraction (vault has abstractions enabled — run `commonplace abstract` or add a 6-12 word descriptor)",
+      });
     }
   }
 

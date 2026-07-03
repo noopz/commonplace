@@ -27,7 +27,7 @@ import {
   parseNote,
   extractFrontmatterWikilinks,
   extractWikilinks,
-  isStub,
+  computeIsStub,
 } from "./lib/frontmatter.js";
 import {
   inferSourceDomain,
@@ -52,6 +52,8 @@ const { values } = parseArgs({
 });
 
 const config = resolveVault(values.vault);
+const wikiCfgEarly = loadWikiConfig(config);
+const abstractionsEnabled = wikiCfgEarly?.abstractions === true;
 const registry = loadDomainRegistry(config.wikiPath);
 
 // Ensure .wiki/ directory exists
@@ -152,6 +154,9 @@ for (const filePath of processFiles) {
       buildsOn: extractFrontmatterWikilinks(fm.builds_on),
       comparesWith: extractFrontmatterWikilinks(fm.compares_with),
       usesMethod: extractFrontmatterWikilinks(fm.uses_method),
+      ...(typeof fm.abstraction === "string" && fm.abstraction.trim().length > 0
+        ? { abstraction: fm.abstraction.trim() }
+        : {}),
     });
 
     // Source-domain refs are populated after the concept index is built,
@@ -168,7 +173,10 @@ for (const filePath of processFiles) {
       path: filePath,
       domains: [], // Filled in below
       backlinkCount: 0, // Filled in below
-      isStub: isStub(parsed.body),
+      isStub: computeIsStub(parsed.body, fm, abstractionsEnabled),
+      ...(typeof fm.abstraction === "string" && fm.abstraction.trim().length > 0
+        ? { abstraction: fm.abstraction.trim() }
+        : {}),
       ...(compiledFrom.length > 0 ? { compiledFrom } : {}),
     });
   } else if (noteType === "moc") {
