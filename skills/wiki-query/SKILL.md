@@ -45,11 +45,11 @@ Never load full index files — they grow without bound. Use Grep to target spec
 
 **Search strategy:**
 
-1. **Start with Grep on the indexes** using terms from the user's question:
+1. **Seed with the tiered helper**:
+   ```bash
+   commonplace seed --query "<the user's question>" --json
    ```
-   Grep "<term>" "$VAULT_PATH/.wiki/source-index.jsonl"
-   Grep "<term>" "$VAULT_PATH/.wiki/concept-index.jsonl"
-   ```
+   It matches query terms against explicit key spaces in order — (A) `abstraction` fields, (B) cue anchors (tags, MOC names, outgoing wikilink display texts), (C) names/titles, (D) whole-record grep only when A–C yield fewer than 3 seeds — and returns candidates with their tier and matched terms. Prefer higher-tier seeds when deciding what to read first. Direct Grep on the indexes (`Grep "<term>" "$VAULT_PATH/.wiki/source-index.jsonl"`) remains right for narrow known-title lookups.
 
 2. **Iterate with derived terms** — look at what you find and generate new search terms from it. If a source note mentions [[Concept X]], grep for that. If a concept appears in two domains, grep for it in both. Don't stop at the first pass.
 

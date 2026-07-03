@@ -15,7 +15,7 @@ commonplace is not a RAG system. Never substitute keyword/concept-string matchin
 
 **Mental model:** `Grep` against the JSONL indexes is a jumping-off point, not an answer. It tells you which few notes are worth reading. The relevance judgment itself comes from `Read`ing those notes and reasoning about whether they actually connect — not from whether a keyword or concept name matched.
 
-This applies anywhere a "does X relate to Y" decision gets made — cross-domain bridging, deep-linking, pre-ingest triage, wiki-query. A note can be highly relevant to another with zero shared concept names or strings (e.g. an export-control story bearing on an IPO thesis's "Government Contract Dependency" angle without ever naming the company). If a check only compares index fields and stops there, it isn't finished — it must follow the grep hit to the real file and read it before concluding anything.
+This applies anywhere a "does X relate to Y" decision gets made — cross-domain bridging, deep-linking, pre-ingest triage, wiki-query. A note can be highly relevant to another with zero shared concept names or strings (e.g. an export-control story bearing on an IPO thesis's "Government Contract Dependency" angle without ever naming the company). If a check only compares index fields and stops there, it isn't finished — it must follow the grep hit to the real file and read it before concluding anything. Seeding itself is tiered-lexical (`commonplace seed`): abstraction → cue anchors → names/titles → whole-record grep as a gated fallback. Better jumping-off points, same rule — the tier tells you where to start reading, never whether something is relevant.
 
 ## Never use Python or shell one-liners to parse JSON
 
