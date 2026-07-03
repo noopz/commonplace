@@ -21,7 +21,7 @@ dispatched you. Use them directly — do not run `commonplace vault-path`.
 Read `$VAULT/.wiki/config.json`. The `moc` block governs the split:
 - `minSourcesForNewMoc` (default 3): never create a sub-MOC with fewer
   sources than this — fold small themes into a broader sibling instead.
-- `softCap` (default 25) / `hardCap` (default 40): aim for each sub-MOC to
+- `softCap` (default 20) / `hardCap` (default 25): aim for each sub-MOC to
   land comfortably under the soft cap.
 
 ## Critical: wikilink text MUST come from the filename

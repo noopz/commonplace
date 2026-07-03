@@ -312,9 +312,9 @@ if (shouldRun("moc-staleness")) {
 // by MOC size (allow-but-flag); splitting is the wiki-moc-splitter agent's
 // job, not a script's.
 if (shouldRun("moc-size")) {
-  const softCap = wikiConfig?.moc?.softCap ?? 25;
-  const hardCap = wikiConfig?.moc?.hardCap ?? 40;
-  const subsectionsAt = wikiConfig?.moc?.requireSubsectionsAt ?? 15;
+  const softCap = wikiConfig?.moc?.softCap ?? 20;
+  const hardCap = wikiConfig?.moc?.hardCap ?? 25;
+  const subsectionsAt = wikiConfig?.moc?.requireSubsectionsAt ?? 10;
   for (const moc of mocIndex) {
     if (isLintExcluded(moc.path, lintExclude)) continue;
     // hub ≫ authority = administrative aggregator (links out broadly, rarely

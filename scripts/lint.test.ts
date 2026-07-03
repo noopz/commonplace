@@ -164,6 +164,62 @@ function makeDupVault(): string {
   return root;
 }
 
+test("moc-size: default caps are 20 soft / 25 hard / 10 subsections when no moc config block", () => {
+  const root = mkdtempSync(join(tmpdir(), "lint-moc-defaults-vault-"));
+  try {
+    mkdirSync(join(root, ".wiki"), { recursive: true });
+    mkdirSync(join(root, "05 - MOCs"), { recursive: true });
+    // No `moc` block — the check must fall back to the shipped defaults.
+    writeFileSync(join(root, ".wiki", "config.json"), JSON.stringify({
+      structure: { sources: "02 - Research", concepts: "03 - Concepts", mocs: "05 - MOCs" },
+      stubPattern: "Definition pending",
+      mocCountPattern: "**Papers:** N",
+    }, null, 2) + "\n");
+    writeFileSync(join(root, ".wiki", "domains.json"), JSON.stringify({
+      domains: { alpha: { path: "02 - Research/Alpha", scope: "public" } },
+    }, null, 2));
+    writeFileSync(join(root, ".wiki", "source-index.jsonl"), "");
+    writeFileSync(join(root, ".wiki", "concept-index.jsonl"), "");
+    writeFileSync(join(root, ".wiki", "moc-index.jsonl"), [
+      mocRecord("Over Soft MOC", 22),   // 20 < 22 <= 25 → soft only
+      mocRecord("Over Hard MOC", 26),   // 26 > 25 → hard
+      mocRecord("Needs Sections MOC", 12), // 10 < 12 < 20, no ### → subsections
+      mocRecord("Small MOC", 8),        // < 10 → clean
+    ].join("\n") + "\n");
+    writeFileSync(join(root, "05 - MOCs", "Over Soft MOC.md"),
+      `${MOC_FM}\n# Over Soft MOC\n\n## Papers (22)\n\n### Theme\n- [[Invented Note]]\n`);
+    writeFileSync(join(root, "05 - MOCs", "Over Hard MOC.md"),
+      `${MOC_FM}\n# Over Hard MOC\n\n## Papers (26)\n\n### Theme\n- [[Invented Note]]\n`);
+    writeFileSync(join(root, "05 - MOCs", "Needs Sections MOC.md"),
+      `${MOC_FM}\n# Needs Sections MOC\n\n## Papers (12)\n\n- [[Invented Note]]\n`);
+    writeFileSync(join(root, "05 - MOCs", "Small MOC.md"),
+      `${MOC_FM}\n# Small MOC\n\n## Papers (8)\n\n- [[Invented Note]]\n`);
+    writeFileSync(join(root, ".wiki", ".last-index"), String(Date.now() + 3_600_000));
+
+    const findings = runMocSize(root);
+    const byName = (needle: string) => findings.filter((f) => f.message.includes(needle));
+
+    const soft = byName("Over Soft MOC");
+    assert.equal(soft.length, 1);
+    assert.equal(soft[0].severity, "improvement");
+    assert.match(soft[0].message, /over the soft cap of 20/);
+
+    const hard = byName("Over Hard MOC");
+    assert.equal(hard.length, 1);
+    assert.equal(hard[0].severity, "critical");
+    assert.match(hard[0].message, /over the hard cap of 25/);
+
+    const sections = byName("Needs Sections MOC");
+    assert.equal(sections.length, 1);
+    assert.match(sections[0].message, /no ### subsections/);
+
+    assert.equal(byName("Small MOC").length, 0);
+    assert.equal(findings.length, 3);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("near-duplicate-content: flags abstraction twins, skips linked pairs and distant pairs", () => {
   const vault = makeDupVault();
   try {

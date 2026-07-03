@@ -17,7 +17,7 @@ export interface WikiConfig {
   lintExclude?: string[];   // path substrings to skip during lint (e.g. ["99 - Meta", "Templates"])
   rawFolder?: string;       // folder for uningested raw files, default "raw"
   abstractions?: boolean;  // true once `commonplace abstract` has backfilled this vault
-  /** MOC size governance caps (moc-size lint). All optional; defaults 25/40/15/3. */
+  /** MOC size governance caps (moc-size lint). All optional; defaults 20/25/10/3. */
   moc?: {
     softCap?: number;              // sources per MOC before a split is recommended
     hardCap?: number;              // sources per MOC before a split is required
