@@ -88,6 +88,7 @@ const checksToRun = values.check ? [values.check] : [
   "orphans",
   "frontmatter",
   "moc-staleness",
+  "moc-size",
   "compiled-staleness",
   "scope-violations",
   "duplicates",
@@ -298,6 +299,64 @@ if (shouldRun("moc-staleness")) {
         message: `MOC "${moc.name}" declares ${moc.declaredCount} papers but ${moc.sourceCount} sources reference it`,
         fixable: true,
       });
+    }
+  }
+}
+
+// === Check: MOC size governance ===
+// Oversized MOCs dilute retrieval: co-listing under a 100-note MOC is weak
+// signal and every graph walk routes through it. Caps come from the
+// .wiki/config.json "moc" block. Detection only — ingest is never blocked
+// by MOC size (allow-but-flag); splitting is the wiki-moc-splitter agent's
+// job, not a script's.
+if (shouldRun("moc-size")) {
+  const softCap = wikiConfig?.moc?.softCap ?? 25;
+  const hardCap = wikiConfig?.moc?.hardCap ?? 40;
+  const subsectionsAt = wikiConfig?.moc?.requireSubsectionsAt ?? 15;
+  for (const moc of mocIndex) {
+    if (isLintExcluded(moc.path, lintExclude)) continue;
+    // hub ≫ authority = administrative aggregator (links out broadly, rarely
+    // linked to) — the profile where a split pays off most. Annotation only.
+    const aggregator =
+      typeof moc.hub === "number" && moc.hub > 0 && (moc.authority ?? 0) < moc.hub / 4;
+    const profile = aggregator ? " (administrative aggregator: hub ≫ authority)" : "";
+    if (moc.sourceCount > hardCap) {
+      issues.push({
+        check: "moc-size",
+        severity: "critical",
+        file: moc.path,
+        message: `MOC "${moc.name}" lists ${moc.sourceCount} sources — over the hard cap of ${hardCap}${profile}`,
+        fixable: false,
+        suggestion:
+          "Split into themed sub-MOCs (wiki-moc-splitter agent); the parent becomes an index of sub-MOCs",
+      });
+    } else if (moc.sourceCount > softCap) {
+      issues.push({
+        check: "moc-size",
+        severity: "improvement",
+        file: moc.path,
+        message: `MOC "${moc.name}" lists ${moc.sourceCount} sources — over the soft cap of ${softCap}${profile}`,
+        fixable: false,
+        suggestion: `Consider splitting into themed sub-MOCs before it reaches the hard cap (${hardCap})`,
+      });
+    } else if (moc.sourceCount > subsectionsAt) {
+      // Large-but-under-cap MOCs must at least organize entries under ### subsections.
+      try {
+        const body = parseNote(moc.path, config.vaultPath).body;
+        const hasSubsections = /^###\s+/m.test(body);
+        if (!hasSubsections) {
+          issues.push({
+            check: "moc-size",
+            severity: "improvement",
+            file: moc.path,
+            message: `MOC "${moc.name}" lists ${moc.sourceCount} sources with no ### subsections`,
+            fixable: false,
+            suggestion: "Group the entries under ### subsection headings",
+          });
+        }
+      } catch {
+        // Unreadable MOC file — other checks report parse failures.
+      }
     }
   }
 }
