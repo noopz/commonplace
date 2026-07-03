@@ -27,7 +27,14 @@ import { parseArgs } from "node:util";
 import { execFileSync } from "child_process";
 import { resolveVault, loadIndexes } from "../../scripts/lib/vault.js";
 import { extractKeyTerms, seedCandidates } from "../../scripts/lib/seed.js";
-import { seedRecall, aggregate, scoreAnswer, type GoldQuestion, type QuestionResult } from "./score.js";
+import {
+  seedRecall,
+  aggregate,
+  scoreAnswer,
+  reciprocalRankOfFirstExpected,
+  type GoldQuestion,
+  type QuestionResult,
+} from "./score.js";
 
 const { values: args } = parseArgs({
   options: {
@@ -35,6 +42,7 @@ const { values: args } = parseArgs({
     gold: { type: "string" },
     "seed-mode": { type: "string", default: "flat" },
     "no-abstraction": { type: "boolean", default: false },
+    "no-authority": { type: "boolean", default: false },
     answers: { type: "string" },
     history: { type: "boolean", default: false },
     json: { type: "boolean", default: false },
@@ -47,6 +55,10 @@ if (args["seed-mode"] !== "flat" && args["seed-mode"] !== "tiered") {
 }
 if (args["no-abstraction"] && args["seed-mode"] !== "tiered") {
   console.error("error: --no-abstraction only applies to --seed-mode tiered");
+  process.exit(1);
+}
+if (args["no-authority"] && args["seed-mode"] !== "tiered") {
+  console.error("error: --no-authority only applies to --seed-mode tiered");
   process.exit(1);
 }
 
@@ -72,9 +84,11 @@ for (const q of gold) {
   const hits = seedCandidates(terms, indexes, {
     mode: args["seed-mode"],
     ...(args["no-abstraction"] ? { skipAbstractionTier: true } : {}),
+    ...(args["no-authority"] ? { rankByAuthority: false } : {}),
   });
   const candidateRel = hits.map((h) => relative(config.vaultPath, h.path));
   const recall = seedRecall(q.expected_notes, candidateRel);
+  const mrr = reciprocalRankOfFirstExpected(q.expected_notes, candidateRel);
   const candidateSet = new Set(candidateRel);
   const matchedExpected = q.expected_notes.filter((e) => candidateSet.has(e));
   const missedExpected = q.expected_notes.filter((e) => !candidateSet.has(e));
@@ -82,6 +96,7 @@ for (const q of gold) {
     id: q.id,
     type: q.type,
     recall,
+    mrr,
     nCandidates: hits.length,
     matchedExpected,
     missedExpected,
@@ -125,6 +140,7 @@ const record = {
   commit: pluginCommit(),
   seedMode: args["seed-mode"],
   ...(args["no-abstraction"] ? { noAbstraction: true } : {}),
+  ...(args["no-authority"] ? { noAuthority: true } : {}),
   gold: goldPath,
   ...agg,
 };
@@ -144,6 +160,7 @@ if (args.json) {
     console.log(`  ${t}: ${v.toFixed(3)}`);
   }
   console.log(`  median candidate-set size: ${agg.medianCandidates}`);
+  console.log(`  mean reciprocal rank of first expected hit: ${agg.meanMrr.toFixed(3)}`);
   const misses = perQuestion.filter((r) => r.missedExpected.length > 0);
   if (misses.length > 0) {
     console.log(`  missed expected notes:`);

@@ -41,6 +41,7 @@ test("baseline flat seeding: exact-phrase question hits, paraphrase question mis
   assert.ok(out.overall > 0 && out.overall < 1, "baseline should be partial, not perfect or zero");
   assert.deepEqual(Object.keys(out.byType).sort(), ["cross-domain", "multi-hop", "single-hop"]);
   assert.equal(out.seedMode, "flat");
+  assert.equal(typeof out.meanMrr, "number");
 });
 
 test("--history appends a JSONL record to the vault's .wiki", () => {
@@ -108,6 +109,13 @@ test("unknown --seed-mode fails loudly", () => {
         { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] },
       ),
     );
+    assert.throws(() =>
+      execFileSync(
+        process.execPath,
+        ["--import", "tsx", RUN, "--vault", vaultRoot, "--gold", GOLD, "--seed-mode", "flat", "--no-authority"],
+        { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] },
+      ),
+    );
   } finally {
     removeRetrievalFixtureVault(vaultRoot);
   }
@@ -139,6 +147,12 @@ test("tiered seeding closes the paraphrase gap via the abstraction tier (Memora 
 
     // Lexical-overlap questions stay solved in tiered mode.
     assert.equal(tiered.q1.recall, 1);
+
+    // Position-sensitive metric: q3's target seeds at Tier A and, with no
+    // authority scores in the fixture, keeps stable index order — Beta
+    // Consolidation Report precedes the other Tier-A hit, so it ranks #1.
+    assert.equal(tiered.q3.mrr, 1);
+    assert.equal(flat.q3.mrr, 0);
   } finally {
     removeRetrievalFixtureVault(vaultRoot);
   }

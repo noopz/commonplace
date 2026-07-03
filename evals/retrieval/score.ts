@@ -20,6 +20,8 @@ export interface QuestionResult {
   id: string;
   type: GoldQuestion["type"];
   recall: number;
+  /** Reciprocal rank of the first expected note in candidate order (0 = none found). */
+  mrr: number;
   nCandidates: number;
   matchedExpected: string[];
   missedExpected: string[];
@@ -33,11 +35,26 @@ export function seedRecall(expected: string[], candidateRelPaths: string[]): num
   return matched.length / expected.length;
 }
 
+/**
+ * Reciprocal rank of the FIRST expected note within the ordered candidate
+ * list — the position-sensitive counterpart to seedRecall, which is
+ * set-based and blind to ranking changes (e.g. authority ordering).
+ */
+export function reciprocalRankOfFirstExpected(
+  expected: string[],
+  orderedCandidateRelPaths: string[],
+): number {
+  const expectedSet = new Set(expected);
+  const i = orderedCandidateRelPaths.findIndex((p) => expectedSet.has(p));
+  return i === -1 ? 0 : 1 / (i + 1);
+}
+
 export interface AggregateResult {
   n: number;
   overall: number;
   byType: Record<string, number>;
   medianCandidates: number;
+  meanMrr: number;
 }
 
 export function aggregate(results: QuestionResult[]): AggregateResult {
@@ -53,7 +70,13 @@ export function aggregate(results: QuestionResult[]): AggregateResult {
       : counts.length % 2 === 1
         ? counts[(counts.length - 1) / 2]
         : (counts[counts.length / 2 - 1] + counts[counts.length / 2]) / 2;
-  return { n: results.length, overall: mean(results.map((r) => r.recall)), byType, medianCandidates };
+  return {
+    n: results.length,
+    overall: mean(results.map((r) => r.recall)),
+    byType,
+    medianCandidates,
+    meanMrr: mean(results.map((r) => r.mrr)),
+  };
 }
 
 export interface AnswerScore {

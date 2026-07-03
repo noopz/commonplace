@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { seedRecall, aggregate, scoreAnswer, type QuestionResult } from "./score.ts";
+import { seedRecall, aggregate, scoreAnswer, reciprocalRankOfFirstExpected, type QuestionResult } from "./score.ts";
 
 test("seedRecall is intersection over expected", () => {
   assert.equal(seedRecall(["a.md", "b.md"], ["b.md", "c.md"]), 0.5);
@@ -10,9 +10,9 @@ test("seedRecall is intersection over expected", () => {
 
 test("aggregate computes overall, per-type means, and median candidate count", () => {
   const results: QuestionResult[] = [
-    { id: "q1", type: "single-hop", recall: 1, nCandidates: 3, matchedExpected: [], missedExpected: [] },
-    { id: "q2", type: "single-hop", recall: 0, nCandidates: 0, matchedExpected: [], missedExpected: [] },
-    { id: "q3", type: "multi-hop", recall: 0.5, nCandidates: 7, matchedExpected: [], missedExpected: [] },
+    { id: "q1", type: "single-hop", recall: 1, mrr: 1, nCandidates: 3, matchedExpected: [], missedExpected: [] },
+    { id: "q2", type: "single-hop", recall: 0, mrr: 0, nCandidates: 0, matchedExpected: [], missedExpected: [] },
+    { id: "q3", type: "multi-hop", recall: 0.5, mrr: 0.5, nCandidates: 7, matchedExpected: [], missedExpected: [] },
   ];
   const agg = aggregate(results);
   assert.equal(agg.n, 3);
@@ -20,6 +20,14 @@ test("aggregate computes overall, per-type means, and median candidate count", (
   assert.equal(agg.byType["single-hop"], 0.5);
   assert.equal(agg.byType["multi-hop"], 0.5);
   assert.equal(agg.medianCandidates, 3);
+  assert.equal(agg.meanMrr, 0.5);
+});
+
+test("reciprocalRankOfFirstExpected: position of first expected hit", () => {
+  assert.equal(reciprocalRankOfFirstExpected(["b.md"], ["a.md", "b.md", "c.md"]), 0.5);
+  assert.equal(reciprocalRankOfFirstExpected(["a.md", "c.md"], ["c.md", "a.md"]), 1);
+  assert.equal(reciprocalRankOfFirstExpected(["z.md"], ["a.md"]), 0);
+  assert.equal(reciprocalRankOfFirstExpected(["z.md"], []), 0);
 });
 
 test("scoreAnswer: citation recall/precision over vault-relative paths", () => {
