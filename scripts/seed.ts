@@ -19,6 +19,7 @@ const { values } = parseArgs({
     query: { type: "string" },
     mode: { type: "string", default: "tiered" },
     "no-abstraction": { type: "boolean", default: false },
+    "no-authority": { type: "boolean", default: false },
     json: { type: "boolean", default: false },
   },
 });
@@ -35,6 +36,10 @@ if (values["no-abstraction"] && values.mode !== "tiered") {
   console.error("error: --no-abstraction only applies to --mode tiered");
   process.exit(1);
 }
+if (values["no-authority"] && values.mode !== "tiered") {
+  console.error("error: --no-authority only applies to --mode tiered");
+  process.exit(1);
+}
 
 const config = resolveVault(values.vault);
 const indexes = loadIndexes(config);
@@ -42,6 +47,7 @@ const terms = extractKeyTerms(values.query);
 const opts: SeedOptions = {
   mode: values.mode,
   ...(values["no-abstraction"] ? { skipAbstractionTier: true } : {}),
+  ...(values["no-authority"] ? { rankByAuthority: false } : {}),
 };
 const hits = seedCandidates(terms, indexes, opts).map((h) => ({
   ...h,
@@ -57,6 +63,6 @@ if (values.json) {
     console.log("  (no seeds — rephrase the query or Grep the indexes directly)");
   }
   for (const h of hits) {
-    console.log(`  [${h.tier ?? "flat"}] ${h.kind}: ${h.label} (${h.path}) <- ${h.matchedTerms.join(", ")}`);
+    console.log(`  [${h.tier ?? "flat"}] ${h.kind}: ${h.label} (${h.path})${h.authority !== undefined ? ` auth=${h.authority}` : ""} <- ${h.matchedTerms.join(", ")}`);
   }
 }

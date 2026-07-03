@@ -152,3 +152,46 @@ test("tiered: skipAbstractionTier ablates Tier A", () => {
   assert.equal(seeding.length, 1);
   assert.equal(seeding[0].tier, "B");
 });
+
+const RANKED_INDEXES: SeedIndexes = {
+  sources: [
+    src("Minor Anchor Note", {
+      abstraction: "peripheral discussion of anchor keys",
+      authority: 0.05,
+    }),
+    src("Central Anchor Note", {
+      abstraction: "the definitive treatment of anchor keys",
+      authority: 0.9,
+    }),
+    src("Unscored Anchor Note", {
+      abstraction: "unscored note about anchor keys",
+    }),
+  ],
+  concepts: [],
+  mocs: [],
+};
+
+test("tiered: within a tier, higher authority seeds first", () => {
+  const hits = seedCandidates(["anchor"], RANKED_INDEXES, { mode: "tiered" });
+  assert.deepEqual(
+    hits.map((h) => h.label),
+    ["Central Anchor Note", "Minor Anchor Note", "Unscored Anchor Note"],
+  );
+  assert.equal(hits[0].authority, 0.9);
+  assert.equal(hits[2].authority, undefined);
+});
+
+test("tiered: rankByAuthority false preserves index order (ablation)", () => {
+  const hits = seedCandidates(["anchor"], RANKED_INDEXES, { mode: "tiered", rankByAuthority: false });
+  assert.deepEqual(
+    hits.map((h) => h.label),
+    ["Minor Anchor Note", "Central Anchor Note", "Unscored Anchor Note"],
+  );
+});
+
+test("flat mode ignores hub/authority fields entirely", () => {
+  // "0.9" could substring-match the serialized authority; the key name
+  // "authority" would match every scored record. Both must be stripped.
+  assert.deepEqual(seedCandidates(["authority"], RANKED_INDEXES, { mode: "flat" }), []);
+  assert.deepEqual(seedCandidates(["0.9"], RANKED_INDEXES, { mode: "flat" }), []);
+});

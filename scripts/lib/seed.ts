@@ -58,6 +58,8 @@ export interface SeedHit {
   matchedTerms: string[];
   /** Which key space matched (tiered mode only). */
   tier?: SeedTier;
+  /** HITS authority of the record, when the index carries it (tiered mode). */
+  authority?: number;
 }
 
 export interface SeedIndexes {
@@ -72,16 +74,18 @@ export interface SeedOptions {
   skipAbstractionTier?: boolean;
   /** A–C seed count below which Tier D (whole-record grep) engages. Default 3. */
   tierDGate?: number;
+  /** Order hits within each tier by authority desc (default true). Ablation: set false. */
+  rankByAuthority?: boolean;
 }
 
 /**
- * Record serialized WITHOUT the mixed-key fields (abstraction, anchors):
+ * Record serialized WITHOUT the mixed-key fields (abstraction, anchors, hub, authority):
  * the pre-mixed-key record shape a whole-record grep would have seen.
  * Both flat mode and Tier D use this, so the new key spaces are reachable
  * ONLY through their own tiers and ablations stay clean.
  */
 function baselineBlob(record: object): string {
-  const { abstraction: _a, anchors: _n, ...rest } = record as Record<string, unknown>;
+  const { abstraction: _a, anchors: _n, hub: _h, authority: _y, ...rest } = record as Record<string, unknown>;
   return JSON.stringify(rest).toLowerCase();
 }
 
@@ -123,6 +127,7 @@ interface TierEntry {
   abstraction: string | null;
   anchors: string[];
   title: string;
+  authority: number;
 }
 
 /**
@@ -144,6 +149,7 @@ function tieredScan(lowered: string[], indexes: SeedIndexes, opts: SeedOptions):
       abstraction: s.abstraction?.toLowerCase() ?? null,
       anchors: [...s.tags, ...s.mocs, ...(s.anchors ?? [])].map((a) => a.toLowerCase()),
       title: s.title.toLowerCase(),
+      authority: s.authority ?? 0,
     })),
     ...indexes.concepts.map((c) => ({
       record: c as object,
@@ -153,6 +159,7 @@ function tieredScan(lowered: string[], indexes: SeedIndexes, opts: SeedOptions):
       abstraction: c.abstraction?.toLowerCase() ?? null,
       anchors: (c.anchors ?? []).map((a) => a.toLowerCase()),
       title: c.name.toLowerCase(),
+      authority: c.authority ?? 0,
     })),
     ...indexes.mocs.map((m) => ({
       record: m as object,
@@ -162,20 +169,36 @@ function tieredScan(lowered: string[], indexes: SeedIndexes, opts: SeedOptions):
       abstraction: null,
       anchors: [],
       title: m.name.toLowerCase(),
+      authority: m.authority ?? 0,
     })),
   ];
 
+  const rank = opts.rankByAuthority !== false;
   const hits: SeedHit[] = [];
   const taken = new Set<string>();
   const collect = (tier: SeedTier, match: (e: TierEntry) => string[]) => {
+    const batch: SeedHit[] = [];
     for (const e of entries) {
       if (taken.has(e.path)) continue;
       const matchedTerms = match(e);
       if (matchedTerms.length > 0) {
         taken.add(e.path);
-        hits.push({ path: e.path, label: e.label, kind: e.kind, matchedTerms, tier });
+        batch.push({
+          path: e.path,
+          label: e.label,
+          kind: e.kind,
+          matchedTerms,
+          tier,
+          ...(e.authority > 0 ? { authority: e.authority } : {}),
+        });
       }
     }
+    if (rank) {
+      // Stable sort: equal (or absent) authority keeps index order, so
+      // ranking is a tie-breaker on top of the tier ordering, never a filter.
+      batch.sort((a, b) => (b.authority ?? 0) - (a.authority ?? 0));
+    }
+    hits.push(...batch);
   };
 
   if (!opts.skipAbstractionTier) {

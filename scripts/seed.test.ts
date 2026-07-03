@@ -64,6 +64,7 @@ test("missing --query and bad --mode fail loudly", () => {
     assert.throws(() => run(vault, ["--json"]));
     assert.throws(() => run(vault, ["--query", "x", "--mode", "vector"]));
     assert.throws(() => run(vault, ["--query", "x", "--mode", "flat", "--no-abstraction"]));
+    assert.throws(() => run(vault, ["--query", "x", "--mode", "flat", "--no-authority"]));
   } finally {
     rmSync(vault, { recursive: true, force: true });
   }
