@@ -41,6 +41,7 @@ const SCRIPTS = {
   'supersede':           'scripts/supersede.ts',
   'vaults':              'scripts/vaults.ts',
   'eval:retrieval':      'evals/retrieval/run.ts',
+  'abstract':            'scripts/abstract.ts',
   // Paper pipeline
   'paper:fetch':          'scripts/paper/fetch-paper.ts',
   'paper:extract':        'scripts/paper/extract-sections.ts',
