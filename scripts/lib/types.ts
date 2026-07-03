@@ -16,6 +16,7 @@ export interface WikiConfig {
   mocCountPattern: string;  // e.g. "**Papers:** N"
   lintExclude?: string[];   // path substrings to skip during lint (e.g. ["99 - Meta", "Templates"])
   rawFolder?: string;       // folder for uningested raw files, default "raw"
+  abstractions?: boolean;  // true once `commonplace abstract` has backfilled this vault
 }
 
 export interface DomainEntry {
@@ -62,6 +63,8 @@ export interface SourceNote {
   buildsOn: string[];
   comparesWith: string[];
   usesMethod: string[];
+  /** Indexed retrieval key: ~6-12 word noun-phrase descriptor. Absent on un-migrated notes. */
+  abstraction?: string;
 }
 
 export interface CompiledFromEntry {
@@ -75,6 +78,8 @@ export interface ConceptNote {
   domains: string[];
   backlinkCount: number;
   isStub: boolean;
+  /** Indexed retrieval key: ~6-12 word noun-phrase descriptor. Absent on un-migrated notes. */
+  abstraction?: string;
   compiledFrom?: CompiledFromEntry[];
 }
 

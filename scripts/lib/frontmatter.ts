@@ -103,6 +103,26 @@ export function isStub(body: string): boolean {
   return body.includes("Definition pending - please update.");
 }
 
+/**
+ * Stub detection with the abstraction layer. Until a vault has adopted
+ * abstractions (config.json "abstractions": true, set by `commonplace
+ * abstract`), this is exactly the legacy sentinel check — flipping the
+ * definition earlier would reclassify every un-backfilled concept as a
+ * stub and expose it to pruning. Once adopted, a missing/empty
+ * abstraction ALSO marks a stub: a stub is a note with no usable
+ * retrieval key.
+ */
+export function computeIsStub(
+  body: string,
+  frontmatter: Record<string, unknown>,
+  abstractionsEnabled: boolean,
+): boolean {
+  const sentinel = isStub(body);
+  if (!abstractionsEnabled) return sentinel;
+  const a = frontmatter.abstraction;
+  return sentinel || typeof a !== "string" || a.trim().length === 0;
+}
+
 export function hasMalformedDateLine(raw: string): string | null {
   // These appear as bare lines like P25-11-07 outside of frontmatter
   const lines = raw.split("\n");
