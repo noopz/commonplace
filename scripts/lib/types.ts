@@ -67,6 +67,9 @@ export interface SourceNote {
   abstraction?: string;
   /** Outgoing wikilink display texts — the note's cue anchors (Tier B seed keys). */
   anchors?: string[];
+  /** HITS scores over the body-wikilink graph; omitted when the note has no link presence. */
+  hub?: number;
+  authority?: number;
 }
 
 export interface CompiledFromEntry {
@@ -84,6 +87,9 @@ export interface ConceptNote {
   abstraction?: string;
   /** Outgoing wikilink display texts — the note's cue anchors (Tier B seed keys). */
   anchors?: string[];
+  /** HITS scores over the body-wikilink graph; omitted when the note has no link presence. */
+  hub?: number;
+  authority?: number;
   compiledFrom?: CompiledFromEntry[];
 }
 
@@ -94,6 +100,9 @@ export interface MocNote {
   sourceCount: number;
   sources: string[];
   declaredCount: number | null;
+  /** HITS scores over the body-wikilink graph; omitted when the note has no link presence. */
+  hub?: number;
+  authority?: number;
 }
 
 export interface IndexData {

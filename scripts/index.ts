@@ -36,6 +36,7 @@ import {
   lookupScope,
 } from "./lib/domain.js";
 import { normalizeWikilinkTarget } from "./lib/resolve.js";
+import { computeHITS, type HitsEdge } from "./lib/hits.js";
 import { discoverGenres, loadGenreSamples } from "./lib/genre-discovery.js";
 import type {
   SourceNote,
@@ -383,10 +384,6 @@ function toRel(abs: string): string {
   return sep === "\\" ? rel.split(sep).join("/") : rel;
 }
 
-const sourcesOut = sources.map((s) => ({ ...s, path: toRel(s.path) }));
-const conceptsOut = concepts.map((c) => ({ ...c, path: toRel(c.path) }));
-const mocsOut = mocs.map((m) => ({ ...m, path: toRel(m.path) }));
-
 // Materialize the inverted backlink index. Sort targets and sources by path
 // so diffs between runs are deterministic.
 const backlinkRecords = [...backlinkIndex.entries()]
@@ -397,6 +394,27 @@ const backlinkRecords = [...backlinkIndex.entries()]
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([source, count]) => ({ source: toRel(source), count })),
   }));
+
+// HITS hub/authority over the body-wikilink graph. Every index run holds
+// the full graph in memory (incremental runs still read all files for
+// backlink counting), and the vault is hundreds of nodes, so recomputing
+// each run is cheaper and fresher than any caching scheme. Keyed by
+// vault-relative path — same shape hub-score.ts derives from the
+// materialized backlink-index.jsonl.
+const hitsEdges: HitsEdge[] = backlinkRecords.flatMap((r) =>
+  r.backlinks.map((b) => ({ source: b.source, target: r.target, weight: b.count })),
+);
+const hitsScores = computeHITS(hitsEdges);
+const round6 = (x: number) => Math.round(x * 1e6) / 1e6;
+function withHits<T extends { path: string }>(record: T): T {
+  const s = hitsScores.get(record.path);
+  if (!s || (s.hub === 0 && s.authority === 0)) return record;
+  return { ...record, hub: round6(s.hub), authority: round6(s.authority) };
+}
+
+const sourcesOut = sources.map((s) => withHits({ ...s, path: toRel(s.path) }));
+const conceptsOut = concepts.map((c) => withHits({ ...c, path: toRel(c.path) }));
+const mocsOut = mocs.map((m) => withHits({ ...m, path: toRel(m.path) }));
 
 writeFileSync(join(config.wikiPath, "source-index.jsonl"), toJsonl(sourcesOut));
 writeFileSync(join(config.wikiPath, "concept-index.jsonl"), toJsonl(conceptsOut));
