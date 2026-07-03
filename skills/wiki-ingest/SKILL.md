@@ -67,6 +67,7 @@ $VAULT_PATH/{structure.sources}/{Domain Name}/{Paper Title}.md
 tags: [paper, topic1, topic2]
 cssclasses: []
 created: 'YYYY-MM-DD'
+abstraction: 'Six-to-twelve word noun-phrase-first descriptor of the core claim'
 concepts:
   - '[[Concept Name]]'
 mocs:
@@ -79,6 +80,8 @@ uses_method:      # optional — methods employed
   - '[[Method]]'
 ---
 ```
+
+**`abstraction` (required):** one canonical descriptor, ~6–12 words, noun-phrase-first (e.g. 'harmonic memory representation that decouples storage from retrieval'), no citations, no dates. Derive it from the Summary's core claim. It is indexed as the note's primary retrieval key, so favor distinctive content words over generic ones — an abstraction that merely repeats the title gets lint-flagged.
 
 ### Body Structure
 
@@ -136,6 +139,8 @@ A concept related to wikilinks. *Definition pending - please update.*
 ## Related Concepts
 *To be added as more papers are analyzed*
 ```
+
+Stubs deliberately omit `abstraction:` — a missing abstraction is what marks a stub for compilation. wiki-compile writes the abstraction together with the real definition.
 
 Only create concepts for genuine noun-phrase concepts (e.g., "reinforcement learning", "layered memory"), not sentence fragments or incidental phrases.
 

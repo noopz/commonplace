@@ -44,7 +44,7 @@ For each valid stub:
    ```
    Also check `backlinkCount` in `concept-index.jsonl` (Grep for the concept name) — high backlink counts mean the concept is referenced widely across the corpus and deserves a richer definition.
 2. **Read those source notes**: Understand how the concept is used in context
-3. **Synthesize a definition**: Write a real definition based on how the concept appears across sources
+3. **Synthesize a definition AND an abstraction**: Write a real definition based on how the concept appears across sources, and add an `abstraction:` frontmatter field — one canonical descriptor, ~6–12 words, noun-phrase-first, no citations or dates (e.g. 'memory architecture separating working, episodic, and semantic layers'). Filling a stub means writing both; the abstraction is the concept's primary retrieval key and its absence is what marked the note as a stub.
 4. **Record source hashes**: For each source note cited, record its current commit in the `compiledFrom` frontmatter array so staleness can be detected later:
    ```bash
    git -C "$VAULT_PATH" log -1 --format=%H -- "<source note's vault-relative path>"
@@ -61,6 +61,7 @@ tags: [concept, wikilinks]
 cssclasses: []
 created: 2025-11-07
 updated: 2026-04-04
+abstraction: 'memory architecture separating working, episodic, and semantic layers'
 compiledFrom:
   - path: 01 - Sources/Foo.md
     hash: <git commit hash of Foo.md at compile time>
