@@ -36,6 +36,7 @@ import {
 import { buildNameIndex, normalizeWikilinkTarget } from "./lib/resolve.js";
 import { currentHash } from "./lib/git-hash.js";
 import { loadConventions, matchGenre } from "./lib/conventions.js";
+import { abstractionSimilarity } from "./lib/consolidation.js";
 import type {
   LintIssue,
   LintResult,
@@ -95,6 +96,7 @@ const checksToRun = values.check ? [values.check] : [
   "malformed-dates",
   "filename-h1-mismatch",
   "near-duplicate-names",
+  "near-duplicate-content",
   "malformed-concept-names",
   "underlinked",
   "cluster-cohesion",
@@ -542,6 +544,46 @@ if (shouldRun("near-duplicate-names")) {
         message: `Near-duplicate concepts: ${names.map((n) => `"${n}"`).join(", ")}`,
         fixable: false,
       });
+    }
+  }
+}
+
+// === Check: near-duplicate content (abstraction overlap) ===
+// The backfill counterpart of impact.ts's ingest-time consolidation flag:
+// two existing sources whose abstractions describe the same finding.
+// Suggestion-severity by design — the resolution is supersede, cross-link,
+// or ignore. Source notes are NEVER merged (citation identity/provenance).
+if (shouldRun("near-duplicate-content")) {
+  const threshold = wikiConfig?.consolidation?.threshold ?? 0.5;
+  const normalizeRef = (r: string) => r.replace(/^\[\[/, "").replace(/\]\]$/, "").toLowerCase().trim();
+  const withAbstractions = sourceIndex.filter(
+    (s) =>
+      typeof s.abstraction === "string" &&
+      s.abstraction.trim().length > 0 &&
+      !isLintExcluded(s.path, lintExclude),
+  );
+  for (let i = 0; i < withAbstractions.length; i++) {
+    for (let j = i + 1; j < withAbstractions.length; j++) {
+      const a = withAbstractions[i];
+      const b = withAbstractions[j];
+      // Already consolidated/linked pairs (builds_on / compares_with in
+      // either direction) are resolved — don't re-flag them.
+      const linked =
+        [...a.buildsOn, ...a.comparesWith].map(normalizeRef).includes(b.title.toLowerCase()) ||
+        [...b.buildsOn, ...b.comparesWith].map(normalizeRef).includes(a.title.toLowerCase());
+      if (linked) continue;
+      const similarity = abstractionSimilarity(a.abstraction!, b.abstraction!);
+      if (similarity >= threshold) {
+        issues.push({
+          check: "near-duplicate-content",
+          severity: "suggestion",
+          file: a.path,
+          message: `Sources "${a.title}" and "${b.title}" have near-duplicate abstractions (similarity ${similarity.toFixed(2)})`,
+          fixable: false,
+          suggestion:
+            "Consolidation candidates — supersede (wiki-supersede) or cross-link; never merge (source notes carry provenance)",
+        });
+      }
     }
   }
 }

@@ -118,3 +118,68 @@ test("moc-size: caps are configurable per vault", () => {
     rmSync(vault, { recursive: true, force: true });
   }
 });
+
+function dupSourceRecord(
+  title: string,
+  abstraction: string | null,
+  buildsOn: string[] = [],
+) {
+  return JSON.stringify({
+    title,
+    path: `02 - Research/Alpha/${title}.md`,
+    domain: "alpha",
+    scope: "public",
+    tags: ["paper"],
+    concepts: [],
+    mocs: [],
+    buildsOn,
+    comparesWith: [],
+    usesMethod: [],
+    ...(abstraction ? { abstraction } : {}),
+  });
+}
+
+function makeDupVault(): string {
+  const root = mkdtempSync(join(tmpdir(), "lint-near-dup-content-vault-"));
+  mkdirSync(join(root, ".wiki"), { recursive: true });
+  writeFileSync(join(root, ".wiki", "config.json"), JSON.stringify({
+    structure: { sources: "02 - Research", concepts: "03 - Concepts", mocs: "05 - MOCs" },
+    stubPattern: "Definition pending",
+    mocCountPattern: "**Papers:** N",
+  }, null, 2) + "\n");
+  writeFileSync(join(root, ".wiki", "domains.json"), JSON.stringify({
+    domains: { alpha: { path: "02 - Research/Alpha", scope: "public" } },
+  }, null, 2));
+  writeFileSync(join(root, ".wiki", "source-index.jsonl"), [
+    dupSourceRecord("Fresh Consolidation Study", "consolidating overlapping memories into single canonical entry"),
+    dupSourceRecord("Near Twin Report", "consolidating overlapping memories into one canonical entry"),
+    dupSourceRecord("Distant Ranking Study", "ranking exploration frontiers by authority signals"),
+    // Near-dup pair that is ALREADY linked via builds_on — must be suppressed.
+    dupSourceRecord("Anchor Methods Primer", "latent anchor construction methods for memory indexing"),
+    dupSourceRecord("Anchor Methods Sequel", "latent anchor construction methods for memory indexes", ["[[Anchor Methods Primer]]"]),
+  ].join("\n") + "\n");
+  writeFileSync(join(root, ".wiki", "concept-index.jsonl"), "");
+  writeFileSync(join(root, ".wiki", "moc-index.jsonl"), "");
+  writeFileSync(join(root, ".wiki", ".last-index"), String(Date.now() + 3_600_000));
+  return root;
+}
+
+test("near-duplicate-content: flags abstraction twins, skips linked pairs and distant pairs", () => {
+  const vault = makeDupVault();
+  try {
+    const stdout = execFileSync(
+      process.execPath,
+      ["--import", "tsx", CLI, "--vault", vault, "--check", "near-duplicate-content", "--json"],
+      { encoding: "utf-8" },
+    );
+    const out = JSON.parse(stdout);
+    const findings = [...out.critical, ...out.improvement, ...out.suggestion];
+    assert.equal(findings.length, 1);
+    assert.equal(findings[0].severity, "suggestion");
+    assert.match(findings[0].message, /"Fresh Consolidation Study" and "Near Twin Report"/);
+    assert.match(findings[0].message, /similarity 0\.71/);
+    assert.match(findings[0].suggestion ?? "", /never merge/);
+  } finally {
+    rmSync(vault, { recursive: true, force: true });
+  }
+});
