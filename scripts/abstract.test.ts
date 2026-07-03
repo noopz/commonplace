@@ -58,6 +58,33 @@ created: '2026-01-01'
 A concept related to wikilinks. *Definition pending - please update.*
 `;
 
+// Non-stub source whose Summary paragraph derives to fewer than 3 content
+// words ("too-thin") — a non-stub note that CANNOT be backfilled, distinct
+// from a stub (which is intentionally skipped).
+const SOURCE_TOO_THIN = `---
+tags: [paper]
+created: '2026-01-01'
+---
+
+# Gamma Source Note
+
+## Summary
+
+Ok so.
+`;
+
+const SOURCE_TOO_THIN_FIXED = `---
+tags: [paper]
+created: '2026-01-01'
+---
+
+# Gamma Source Note
+
+## Summary
+
+This paper introduces a lightweight ranking heuristic for sparse retrieval sets.
+`;
+
 function makeVault(): string {
   const root = mkdtempSync(join(tmpdir(), "abstract-cli-vault-"));
   mkdirSync(join(root, ".wiki"), { recursive: true });
@@ -128,6 +155,33 @@ test("backfill inserts one line, preserves bytes, sets the vault flag, and is id
     const again = JSON.parse(runCli(vault, []));
     assert.equal(again.written, 0);
     assert.equal(again.alreadyPresent, 3);
+  } finally {
+    rmSync(vault, { recursive: true, force: true });
+  }
+});
+
+test("a non-stub note that can't be backfilled withholds the abstractions flag; fixing it and rerunning sets the flag", () => {
+  const vault = makeVault();
+  const thinPath = join(vault, "02 - Research", "Alpha", "Gamma Source Note.md");
+  try {
+    writeFileSync(thinPath, SOURCE_TOO_THIN);
+
+    const out = JSON.parse(runCli(vault, []));
+    const reasons = out.skipped.map((s: { reason: string }) => s.reason);
+    assert.ok(reasons.includes("too-thin"), "Gamma Source Note should be skipped as too-thin");
+    assert.ok(out.warning, "a warning should be reported when a non-stub note can't be backfilled");
+
+    const cfg = JSON.parse(readFileSync(join(vault, ".wiki", "config.json"), "utf-8"));
+    assert.equal(cfg.abstractions, undefined, "flag must NOT be set while a non-stub note is unbackfillable");
+
+    // Fix the note's content and rerun: the flag should now be set.
+    writeFileSync(thinPath, SOURCE_TOO_THIN_FIXED);
+    const again = JSON.parse(runCli(vault, []));
+    assert.ok(!again.skipped.some((s: { reason: string }) => s.reason === "too-thin"));
+    assert.ok(!again.warning);
+
+    const cfg2 = JSON.parse(readFileSync(join(vault, ".wiki", "config.json"), "utf-8"));
+    assert.equal(cfg2.abstractions, true);
   } finally {
     rmSync(vault, { recursive: true, force: true });
   }

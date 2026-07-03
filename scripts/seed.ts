@@ -45,7 +45,8 @@ const config = resolveVault(values.vault);
 const indexes = loadIndexes(config);
 const terms = extractKeyTerms(values.query);
 const opts: SeedOptions = {
-  mode: values.mode,
+  mode: values.mode as "flat" | "tiered",
+  vaultPath: config.vaultPath,
   ...(values["no-abstraction"] ? { skipAbstractionTier: true } : {}),
   ...(values["no-authority"] ? { rankByAuthority: false } : {}),
 };

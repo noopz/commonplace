@@ -82,7 +82,8 @@ const perQuestion: Array<QuestionResult & { candidates: string[] }> = [];
 for (const q of gold) {
   const terms = extractKeyTerms(q.question);
   const hits = seedCandidates(terms, indexes, {
-    mode: args["seed-mode"],
+    mode: args["seed-mode"] as "flat" | "tiered",
+    vaultPath: config.vaultPath,
     ...(args["no-abstraction"] ? { skipAbstractionTier: true } : {}),
     ...(args["no-authority"] ? { rankByAuthority: false } : {}),
   });

@@ -40,8 +40,8 @@ Never load full index files — they grow without bound. Use Grep to target spec
 **Tool budget**: Prefer Grep + Read for search. Reach for Bash only when necessary (e.g., counting, batch operations, or piping `commonplace` script output). Empirically, Grep + Read alone covers most query needs at a fraction of the tool count of full-bash exploration.
 
 **Index schemas (JSONL — one JSON record per line, grep returns complete records):**
-- `source-index.jsonl` — fields: `title`, `path`, `domain`, `scope`, `tags`, `concepts`, `mocs`
-- `concept-index.jsonl` — fields: `name`, `path`, `domains`, `backlinkCount`, `isStub`
+- `source-index.jsonl` — fields: `title`, `path`, `domain`, `scope`, `tags`, `concepts`, `mocs`, `abstraction` (optional), `anchors` (optional), `hub` (optional), `authority` (optional)
+- `concept-index.jsonl` — fields: `name`, `path`, `domains`, `backlinkCount`, `isStub`, `abstraction` (optional), `anchors` (optional), `hub` (optional), `authority` (optional)
 
 **Search strategy:**
 

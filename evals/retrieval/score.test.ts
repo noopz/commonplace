@@ -28,6 +28,8 @@ test("reciprocalRankOfFirstExpected: position of first expected hit", () => {
   assert.equal(reciprocalRankOfFirstExpected(["a.md", "c.md"], ["c.md", "a.md"]), 1);
   assert.equal(reciprocalRankOfFirstExpected(["z.md"], ["a.md"]), 0);
   assert.equal(reciprocalRankOfFirstExpected(["z.md"], []), 0);
+  assert.equal(reciprocalRankOfFirstExpected([], ["a.md"]), 1, "empty expectation is trivially satisfied");
+  assert.equal(reciprocalRankOfFirstExpected([], []), 1, "empty expectation is trivially satisfied");
 });
 
 test("scoreAnswer: citation recall/precision over vault-relative paths", () => {

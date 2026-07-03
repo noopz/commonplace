@@ -195,3 +195,39 @@ test("flat mode ignores hub/authority fields entirely", () => {
   assert.deepEqual(seedCandidates(["authority"], RANKED_INDEXES, { mode: "flat" }), []);
   assert.deepEqual(seedCandidates(["0.9"], RANKED_INDEXES, { mode: "flat" }), []);
 });
+
+const ABS_VAULT_ROOT = "/tmp/imaginary-retrieval-root";
+const ABS_PATH_INDEXES: SeedIndexes = {
+  sources: [
+    src("Quiet Note", {
+      path: `${ABS_VAULT_ROOT}/02 - Research/Alpha/Quiet Note.md`,
+    }),
+  ],
+  concepts: [],
+  mocs: [],
+};
+
+test("baselineBlob re-relativizes absolute record paths when vaultPath is passed (I1)", () => {
+  // A term matching ONLY the absolute machine-specific prefix must NOT hit
+  // once the path has been re-relativized.
+  assert.deepEqual(
+    seedCandidates(["imaginary"], ABS_PATH_INDEXES, { mode: "flat", vaultPath: ABS_VAULT_ROOT }),
+    [],
+  );
+
+  // A term matching the legitimate vault-relative path must still hit —
+  // this is pre-existing behavior (e.g. gold q8's "search" matching
+  // "02 - Research/") and must not regress.
+  const researchHits = seedCandidates(["research"], ABS_PATH_INDEXES, {
+    mode: "flat",
+    vaultPath: ABS_VAULT_ROOT,
+  });
+  assert.equal(researchHits.length, 1);
+  assert.equal(researchHits[0].label, "Quiet Note");
+
+  // Without vaultPath, the absolute prefix is still greppable — documents
+  // the purpose of the knob (this is the contamination the fix targets).
+  const withoutVaultPath = seedCandidates(["imaginary"], ABS_PATH_INDEXES, { mode: "flat" });
+  assert.equal(withoutVaultPath.length, 1);
+  assert.equal(withoutVaultPath[0].label, "Quiet Note");
+});

@@ -85,12 +85,27 @@ for (const f of files) {
   written.push({ path: f, abstraction });
 }
 
+// Reasons that mean a non-stub note SHOULD have gotten an abstraction but
+// didn't (content couldn't be derived, or the note was malformed) — as
+// opposed to "already-present" (nothing to do) or "stub" (intentionally
+// skipped; absence of an abstraction is what marks a stub). If any of these
+// blocking reasons occurred, flipping the vault-wide flag would turn those
+// skipped non-stub notes into stubs (missing abstraction => isStub), making
+// them prunable. So the flag is withheld until they're fixed and a rerun
+// clears them.
+const BLOCKING_SKIP_REASONS = new Set(["no-derivable-text", "too-thin", "parse-error", "no-frontmatter"]);
+const blockingSkips = skipped.filter((s) => BLOCKING_SKIP_REASONS.has(s.reason));
+
+let flagSet = false;
 if (!values["dry-run"]) {
-  const cfgPath = join(config.wikiPath, "config.json");
-  const cfg = existsSync(cfgPath) ? JSON.parse(readFileSync(cfgPath, "utf-8")) : {};
-  if (cfg.abstractions !== true) {
-    cfg.abstractions = true;
-    writeFileSync(cfgPath, JSON.stringify(cfg, null, 2) + "\n");
+  if (blockingSkips.length === 0) {
+    const cfgPath = join(config.wikiPath, "config.json");
+    const cfg = existsSync(cfgPath) ? JSON.parse(readFileSync(cfgPath, "utf-8")) : {};
+    if (cfg.abstractions !== true) {
+      cfg.abstractions = true;
+      writeFileSync(cfgPath, JSON.stringify(cfg, null, 2) + "\n");
+    }
+    flagSet = true;
   }
 }
 
@@ -100,6 +115,11 @@ const summary = {
   alreadyPresent: present,
   skipped,
   notes: written,
+  ...(!values["dry-run"] && !flagSet
+    ? {
+        warning: `abstractions flag NOT set: ${blockingSkips.length} notes could not be backfilled — add abstractions manually, then rerun`,
+      }
+    : {}),
 };
 
 if (values.json) {
@@ -109,6 +129,12 @@ if (values.json) {
   console.log(`${verb} ${written.length} abstractions (${present} already present, ${skipped.length} skipped)`);
   for (const s of skipped) console.log(`  skipped (${s.reason}): ${s.path}`);
   if (!values["dry-run"]) {
-    console.log(`Vault flagged abstractions: true — run \`commonplace index\` to re-emit indexes.`);
+    if (flagSet) {
+      console.log(`Vault flagged abstractions: true — run \`commonplace index\` to re-emit indexes.`);
+    } else {
+      console.log(
+        `abstractions flag NOT set: ${blockingSkips.length} notes could not be backfilled — add abstractions manually, then rerun`,
+      );
+    }
   }
 }

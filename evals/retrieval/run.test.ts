@@ -42,6 +42,15 @@ test("baseline flat seeding: exact-phrase question hits, paraphrase question mis
   assert.deepEqual(Object.keys(out.byType).sort(), ["cross-domain", "multi-hop", "single-hop"]);
   assert.equal(out.seedMode, "flat");
   assert.equal(typeof out.meanMrr, "number");
+
+  // Contamination signature (I1): before the re-relativization fix, the
+  // tmpdir prefix (e.g. "retrieval-eval-vault-") made "retrieval" match
+  // every absolutized record path, so every question's candidate set
+  // included all 16 fixture records. That must no longer happen.
+  const fullRecordCount = 16;
+  for (const r of out.perQuestion) {
+    assert.notEqual(r.nCandidates, fullRecordCount, `${r.id} should not match every fixture record`);
+  }
 });
 
 test("--history appends a JSONL record to the vault's .wiki", () => {

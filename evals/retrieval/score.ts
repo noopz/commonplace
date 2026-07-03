@@ -38,12 +38,15 @@ export function seedRecall(expected: string[], candidateRelPaths: string[]): num
 /**
  * Reciprocal rank of the FIRST expected note within the ordered candidate
  * list — the position-sensitive counterpart to seedRecall, which is
- * set-based and blind to ranking changes (e.g. authority ordering).
+ * set-based and blind to ranking changes (e.g. authority ordering). An
+ * empty expectation is trivially satisfied (mirrors seedRecall's convention)
+ * and scores 1, not 0.
  */
 export function reciprocalRankOfFirstExpected(
   expected: string[],
   orderedCandidateRelPaths: string[],
 ): number {
+  if (expected.length === 0) return 1;
   const expectedSet = new Set(expected);
   const i = orderedCandidateRelPaths.findIndex((p) => expectedSet.has(p));
   return i === -1 ? 0 : 1 / (i + 1);

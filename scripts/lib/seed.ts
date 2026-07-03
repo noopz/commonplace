@@ -7,6 +7,7 @@
  * embeddings, no persistent vector index (CLAUDE.md "No RAG").
  */
 
+import { relative, sep } from "node:path";
 import type { SourceNote, ConceptNote, MocNote } from "./types.js";
 
 /** Query-function words that carry no content signal. */
@@ -76,6 +77,11 @@ export interface SeedOptions {
   tierDGate?: number;
   /** Order hits within each tier by authority desc (default true). Ablation: set false. */
   rankByAuthority?: boolean;
+  /** Vault root for re-relativizing record paths in whole-record blobs.
+   * loadIndexes absolutizes paths; the frozen baseline greps the JSONL
+   * files, which store vault-relative paths — without this, machine-
+   * specific absolute prefixes become greppable terms. */
+  vaultPath?: string;
 }
 
 /**
@@ -84,8 +90,12 @@ export interface SeedOptions {
  * Both flat mode and Tier D use this, so the new key spaces are reachable
  * ONLY through their own tiers and ablations stay clean.
  */
-function baselineBlob(record: object): string {
+function baselineBlob(record: object, vaultPath?: string): string {
   const { abstraction: _a, anchors: _n, hub: _h, authority: _y, ...rest } = record as Record<string, unknown>;
+  if (vaultPath && typeof rest.path === "string" && rest.path.startsWith(vaultPath)) {
+    const rel = relative(vaultPath, rest.path);
+    rest.path = sep === "\\" ? rel.split(sep).join("/") : rel;
+  }
   return JSON.stringify(rest).toLowerCase();
 }
 
@@ -98,7 +108,7 @@ export function seedCandidates(
     throw new Error(`unknown seed mode: ${String(opts.mode)} (valid: flat, tiered)`);
   }
   const lowered = terms.map((t) => t.toLowerCase());
-  return opts.mode === "flat" ? flatScan(lowered, indexes) : tieredScan(lowered, indexes, opts);
+  return opts.mode === "flat" ? flatScan(lowered, indexes, opts.vaultPath) : tieredScan(lowered, indexes, opts);
 }
 
 /**
@@ -106,10 +116,10 @@ export function seedCandidates(
  * case-insensitively in its baseline blob — the pure-function equivalent
  * of the old `Grep "<term>" .wiki/*-index.jsonl` unioned over terms.
  */
-function flatScan(lowered: string[], indexes: SeedIndexes): SeedHit[] {
+function flatScan(lowered: string[], indexes: SeedIndexes, vaultPath?: string): SeedHit[] {
   const hits: SeedHit[] = [];
   const scan = (record: object, path: string, label: string, kind: SeedHit["kind"]) => {
-    const blob = baselineBlob(record);
+    const blob = baselineBlob(record, vaultPath);
     const matchedTerms = lowered.filter((t) => blob.includes(t));
     if (matchedTerms.length > 0) hits.push({ path, label, kind, matchedTerms });
   };
@@ -208,7 +218,7 @@ function tieredScan(lowered: string[], indexes: SeedIndexes, opts: SeedOptions):
   collect("C", (e) => lowered.filter((t) => e.title.includes(t)));
   if (hits.length < gate) {
     collect("D", (e) => {
-      const blob = baselineBlob(e.record);
+      const blob = baselineBlob(e.record, opts.vaultPath);
       return lowered.filter((t) => blob.includes(t));
     });
   }
