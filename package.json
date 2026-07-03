@@ -8,13 +8,14 @@
   },
   "description": "LLM-maintained knowledge base for Obsidian vaults",
   "scripts": {
-    "test": "node --import tsx --test \"scripts/**/*.test.ts\"",
+    "test": "node --import tsx --test \"scripts/**/*.test.ts\" \"evals/**/*.test.ts\"",
     "index": "tsx scripts/index.ts",
     "lint": "tsx scripts/lint.ts",
     "validate": "tsx scripts/validate.ts",
     "scope-check": "tsx scripts/scope-check.ts",
     "vault-score": "tsx scripts/vault-score.ts",
-    "prune": "tsx scripts/prune.ts"
+    "prune": "tsx scripts/prune.ts",
+    "eval:retrieval": "tsx evals/retrieval/run.ts"
   },
   "dependencies": {
     "gray-matter": "^4.0.3",

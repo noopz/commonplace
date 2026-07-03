@@ -40,6 +40,7 @@ const SCRIPTS = {
   'moc:sync':            'scripts/moc-sync.ts',
   'supersede':           'scripts/supersede.ts',
   'vaults':              'scripts/vaults.ts',
+  'eval:retrieval':      'evals/retrieval/run.ts',
   // Paper pipeline
   'paper:fetch':          'scripts/paper/fetch-paper.ts',
   'paper:extract':        'scripts/paper/extract-sections.ts',
