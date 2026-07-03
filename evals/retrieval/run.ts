@@ -34,14 +34,19 @@ const { values: args } = parseArgs({
     vault: { type: "string" },
     gold: { type: "string" },
     "seed-mode": { type: "string", default: "flat" },
+    "no-abstraction": { type: "boolean", default: false },
     answers: { type: "string" },
     history: { type: "boolean", default: false },
     json: { type: "boolean", default: false },
   },
 });
 
-if (args["seed-mode"] !== "flat") {
-  console.error(`error: unknown --seed-mode "${args["seed-mode"]}" (valid: flat)`);
+if (args["seed-mode"] !== "flat" && args["seed-mode"] !== "tiered") {
+  console.error(`error: unknown --seed-mode "${args["seed-mode"]}" (valid: flat, tiered)`);
+  process.exit(1);
+}
+if (args["no-abstraction"] && args["seed-mode"] !== "tiered") {
+  console.error("error: --no-abstraction only applies to --seed-mode tiered");
   process.exit(1);
 }
 
@@ -64,7 +69,10 @@ const results: QuestionResult[] = [];
 const perQuestion: Array<QuestionResult & { candidates: string[] }> = [];
 for (const q of gold) {
   const terms = extractKeyTerms(q.question);
-  const hits = seedCandidates(terms, indexes, { mode: "flat" });
+  const hits = seedCandidates(terms, indexes, {
+    mode: args["seed-mode"],
+    ...(args["no-abstraction"] ? { skipAbstractionTier: true } : {}),
+  });
   const candidateRel = hits.map((h) => relative(config.vaultPath, h.path));
   const recall = seedRecall(q.expected_notes, candidateRel);
   const candidateSet = new Set(candidateRel);
@@ -116,6 +124,7 @@ const record = {
   timestamp: new Date().toISOString(),
   commit: pluginCommit(),
   seedMode: args["seed-mode"],
+  ...(args["no-abstraction"] ? { noAbstraction: true } : {}),
   gold: goldPath,
   ...agg,
 };
@@ -129,7 +138,7 @@ if (args.history) {
 if (args.json) {
   console.log(JSON.stringify({ ...record, perQuestion, answerScores }, null, 2));
 } else {
-  console.log(`Retrieval eval — seed mode: ${args["seed-mode"]}, ${agg.n} questions`);
+  console.log(`Retrieval eval — seed mode: ${args["seed-mode"]}${args["no-abstraction"] ? " (no-abstraction)" : ""}, ${agg.n} questions`);
   console.log(`  overall seed recall: ${agg.overall.toFixed(3)}`);
   for (const [t, v] of Object.entries(agg.byType)) {
     console.log(`  ${t}: ${v.toFixed(3)}`);

@@ -13,6 +13,12 @@
  *   the Memora abstraction-gap case. Flat-mode recall for q3 is 0 by
  *   construction; the abstraction layer is expected to lift it.
  * - "Sparse Rewards" is a stub concept (no abstraction, 1 backlink).
+ *
+ * Source records carry `abstraction` + `anchors` (added with the mixed-key
+ * seeding spec). Flat mode ignores both by design (pre-mixed-key baseline),
+ * so the flat-mode gold numbers are UNCHANGED by their presence; tiered
+ * mode reaches q3's target only through its abstraction — the committed
+ * demonstration of the Memora abstraction-layer result.
  */
 
 import { mkdirSync, writeFileSync, rmSync, mkdtempSync } from "fs";
@@ -33,14 +39,14 @@ export function makeRetrievalFixtureVault(): { vaultRoot: string } {
   }, null, 2));
 
   const sources = [
-    { title: "Harmonic Retrieval Survey", rel: "02 - Research/Alpha/Harmonic Retrieval Survey.md", domain: "alpha", scope: "public", tags: ["survey"], concepts: ["Query Seeding", "Graph Traversal"], mocs: ["Alpha MOC"] },
-    { title: "Latent Anchor Methods", rel: "02 - Research/Alpha/Latent Anchor Methods.md", domain: "alpha", scope: "public", tags: ["method"], concepts: ["Cue Anchors", "Query Seeding"], mocs: ["Alpha MOC"] },
-    { title: "Frontier Ranking Study", rel: "02 - Research/Alpha/Frontier Ranking Study.md", domain: "alpha", scope: "public", tags: ["study"], concepts: ["Authority Ranking", "Graph Traversal"], mocs: ["Alpha MOC"] },
-    { title: "Anchor Precision Benchmarks", rel: "02 - Research/Alpha/Anchor Precision Benchmarks.md", domain: "alpha", scope: "public", tags: ["benchmark"], concepts: ["Cue Anchors", "Authority Ranking"], mocs: ["Alpha MOC"] },
-    { title: "Beta Consolidation Report", rel: "02 - Research/Beta/Beta Consolidation Report.md", domain: "beta", scope: "public", tags: ["report"], concepts: ["Memory Consolidation", "Cue Anchors"], mocs: ["Beta MOC"] },
-    { title: "Beta Archive Overview", rel: "02 - Research/Beta/Beta Archive Overview.md", domain: "beta", scope: "public", tags: ["overview"], concepts: ["Memory Consolidation"], mocs: ["Beta MOC"] },
-    { title: "Consolidation Failure Modes", rel: "02 - Research/Beta/Consolidation Failure Modes.md", domain: "beta", scope: "public", tags: ["analysis"], concepts: ["Memory Consolidation", "Graph Traversal"], mocs: ["Beta MOC"] },
-    { title: "Gamma Field Journal", rel: "04 - Explorations/Gamma/Gamma Field Journal.md", domain: "gamma", scope: "private", tags: ["journal"], concepts: ["Sparse Rewards"], mocs: [] },
+    { title: "Harmonic Retrieval Survey", rel: "02 - Research/Alpha/Harmonic Retrieval Survey.md", domain: "alpha", scope: "public", tags: ["survey"], concepts: ["Query Seeding", "Graph Traversal"], mocs: ["Alpha MOC"], abstraction: "seeding and traversal strategies for finding related notes", anchors: ["Query Seeding", "Graph Traversal"] },
+    { title: "Latent Anchor Methods", rel: "02 - Research/Alpha/Latent Anchor Methods.md", domain: "alpha", scope: "public", tags: ["method"], concepts: ["Cue Anchors", "Query Seeding"], mocs: ["Alpha MOC"], abstraction: "constructing latent anchor keys for memory indexing", anchors: ["Cue Anchors", "Query Seeding"] },
+    { title: "Frontier Ranking Study", rel: "02 - Research/Alpha/Frontier Ranking Study.md", domain: "alpha", scope: "public", tags: ["study"], concepts: ["Authority Ranking", "Graph Traversal"], mocs: ["Alpha MOC"], abstraction: "ranking exploration frontiers by authority signals during graph walks", anchors: ["Authority Ranking", "Graph Traversal"] },
+    { title: "Anchor Precision Benchmarks", rel: "02 - Research/Alpha/Anchor Precision Benchmarks.md", domain: "alpha", scope: "public", tags: ["benchmark"], concepts: ["Cue Anchors", "Authority Ranking"], mocs: ["Alpha MOC"], abstraction: "benchmarking cue anchor precision for retrieval seeding", anchors: ["Cue Anchors", "Authority Ranking"] },
+    { title: "Beta Consolidation Report", rel: "02 - Research/Beta/Beta Consolidation Report.md", domain: "beta", scope: "public", tags: ["report"], concepts: ["Memory Consolidation", "Cue Anchors"], mocs: ["Beta MOC"], abstraction: "consolidating overlapping memories into a single canonical entry", anchors: ["Memory Consolidation", "Cue Anchors"] },
+    { title: "Beta Archive Overview", rel: "02 - Research/Beta/Beta Archive Overview.md", domain: "beta", scope: "public", tags: ["overview"], concepts: ["Memory Consolidation"], mocs: ["Beta MOC"], abstraction: "overview of archived findings awaiting consolidation review", anchors: ["Memory Consolidation"] },
+    { title: "Consolidation Failure Modes", rel: "02 - Research/Beta/Consolidation Failure Modes.md", domain: "beta", scope: "public", tags: ["analysis"], concepts: ["Memory Consolidation", "Graph Traversal"], mocs: ["Beta MOC"], abstraction: "failure modes when merging related memory entries", anchors: ["Memory Consolidation", "Graph Traversal"] },
+    { title: "Gamma Field Journal", rel: "04 - Explorations/Gamma/Gamma Field Journal.md", domain: "gamma", scope: "private", tags: ["journal"], concepts: ["Sparse Rewards"], mocs: [], abstraction: "private field journal of sparse reward experiments", anchors: ["Sparse Rewards"] },
   ];
 
   const sourceLines: string[] = [];
@@ -59,6 +65,8 @@ export function makeRetrievalFixtureVault(): { vaultRoot: string } {
       buildsOn: [],
       comparesWith: [],
       usesMethod: [],
+      abstraction: s.abstraction,
+      anchors: s.anchors,
     }));
   }
   writeFileSync(join(wiki, "source-index.jsonl"), sourceLines.join("\n") + "\n");

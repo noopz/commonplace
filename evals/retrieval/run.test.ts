@@ -97,10 +97,48 @@ test("unknown --seed-mode fails loudly", () => {
     assert.throws(() =>
       execFileSync(
         process.execPath,
-        ["--import", "tsx", RUN, "--vault", vaultRoot, "--gold", GOLD, "--seed-mode", "tiered"],
+        ["--import", "tsx", RUN, "--vault", vaultRoot, "--gold", GOLD, "--seed-mode", "vector"],
         { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] },
       ),
     );
+    assert.throws(() =>
+      execFileSync(
+        process.execPath,
+        ["--import", "tsx", RUN, "--vault", vaultRoot, "--gold", GOLD, "--seed-mode", "flat", "--no-abstraction"],
+        { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] },
+      ),
+    );
+  } finally {
+    removeRetrievalFixtureVault(vaultRoot);
+  }
+});
+
+test("tiered seeding closes the paraphrase gap via the abstraction tier (Memora ablation)", () => {
+  const { vaultRoot } = makeRetrievalFixtureVault();
+  try {
+    const runWith = (extra: string[]) => {
+      const stdout = execFileSync(
+        process.execPath,
+        ["--import", "tsx", RUN, "--vault", vaultRoot, "--gold", GOLD, "--json", ...extra],
+        { encoding: "utf-8" },
+      );
+      const out = JSON.parse(stdout);
+      return Object.fromEntries(out.perQuestion.map((r: { id: string }) => [r.id, r]));
+    };
+
+    const flat = runWith(["--seed-mode", "flat"]);
+    const tiered = runWith(["--seed-mode", "tiered"]);
+    const ablated = runWith(["--seed-mode", "tiered", "--no-abstraction"]);
+
+    // The Memora result in miniature: the paraphrase question is unreachable
+    // lexically (flat 0), reachable through the abstraction key (tiered 1),
+    // and unreachable again with the abstraction tier ablated (0).
+    assert.equal(flat.q3.recall, 0);
+    assert.equal(tiered.q3.recall, 1);
+    assert.equal(ablated.q3.recall, 0);
+
+    // Lexical-overlap questions stay solved in tiered mode.
+    assert.equal(tiered.q1.recall, 1);
   } finally {
     removeRetrievalFixtureVault(vaultRoot);
   }
