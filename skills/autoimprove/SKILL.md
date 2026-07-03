@@ -73,9 +73,10 @@ Categorize by priority (cheapest and highest-impact first):
 2. **Pruning** (Tier 2, Haiku): remove low-value concept stubs and clean up their references
 3. **MOC sync** (Tier 2, Haiku): MOCs missing source entries that reference them
 4. **Inline linking** (Tier 2, Haiku): source notes mentioning vault pages (concepts, sources, MOCs) without wikilinks, and summary sections with no inline links
-5. **Stub compilation** (Tier 3, main model): fill concept stubs with real definitions — **cap at 5 stubs per round**, ordered by backlink count descending
-6. **Semantic audit** (Tier 3, main model): read top concept notes by backlinkCount, detect contradictions and synthesis gaps, generate synthesis pages — **cap at 2 synthesis pages per round**
-7. **Cross-domain synthesis** (Tier 3, main model): only if score ≥ 70. Identify concepts bridging multiple domains and check if recent sources have created connections worth surfacing.
+5. **MOC governance** (Tier 3, Sonnet): split MOCs the `moc-size` lint check reports over the hard cap into themed sub-MOCs — **cap at 1 split per round** (each split is a large multi-file edit)
+6. **Stub compilation** (Tier 3, main model): fill concept stubs with real definitions — **cap at 5 stubs per round**, ordered by backlink count descending
+7. **Semantic audit** (Tier 3, main model): read top concept notes by backlinkCount, detect contradictions and synthesis gaps, generate synthesis pages — **cap at 2 synthesis pages per round**
+8. **Cross-domain synthesis** (Tier 3, main model): only if score ≥ 70. Identify concepts bridging multiple domains and check if recent sources have created connections worth surfacing.
 
 Show the plan:
 ```
@@ -98,11 +99,14 @@ For each round (default max 3, configurable via `$ARGUMENTS` as `--rounds N`):
 | Mechanical fixes | `commonplace:wiki-linter` |
 | Pruning | `commonplace:wiki-pruner` |
 | MOC sync | `commonplace:wiki-moc-updater` |
+| MOC governance | `commonplace:wiki-moc-splitter` |
 | Inline linking | `commonplace link` (deterministic script — no agent) |
 | Freshness | `commonplace:wiki-freshness-checker` |
 | Domain management | `commonplace:wiki-domain-manager` |
 
 **Quarantine check (before any dispatch):** if `$VAULT_PATH/.wiki/quarantine.json` exists, Read it. Hard-skip any agent or round whose name appears in a `doNotInvoke` list with `status` of `open` or `quarantined` — note the skip in the round summary instead of dispatching. See `docs/known-bugs.md` for the schema.
+
+**MOC governance dispatch:** pass the splitter agent the vault path and the flagged MOC's absolute path from the lint finding. Only dispatch for `critical` (hard-cap) moc-size findings; soft-cap findings just appear in the round summary. Ingest never blocks on MOC size — governance is cleanup, not a gate.
 
 For the per-round mechanics (what to pass each agent, semantic-audit steps, cross-domain flow), read `references/rounds.md`. That file also covers the post-loop freshness check.
 
