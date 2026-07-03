@@ -6,8 +6,9 @@
  */
 
 import { parseArgs } from "util";
-import { resolveVault, ensureIndex, loadIndexes, loadDomainRegistry } from "./lib/vault.js";
+import { resolveVault, ensureIndex, loadIndexes, loadDomainRegistry, loadWikiConfig } from "./lib/vault.js";
 import { canLink } from "./lib/domain.js";
+import { findConsolidationCandidates } from "./lib/consolidation.js";
 
 const { values } = parseArgs({
   options: {
@@ -28,7 +29,7 @@ const config = resolveVault(values.vault);
 const registry = loadDomainRegistry(config.wikiPath);
 
 if (!ensureIndex(config)) {
-  console.log(JSON.stringify({ affected: [] }));
+  console.log(JSON.stringify({ affected: [], consolidation: [] }));
   process.exit(0);
 }
 
@@ -50,7 +51,7 @@ const newSource = sources.find(
 
 if (!newSource) {
   console.log(
-    JSON.stringify({ affected: [], note: "source not found in index — run index --incremental first" })
+    JSON.stringify({ affected: [], consolidation: [], note: "source not found in index — run index --incremental first" })
   );
   process.exit(0);
 }
@@ -88,4 +89,21 @@ const affected = sources
   })
   .sort((a, b) => b.sharedConcepts.length - a.sharedConcepts.length);
 
-console.log(JSON.stringify({ newSource: newSource.path, affected }));
+// Consolidation-as-flag: does the new source's abstraction substantially
+// overlap an existing source's? Same two-way scope filter as `affected` —
+// the candidate's title is spoken in conversation AND may be wikilinked
+// from the other note. NEVER a merge signal: downstream routes to
+// supersede / cross-link / drop only.
+const threshold = loadWikiConfig(config)?.consolidation?.threshold ?? 0.5;
+const consolidation = findConsolidationCandidates(
+  newSource,
+  sources.filter(
+    (s) =>
+      s.path !== newSource.path &&
+      canLink(newSource.domain, s.domain, registry) &&
+      canLink(s.domain, newSource.domain, registry),
+  ),
+  threshold,
+);
+
+console.log(JSON.stringify({ newSource: newSource.path, affected, consolidation }));

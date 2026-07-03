@@ -81,9 +81,11 @@ const crossJson = crossResult.stdout?.trim() || "";
 // Parse results to check if there's anything actionable
 let hasImpact = false;
 let hasCross = false;
+let hasConsolidation = false;
 try {
   const impact = JSON.parse(impactJson);
   hasImpact = impact.affected?.length > 0;
+  hasConsolidation = impact.consolidation?.length > 0;
 } catch {}
 try {
   const cross = JSON.parse(crossJson);
@@ -91,7 +93,7 @@ try {
     cross.results.some((r: { bridgeConcepts?: unknown[] }) => r.bridgeConcepts?.length > 0);
 } catch {}
 
-if (!hasImpact && !hasCross) {
+if (!hasImpact && !hasCross && !hasConsolidation) {
   process.exit(0);
 }
 
@@ -108,6 +110,17 @@ if (hasImpact) {
     "- If the new source extends or relates: append `- See also: [[New Source Title]]` to the affected note's Connections section",
     "- If the new source contradicts or supersedes a specific claim: add `> [!update] — [[New Source Title]] changes this analysis` callout to the affected note's Notes section",
     "- Skip if no clear relationship or link already exists",
+  );
+}
+
+if (hasConsolidation) {
+  if (parts.length > 0) parts.push("");
+  parts.push(
+    `Consolidation candidates found: the new source's abstraction substantially overlaps existing sources' (${filePath}).`,
+    ...(hasImpact ? [] : [`Impact results: ${impactJson}`]),
+    "",
+    "NEVER merge source notes — they carry citation identity and provenance. Flag-and-link only:",
+    "- Dispatch the commonplace:wiki-impact-checker agent with the vault path and the new source path; its consolidation procedure decides supersession (route to wiki-supersede), complementary cross-links, or false positive (drop).",
   );
 }
 
