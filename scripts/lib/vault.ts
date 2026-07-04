@@ -339,7 +339,17 @@ export async function findNotesByGlob(
   pattern: string
 ): Promise<string[]> {
   const matches = await glob(pattern, { cwd: vaultPath, absolute: true });
-  return matches.filter((f) => f.endsWith(".md"));
+  // Underscore-prefixed directories (e.g. _raw/) are scaffolding, not managed
+  // notes — raw scrape dumps, attachments, templates. A domain-path fallback
+  // would otherwise classify a frontmatter-less _raw/ dump as a "source" and
+  // let it pollute the index, lint, seed, and score. Exclude anything under
+  // such a directory (matched on directory segments only, so a note simply
+  // named _foo.md is still discovered) so no downstream consumer sees them.
+  return matches.filter((f) => {
+    if (!f.endsWith(".md")) return false;
+    const dirs = f.slice(vaultPath.length + 1).split("/").slice(0, -1);
+    return !dirs.some((seg) => seg.startsWith("_"));
+  });
 }
 
 export async function findAllNotes(vaultPath: string): Promise<string[]> {
