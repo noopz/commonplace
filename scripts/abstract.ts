@@ -24,6 +24,7 @@ import {
   extractSummaryParagraph,
   extractConceptDefinition,
   insertFrontmatterAbstraction,
+  hasClosedFrontmatter,
 } from "./lib/abstract.js";
 
 const { values } = parseArgs({
@@ -50,6 +51,15 @@ for (const f of files) {
     parsed = parseNote(f, config.vaultPath);
   } catch {
     skipped.push({ path: f, reason: "parse-error" });
+    continue;
+  }
+
+  // A file with no closed frontmatter block is not a managed note (e.g. a
+  // raw scrape dump that a domain-path fallback classified as a source).
+  // Report it, but skip benignly — there is no frontmatter to insert into,
+  // so it is not a note awaiting an abstraction and must not block the flag.
+  if (!hasClosedFrontmatter(parsed.raw)) {
+    skipped.push({ path: f, reason: "no-frontmatter" });
     continue;
   }
 
@@ -86,14 +96,16 @@ for (const f of files) {
 }
 
 // Reasons that mean a non-stub note SHOULD have gotten an abstraction but
-// didn't (content couldn't be derived, or the note was malformed) — as
-// opposed to "already-present" (nothing to do) or "stub" (intentionally
-// skipped; absence of an abstraction is what marks a stub). If any of these
-// blocking reasons occurred, flipping the vault-wide flag would turn those
-// skipped non-stub notes into stubs (missing abstraction => isStub), making
-// them prunable. So the flag is withheld until they're fixed and a rerun
-// clears them.
-const BLOCKING_SKIP_REASONS = new Set(["no-derivable-text", "too-thin", "parse-error", "no-frontmatter"]);
+// didn't (content couldn't be derived) — as opposed to "already-present"
+// (nothing to do), "stub" (intentionally skipped; absence of an abstraction
+// is what marks a stub), or "no-frontmatter" (not a managed note at all —
+// e.g. a raw scrape dump; there is no frontmatter block to insert into, so
+// it is not a note awaiting an abstraction). If any of these blocking
+// reasons occurred, flipping the vault-wide flag would turn those skipped
+// non-stub notes into stubs (missing abstraction => isStub), making them
+// prunable. So the flag is withheld until they're fixed and a rerun clears
+// them.
+const BLOCKING_SKIP_REASONS = new Set(["no-derivable-text", "too-thin", "parse-error"]);
 const blockingSkips = skipped.filter((s) => BLOCKING_SKIP_REASONS.has(s.reason));
 
 let flagSet = false;

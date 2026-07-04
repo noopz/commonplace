@@ -6,6 +6,7 @@ import {
   extractSummaryParagraph,
   extractConceptDefinition,
   insertFrontmatterAbstraction,
+  hasClosedFrontmatter,
 } from "./abstract.ts";
 
 test("cleanForAbstraction strips wikilinks, markdown links, and emphasis", () => {
@@ -64,6 +65,13 @@ test("insertFrontmatterAbstraction escapes single quotes YAML-style", () => {
   const raw = "---\ntags: []\n---\nBody\n";
   const out = insertFrontmatterAbstraction(raw, "the model's memory");
   assert.ok(out!.includes("abstraction: 'the model''s memory'"));
+});
+
+test("hasClosedFrontmatter distinguishes managed notes from raw non-notes", () => {
+  assert.equal(hasClosedFrontmatter("---\ntags: [paper]\n---\n\n# Note\n"), true);
+  assert.equal(hasClosedFrontmatter("# No frontmatter\n"), false);
+  assert.equal(hasClosedFrontmatter("---\nunclosed: true\n"), false);
+  assert.equal(hasClosedFrontmatter("Scraped dump, no fence at all.\n"), false);
 });
 
 test("insertFrontmatterAbstraction returns null without closed frontmatter", () => {

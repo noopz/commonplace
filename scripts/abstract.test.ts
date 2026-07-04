@@ -85,6 +85,14 @@ created: '2026-01-01'
 This paper introduces a lightweight ranking heuristic for sparse retrieval sets.
 `;
 
+// A raw scrape dump with no frontmatter block at all. A domain-path fallback
+// classifies it as a "source", but it is not a managed note — there is no
+// frontmatter to insert an abstraction into.
+const RAW_NON_NOTE = `Scraped dump of some webpage.
+
+No frontmatter, no headings we recognize. Just body text.
+`;
+
 function makeVault(): string {
   const root = mkdtempSync(join(tmpdir(), "abstract-cli-vault-"));
   mkdirSync(join(root, ".wiki"), { recursive: true });
@@ -182,6 +190,27 @@ test("a non-stub note that can't be backfilled withholds the abstractions flag; 
 
     const cfg2 = JSON.parse(readFileSync(join(vault, ".wiki", "config.json"), "utf-8"));
     assert.equal(cfg2.abstractions, true);
+  } finally {
+    rmSync(vault, { recursive: true, force: true });
+  }
+});
+
+test("a file with no frontmatter is reported but skipped benignly, and does not block the flag", () => {
+  const vault = makeVault();
+  const rawPath = join(vault, "02 - Research", "Alpha", "_raw-scrape.md");
+  try {
+    writeFileSync(rawPath, RAW_NON_NOTE);
+
+    const out = JSON.parse(runCli(vault, []));
+    const reasons = out.skipped.map((s: { reason: string }) => s.reason);
+    assert.ok(reasons.includes("no-frontmatter"), "the non-note should be reported as no-frontmatter");
+    assert.ok(!out.warning, "a file with no frontmatter must NOT block the flag");
+
+    // The flag is set despite the non-note, and the non-note is untouched
+    // (we never fabricate a frontmatter block).
+    const cfg = JSON.parse(readFileSync(join(vault, ".wiki", "config.json"), "utf-8"));
+    assert.equal(cfg.abstractions, true, "flag should be set — the non-note is not a backfill blocker");
+    assert.equal(readFileSync(rawPath, "utf-8"), RAW_NON_NOTE, "the non-note file must be left byte-for-byte unchanged");
   } finally {
     rmSync(vault, { recursive: true, force: true });
   }

@@ -100,14 +100,22 @@ export function extractConceptDefinition(body: string): string | null {
 }
 
 /**
+ * True when `raw` opens with a closed `---` frontmatter block. A file that
+ * fails this is not a managed note (e.g. a raw scrape dump) — there is no
+ * frontmatter to insert an abstraction into.
+ */
+export function hasClosedFrontmatter(raw: string): boolean {
+  return raw.startsWith("---\n") && raw.indexOf("\n---\n", 4) >= 0;
+}
+
+/**
  * Insert `abstraction: '...'` as the last frontmatter line, preserving
  * every other byte of the file. Returns null if the file has no closed
  * frontmatter block (caller skips it — we never create frontmatter).
  */
 export function insertFrontmatterAbstraction(raw: string, abstraction: string): string | null {
-  if (!raw.startsWith("---\n")) return null;
+  if (!hasClosedFrontmatter(raw)) return null;
   const end = raw.indexOf("\n---\n", 4);
-  if (end < 0) return null;
   const quoted = `'${abstraction.replace(/'/g, "''")}'`;
   return raw.slice(0, end) + `\nabstraction: ${quoted}` + raw.slice(end);
 }
