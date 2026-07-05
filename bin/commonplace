@@ -33,6 +33,7 @@ const SCRIPTS = {
   'cross-domain': 'scripts/cross-domain.ts',
   'deep-link':    'scripts/deep-link.ts',
   'hub-score':    'scripts/hub-score.ts',
+  'connect':      'scripts/connect.ts',
   'post-write-research': 'scripts/post-write-research.ts',
   'prompt-context':      'scripts/prompt-context.ts',
   'agent-guard':         'scripts/agent-guard.ts',
@@ -41,6 +42,7 @@ const SCRIPTS = {
   'supersede':           'scripts/supersede.ts',
   'vaults':              'scripts/vaults.ts',
   'eval:retrieval':      'evals/retrieval/run.ts',
+  'eval:connect':        'evals/connect/run.ts',
   'abstract':            'scripts/abstract.ts',
   'seed':                'scripts/seed.ts',
   // Paper pipeline
@@ -148,6 +150,7 @@ if (!cmd || cmd === '--help' || cmd === '-h') {
   console.error('  impact        Find existing notes affected by a source');
   console.error('  cross-domain  Find cross-domain bridge concepts for a source');
   console.error('  deep-link     Find implicit concept connections via embeddings (requires Ollama)');
+  console.error('  connect       Ranked pool of notes graph-close to a query/note (PPR substrate for wiki-query)');
   console.error('  moc:sync      Reconcile MOC headers/bullet lists with the source index');
   console.error('  supersede     Retire an entity superseded by a successor; propagate live-framing rewrites');
   console.error('  vaults        List registered vaults or match one by name');

@@ -15,7 +15,8 @@
     "scope-check": "tsx scripts/scope-check.ts",
     "vault-score": "tsx scripts/vault-score.ts",
     "prune": "tsx scripts/prune.ts",
-    "eval:retrieval": "tsx evals/retrieval/run.ts"
+    "eval:retrieval": "tsx evals/retrieval/run.ts",
+    "eval:connect": "tsx evals/connect/run.ts"
   },
   "dependencies": {
     "gray-matter": "^4.0.3",

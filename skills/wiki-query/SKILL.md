@@ -1,6 +1,6 @@
 ---
 name: wiki-query
-description: "Answer questions from vault notes. Use when user asks 'how does X relate to Y', 'what do the papers say about Z', 'compare approaches to W', or discusses concept connections. Also fire immediately after wiki-ingest when user pivots from saving to asking how the new source relates to other vault topics. Also fire as a pre-ingest relevance check: before newly-shared content is dismissed as not vault-worthy, check whether it connects to existing vault notes. Do NOT answer from memory — read the actual notes."
+description: "Answer questions from vault notes. Use when user asks 'how does X relate to Y', 'what do the papers say about Z', 'compare approaches to W', or discusses concept connections. Also fire immediately after wiki-ingest when user pivots from saving to asking how the new source relates to other vault topics. Also fire as a pre-ingest relevance check: before newly-shared content is dismissed as not vault-worthy, check whether it connects to existing vault notes. Also fire proactively as a conversation develops: when discussion drifts near vault topics, surface a genuinely non-obvious connection the vault holds — sparingly, only when it clears the bar. Do NOT answer from memory — read the actual notes."
 ---
 
 # Wiki Query
@@ -53,7 +53,18 @@ Never load full index files — they grow without bound. Use Grep to target spec
 
 2. **Iterate with derived terms** — look at what you find and generate new search terms from it. If a source note mentions [[Concept X]], grep for that. If a concept appears in two domains, grep for it in both. Don't stop at the first pass.
 
-3. **Traverse the graph** — concepts are nodes, wikilinks are edges. Once you've found a relevant entry-point note, expand the cluster using hub detection, edge-following, MOC entry, citation chains, and bridge-concept analysis. For the full set of traversal patterns and when to use each, read `references/graph-traversal.md`.
+3. **Connect — traverse by relevance, not brute force.** For "how does X relate to Y", multi-hop, or "what connects to this note" questions, use the Connect substrate instead of hand-walking edges:
+   ```bash
+   commonplace connect --query "<the user's question>" --json     # seed from the question
+   commonplace connect --note "<vault-relative note path>" --json  # seed from a specific note
+   ```
+   It runs a Personalized PageRank walk over the content graph (frontmatter relations + concept/MOC membership + backlinks), focused by lexical relevance, and returns a small ranked **pool** of candidate notes each with its one-line `abstraction`. A note wired to your seed by a typed relation surfaces even with zero word overlap — that is the point of Connect over grep. Then run the loop:
+   - **Triage the abstractions** (cheap, no full reads): from the pool's titles + `abstraction`s, pick the notes that *participate* in the relationship the question asks about — the notes that together make up the connection. You do **not** need a single note that states the whole thing: if the question links X and Y, the endpoint and waypoint notes are themselves valid picks, and a partial answer (half the chain) beats holding out for a perfect bridge note that may not exist. Pick what genuinely participates; don't pad with same-topic notes that don't.
+   - **Read only the 1–3 that matter** in full to confirm and pull specifics. Don't read the whole pool — that bloats context and buries the signal.
+   - **Abstain only when nothing actually participates.** If the candidates are on the right *topic* but none stands in the specific relationship the question asks for, say so — do not manufacture a link. Being adjacent in subject is not participating in the connection. Near-miss questions, where the pieces all exist but the bridge doesn't, are exactly where a ranked list misleads and a reading judgment saves you.
+   - **Reframe and re-seed** if a read shifts your framing: run `commonplace connect` again with a sharper `--query`, or seed from a note you just found via `--note`, to surface notes the first pool missed.
+
+   For manual traversal patterns (hub detection, citation chains, bridge-concept analysis) when you need finer control, read `references/graph-traversal.md`.
 
 4. **Grep vault notes** for terms not caught by the index — use the Grep tool with your search term, path set to the vault, and glob `*.md`.
 
@@ -145,6 +156,23 @@ A second invocation mode: the query subject is content that is **not yet in the 
 2. **Scope filter (required):** infer the candidate's likely domain — the same judgment used when placing content for ingest, even though this candidate isn't being ingested. Only read or compare against notes in domains that likely domain could link to under Scope Rules below; never read a private domain's notes for a public candidate. If no likely domain is inferable, compare against public domains only — never widen to private domains.
 3. **Report before the skip:** state any connection found ("this also touches [[X]] in <domain>") and let the human decide whether to capture it. If the candidate is too thin to judge (a bare headline, no body), say so honestly instead of reporting "no connection."
 4. Do not file anything back — the candidate isn't in the vault. Log the check per Step 5 (`query | pre-ingest check: <candidate title>` with what was found or "no connection found").
+
+## Surfacing Connections as a Conversation Develops
+
+A third mode, and the most ambient one: not a question at all. As a conversation touches topics the vault covers, connections should surface *on their own* — the payoff of a knowledge base is that it makes the non-obvious link appear when it is useful, not only when someone asks for it. This is the whole point of the skill, not an extra: reactive Q&A is just its most explicit trigger.
+
+**When:** any vault-adjacent conversation, as it progresses. The entities in play accumulate — a paper mentioned here, a concept there. Don't wait for "how does X relate to Y"; notice when the discussion has drifted close to something the vault connects.
+
+**How:**
+
+1. Seed `commonplace connect` from the vault notes currently in play — `--note "<path>"` for a specific one, or `--query` built from the live topic. As the conversation moves, reseed; the target moves with it.
+2. **Down-weight what's already been said.** The nearest neighbor is usually the obvious note already on the table. Skip candidates that restate what's already been discussed — the value is the note nobody mentioned, which PPR surfaces even when it shares no words with the topic.
+3. Triage as in Step 2, but at a **higher bar**, because here you are interrupting rather than answering. Surface a connection only when it is (a) genuinely non-obvious and (b) clears the abstain bar — a real relationship, not topical adjacency.
+4. Raise **one** connection, briefly, and let the human pull on it or wave it off. Don't dump a list.
+
+**Restraint is the whole game.** An unwanted interruption costs more than a missed connection. Err toward silence — most turns surface nothing. When you do speak, it should be the kind of link that earns an "oh, I hadn't connected those." If you are unsure it clears that bar, stay quiet. Reach in often; speak rarely — that is exactly what the abstain step is for.
+
+If a surfaced connection proves real and isn't captured in the vault, file it back per Step 4.
 
 ## Retired Entities
 
