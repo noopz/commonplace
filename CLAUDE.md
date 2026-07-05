@@ -32,6 +32,10 @@ Instead:
 
 If you catch yourself about to pipe to `python3` or `jq`, stop and use Grep or Read instead.
 
+## Test fixtures must be invented — never based on a live vault
+
+**This is a hard rule. This repo is public.** Test creation should always make up its own framing and never be based on a live vault. When you write or update a test — for the linker, indexer, lint, seed, connect, anything — invent the note names, concept names, domains, titles, and body text. Never copy a real note title, concept name, domain slug, or any other content out of a vault you inspected while diagnosing the bug, even when the bug report itself named them. Real vault content in a committed test leaks private data into a public repo. Use obviously-fake placeholders (`Alpha Method`, `Gamma Term`, `Acme Report`, domains `alpha`/`gamma`) that exercise the same code path without carrying any real content.
+
 ## Scripts
 
 All scripts are invoked via the `commonplace` CLI, which is automatically on PATH when the plugin is active. Just call `commonplace <cmd>` directly — never reconstruct PATH or use `npx tsx` to run scripts manually.

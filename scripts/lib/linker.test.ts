@@ -108,11 +108,38 @@ test("private notes sharing a linkGroup can link to each other", () => {
   assert.equal(res.newContent, "[[Epsilon Grouped Note]] is mentioned here.\n");
 });
 
-test("concept targets are always linkable regardless of domain scope", () => {
+test("a concept with no domain signal stays linkable (can't scope it)", () => {
   const raw = "Shared Bridge Concept is mentioned here.\n";
-  const targets: LinkTarget[] = [{ name: "Shared Bridge Concept", type: "concept", domain: "gamma" }];
+  const targets: LinkTarget[] = [{ name: "Shared Bridge Concept", type: "concept" }];
   const res = linkNoteContent(raw, targets, "Some Note", "alpha", REGISTRY);
   assert.equal(res.newContent, "[[Shared Bridge Concept]] is mentioned here.\n");
+});
+
+test("a concept living in a reachable domain is linkable", () => {
+  const raw = "Shared Bridge Concept is mentioned here.\n";
+  // Referenced by both a public (alpha) and a private (gamma) domain.
+  const targets: LinkTarget[] = [
+    { name: "Shared Bridge Concept", type: "concept", domains: ["alpha", "gamma"] },
+  ];
+  const res = linkNoteContent(raw, targets, "Some Note", "alpha", REGISTRY);
+  assert.equal(res.newContent, "[[Shared Bridge Concept]] is mentioned here.\n");
+});
+
+test("public note cannot link to a private-domain concept homonym", () => {
+  // A concept name that also exists as a private-domain note: a public note
+  // must not be wired to the private homonym just because the string matched.
+  const raw = "Gamma Term is mentioned here.\n";
+  const targets: LinkTarget[] = [{ name: "Gamma Term", type: "concept", domains: ["gamma"] }];
+  const res = linkNoteContent(raw, targets, "Some Note", "alpha", REGISTRY);
+  assert.equal(res.newContent, null);
+  assert.deepEqual(res.skipped, [{ name: "Gamma Term", reason: "scope" }]);
+});
+
+test("a note in the concept's own private domain can still link it", () => {
+  const raw = "Gamma Term is mentioned here.\n";
+  const targets: LinkTarget[] = [{ name: "Gamma Term", type: "concept", domains: ["gamma"] }];
+  const res = linkNoteContent(raw, targets, "Some Note", "gamma", REGISTRY);
+  assert.equal(res.newContent, "[[Gamma Term]] is mentioned here.\n");
 });
 
 test("findFrontmatterEnd: no frontmatter returns 0", () => {

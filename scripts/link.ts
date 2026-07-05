@@ -61,7 +61,7 @@ function readJsonl<T>(path: string): T[] {
   }
 }
 
-interface ConceptRecord { name: string; isStub?: boolean; domains?: string[] }
+interface ConceptRecord { name: string; path?: string; isStub?: boolean; domains?: string[] }
 interface SourceRecord { title: string; path: string; domain?: string }
 interface MocRecord { name: string }
 
@@ -69,8 +69,24 @@ const concepts = readJsonl<ConceptRecord>(join(config.wikiPath, "concept-index.j
 const sources = readJsonl<SourceRecord>(join(config.wikiPath, "source-index.jsonl"));
 const mocs = readJsonl<MocRecord>(join(config.wikiPath, "moc-index.jsonl"));
 
+// A concept's scope = the domains whose notes reference it (index `domains`,
+// "unknown" dropped) plus the domain of its own folder. Passing this through
+// lets the linker refuse to wire a public paper's bare string to a
+// private-domain homonym (see canLink in lib/linker.ts).
+function conceptDomains(c: ConceptRecord): string[] {
+  const set = new Set<string>((c.domains ?? []).filter((d) => d && d !== "unknown"));
+  if (c.path) {
+    const abs = c.path.startsWith("/") ? c.path : join(config.vaultPath, c.path);
+    const own = inferSourceDomain(abs, config.vaultPath, registry);
+    if (own && own !== "unknown") set.add(own);
+  }
+  return [...set];
+}
+
 const allTargets: LinkTarget[] = [
-  ...concepts.filter((c) => !c.isStub).map((c) => ({ name: c.name, type: "concept" as const })),
+  ...concepts
+    .filter((c) => !c.isStub)
+    .map((c) => ({ name: c.name, type: "concept" as const, domains: conceptDomains(c) })),
   ...sources.map((s) => ({ name: s.title, domain: s.domain ?? null, type: "source" as const })),
   ...mocs.map((m) => ({ name: m.name, type: "moc" as const })),
 ];

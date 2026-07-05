@@ -15,7 +15,10 @@ import type { DomainRegistry } from "./types.js";
 
 export interface LinkTarget {
   name: string;
+  /** Single home domain — sources (and, if ever passed, MOCs). */
   domain?: string | null;
+  /** Domain set a concept is associated with (referencing domains + own folder). */
+  domains?: string[];
   type: "concept" | "source" | "moc";
 }
 
@@ -61,7 +64,7 @@ export function linkNoteContent(
       skipped.push({ name: t.name, reason: "self-link" });
       continue;
     }
-    if (!canLink(noteDomain, t.domain ?? null, t.type, registry)) {
+    if (!canLink(noteDomain, t, registry)) {
       skipped.push({ name: t.name, reason: "scope" });
       continue;
     }
@@ -214,22 +217,44 @@ function escapeRegex(s: string): string {
 }
 
 /**
- * Public/private scope check for source-note and MOC targets. Concepts
- * are global — they have no single domain — so they're always linkable.
+ * Public/private scope check. A source (or MOC) target carries a single
+ * home `domain`; a concept carries the set of `domains` it's associated with
+ * (the domains whose notes reference it, plus its own folder). A concept is
+ * NOT unconditionally global: when a private-domain note shares a name with a
+ * public concept (a homonym collision), the private one must not be wired into
+ * a public note just because the bare string matched. That is what this blocks.
  *
  * Rules (matches the wiki-concept-linker agent's prior policy):
  * - Public source linking to a private target: no
  * - Private source linking to public: yes
  * - Same domain or same linkGroup: yes
+ * - Concept: linkable if it lives in ANY domain the source can reach; a
+ *   concept with no domain signal at all stays linkable (can't scope it).
  */
 function canLink(
   srcDomain: string | null,
-  tgtDomain: string | null,
-  tgtType: LinkTarget["type"],
+  target: LinkTarget,
   registry: DomainRegistry,
 ): boolean {
-  if (tgtType === "concept") return true;
-  if (!tgtDomain) return true;
+  if (target.type === "concept") {
+    const domains = target.domains ?? [];
+    if (domains.length === 0) return true; // no signal — can't scope, allow
+    return domains.some((d) => domainReachable(srcDomain, d, registry));
+  }
+  if (!target.domain) return true;
+  return domainReachable(srcDomain, target.domain, registry);
+}
+
+/**
+ * Can a note in `srcDomain` (null = no resolvable domain) link to a target
+ * living in `tgtDomain`? Public/unknown targets are always reachable; a
+ * private target only from the same domain or a shared linkGroup.
+ */
+function domainReachable(
+  srcDomain: string | null,
+  tgtDomain: string,
+  registry: DomainRegistry,
+): boolean {
   const tgt = registry.domains[tgtDomain];
   if (!tgt || tgt.scope !== "private") return true;
   if (srcDomain === tgtDomain) return true;
