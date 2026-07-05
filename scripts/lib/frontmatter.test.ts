@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { computeIsStub, extractWikilinkDisplayTexts } from "./frontmatter.ts";
+import { computeIsStub, extractWikilinkDisplayTexts, extractWikilinks } from "./frontmatter.ts";
 
 const SENTINEL_BODY = "# X\n\nA concept. *Definition pending - please update.*\n";
 const REAL_BODY = "# X\n\nA real definition paragraph.\n";
@@ -25,6 +25,20 @@ test("flag on: sentinel still wins even with an abstraction", () => {
 test("extractWikilinkDisplayTexts prefers alias display text and dedupes", () => {
   const body = "See [[Cue Anchors|anchor keys]] and [[Graph Traversal]], plus [[Graph Traversal]] again.";
   assert.deepEqual(extractWikilinkDisplayTexts(body), ["anchor keys", "Graph Traversal"]);
+});
+
+test("extractWikilinks strips the escaped-pipe backslash in table cells", () => {
+  // Obsidian table cells escape the alias pipe as `\|`; the target must still
+  // resolve (the backslash is escaping syntax, not part of the note name).
+  const body = "| [[Acme Adoption Report\\|Acme]] | [[Widget Squeeze\\|squeeze]] |";
+  assert.deepEqual(extractWikilinks(body), [
+    "Acme Adoption Report",
+    "Widget Squeeze",
+  ]);
+  // A plain (unescaped) alias pipe still splits normally.
+  assert.deepEqual(extractWikilinks("[[Frobnicator Technologies|Frobs]]"), [
+    "Frobnicator Technologies",
+  ]);
 });
 
 test("extractWikilinkDisplayTexts returns empty for link-free text", () => {

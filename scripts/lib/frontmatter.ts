@@ -65,7 +65,10 @@ export function extractWikilinks(text: string): string[] {
   const links: string[] = [];
   let match;
   while ((match = regex.exec(text)) !== null) {
-    links.push(match[1].trim());
+    // In markdown table cells the alias pipe is escaped as `\|`; the target
+    // capture then keeps the trailing escape backslash (`Target\`). Strip it
+    // so the target resolves — a real note filename never ends in a backslash.
+    links.push(match[1].trim().replace(/\\$/, "").trim());
   }
   return [...new Set(links)];
 }
@@ -81,7 +84,7 @@ export function extractWikilinkDisplayTexts(text: string): string[] {
   const out: string[] = [];
   let match;
   while ((match = regex.exec(text)) !== null) {
-    const display = (match[2] ?? match[1]).trim();
+    const display = (match[2] ?? match[1].replace(/\\$/, "")).trim();
     if (display.length > 0) out.push(display);
   }
   return [...new Set(out)];

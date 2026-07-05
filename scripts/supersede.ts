@@ -583,7 +583,7 @@ if (values.check) {
     }
     const m = body.match(supersedeRe);
     if (!m) continue;
-    const oldName = m[2].split("|")[0].trim();
+    const oldName = m[2].split("|")[0].trim().replace(/\\$/, "").trim();
     const newName = basename(f, ".md");
     if (knownPairs.has(`${oldName}|${newName}`)) continue;
     punchList.push({
