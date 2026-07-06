@@ -9,6 +9,10 @@ LLM-maintained knowledge base for any folder of notes. Transforms raw sources in
 - **Haiku agents** handle mechanical fixes (cheap)
 - **Main model** handles synthesis only (expensive, used sparingly)
 
+## Parallel agents over vault content
+
+A PreToolUse guard (`agent-guard`) redirects general-purpose Agent/Task dispatches that look like vault **research** to the wiki-query skill — because wiki-query already does iterative search, MOC traversal, and file-back. It targets research, not work. To fan out general-purpose workers for legitimate orchestrated **work** (compiling, fixing, linting, or editing many notes in parallel), include the marker `ALLOW_VAULT_AGENT` in each dispatch prompt to bypass the guard. Registered `commonplace:` agents are never gated. If a dispatch is blocked, don't fall back to doing the whole job inline — pick the right path: wiki-query for a lookup, the marker for orchestrated work.
+
 ## No RAG — grep finds, reading connects
 
 commonplace is not a RAG system. Never substitute keyword/concept-string matching for an actual relevance judgment — that's exactly the blind spot RAG has: it misses real connections that don't share a literal string, and manufactures false confidence in the ones that happen to match.

@@ -25,6 +25,18 @@
  * necessarily dense with wiki-shaped vocabulary (wikilink, wiki-*,
  * .wiki/) without being a vault-content question — there's no vault
  * being queried, just code that implements one.
+ *
+ * Override: the guard only means to catch RESEARCH dispatches (an ad-hoc
+ * agent re-implementing wiki-query's search). Orchestrated WORK — fanning
+ * out general-purpose workers to compile, fix, lint, or edit many notes in
+ * parallel — is a legitimate pattern, but its prompts intrinsically carry
+ * vault vocabulary ([[wikilinks]], "source note", .wiki/, the vault path),
+ * so hasVaultIntent() can't tell them apart from a question. An orchestrator
+ * signals intent by including the marker ALLOW_VAULT_AGENT in the dispatch
+ * prompt; the guard then passes it through. The deny message below teaches
+ * this, so a blocked caller redirects to wiki-query (if research) or
+ * re-dispatches with the marker (if work) — never silently falls back to
+ * doing the whole job inline.
  */
 
 import { readFileSync } from "fs";
@@ -54,6 +66,12 @@ if (isCwdInCommonplaceRepo(cwd)) process.exit(0);
 
 const prompt = `${tool_input.prompt ?? ""} ${tool_input.description ?? ""}`;
 
+// Explicit override: an orchestrator dispatching intentional parallel WORK
+// (compile / fix / lint / edit across many notes) rather than a research
+// lookup includes this marker to bypass the guard. Deterministic escape so
+// legitimate fan-out isn't blocked by vault vocabulary it can't avoid using.
+if (/\bALLOW_VAULT_AGENT\b/.test(prompt)) process.exit(0);
+
 // Test the prompt against EVERY registered vault path — with many vaults,
 // a path mention for any of them is vault intent, not just the default.
 const vaultPaths = loadVaultRegistry().vaults.map((v) => v.path);
@@ -61,12 +79,11 @@ const vaultPaths = loadVaultRegistry().vaults.map((v) => v.path);
 if (!hasVaultIntent(prompt, vaultPaths)) process.exit(0);
 
 const reason =
-  `Vault-content question detected. Use the wiki-query skill instead — ` +
-  `call \`Skill(skill='wiki-query', args='<your question>')\`. ` +
-  `wiki-query handles iterative semantic search, MOC graph traversal, and ` +
-  `file-back automatically. If this is genuinely not a vault question ` +
-  `(e.g. "vault" used in a non-Obsidian sense), re-dispatch with a prompt ` +
-  `that omits the vault-shaped terminology.`;
+  `This general-purpose agent's prompt looks vault-shaped. Two legitimate paths — pick one, don't fall back to doing the whole job inline:\n` +
+  `1. RESEARCH / lookup ("how does X relate to Y", "what do the notes say"): use the wiki-query skill instead — ` +
+  `call \`Skill(skill='wiki-query', args='<your question>')\`. It does iterative semantic search, MOC graph traversal, and file-back automatically.\n` +
+  `2. Orchestrated WORK (compiling, fixing, linting, or editing many notes as parallel workers — a valid pattern): re-dispatch the SAME agent with the marker ALLOW_VAULT_AGENT added to its prompt to bypass this guard.\n` +
+  `(If "vault" was meant in a non-Obsidian sense, re-dispatch without the vault-shaped terminology.)`;
 
 console.log(JSON.stringify({
   hookSpecificOutput: {
