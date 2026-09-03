@@ -1,4 +1,8 @@
 {
+  "description": "commonplace hooks: shell hooks (always) + in-process module (CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1)",
+  "modules": [
+    "register.ts"
+  ],
   "hooks": {
     "SessionStart": [
       {

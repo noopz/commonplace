@@ -9,6 +9,42 @@ LLM-maintained knowledge base for any folder of notes. Transforms raw sources in
 - **Haiku agents** handle mechanical fixes (cheap)
 - **Main model** handles synthesis only (expensive, used sparingly)
 
+## In-process function hooks (EARLY ACCESS)
+
+`hooks/register.ts` is an in-process plugin module, loaded into a sandboxed
+worker only when `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1`. It runs **beside** the
+shell hooks in `hooks/hooks.json`, not instead of them — without the flag the
+file is inert and the shell hooks are the whole plugin. Both wirings live in the
+same `hooks.json` (`modules` alongside `hooks`), so a broken module degrades to
+current behaviour rather than to nothing.
+
+Today it registers one hook: **`turn.complete` ambient connection surfacing**.
+At the end of a turn it seeds lexically against the JSONL indexes, and — only if
+a candidate survives — reads the note and asks a model whether the connection is
+real, rendering at most one line beneath the answer. This replaces asking the
+model, in prompt text, to remember to look for connections.
+
+Hard constraints of this API, verified rather than assumed:
+
+- **No Node in the module.** It may import only its own files by relative path
+  and the types-only `claude-code` module. `scripts/lib/*` cannot be imported —
+  do not try to port them.
+- **`$.fs` is confined to the session project**; the vault is normally outside
+  it. Vault files are reached with `$.tool.call({tool: "Read"})`, which is not so
+  confined (~15ms). Never shell out to the CLI in a per-turn hook — a
+  `commonplace vault-path` subprocess measured **7.3s**.
+- **The scanner refuses `$` and `on` used as anything but direct calls.** No
+  binding, passing, or spreading. Pure helpers take plain values; everything
+  touching `$` lives inside the hook body.
+- `claude plugin validate <dir>` checks all of the above without running it, and
+  prints the module's exact capability surface. Run it after every edit.
+- **`turn.complete` does not fire under `claude -p`** (no terminal surface).
+  Test interactively, in a pty.
+
+Full API notes, the probe method, and the migration checklist for when this API
+is officially documented live in the vault at
+`06 - Handbook/Building on Claude Code Function Hooks`.
+
 ## Parallel agents over vault content
 
 A PreToolUse guard (`agent-guard`) redirects general-purpose Agent/Task dispatches that look like vault **research** to the wiki-query skill — because wiki-query already does iterative search, MOC traversal, and file-back. It targets research, not work. To fan out general-purpose workers for legitimate orchestrated **work** (compiling, fixing, linting, or editing many notes in parallel), include the marker `ALLOW_VAULT_AGENT` in each dispatch prompt to bypass the guard. Registered `commonplace:` agents are never gated. If a dispatch is blocked, don't fall back to doing the whole job inline — pick the right path: wiki-query for a lookup, the marker for orchestrated work.
