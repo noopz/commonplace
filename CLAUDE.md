@@ -18,12 +18,18 @@ file is inert and the shell hooks are the whole plugin. Both wirings live in the
 same `hooks.json` (`modules` alongside `hooks`), so a broken module degrades to
 current behaviour rather than to nothing.
 
-It registers two hooks. **`ui.render{component=AbovePrompt}`** draws a one-line
+It registers three hooks. **`ui.render{component=AbovePrompt}`** draws a one-line
 status band above the prompt: a dim heartbeat (`⟡ vault · N sources · N concepts
 · N surfaced · last: <outcome>`) when healthy, and a yellow warning when the
 circuit breaker has stopped surfacing or the index has outgrown the read cap.
 The breaker is deliberately silent in the transcript, so this band is the only
 place a failure becomes visible — do not remove it without replacing it.
+
+The band is a **receipt, not a dashboard**: `turn.complete` raises it only when
+the vault was actually consulted, and **`prompt.submit`** lowers it as soon as
+the user types again. A line that persists across turns becomes furniture and
+stops being read. A paused breaker therefore re-announces itself every turn
+rather than noting once.
 
 **`turn.complete` ambient connection surfacing**.
 At the end of a turn it seeds lexically against the JSONL indexes, and — only if

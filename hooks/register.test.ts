@@ -184,6 +184,7 @@ test("renderConnection produces one wikilinked line", () => {
 
 const baseStatus = {
   phase: "idle" as const,
+  visible: true,
   sources: 0,
   concepts: 0,
   surfaced: 0,
@@ -195,6 +196,18 @@ const baseStatus = {
 
 test("statusLine draws nothing before the first run", () => {
   assert.equal(statusLine(baseStatus), null);
+});
+
+test("statusLine draws nothing while hidden, whatever the state", () => {
+  // The band is cleared on every new prompt; a healthy pass or even a paused
+  // breaker must stay invisible until the next turn raises it again.
+  for (const s of [
+    { ...baseStatus, visible: false, phase: "ok" as const, sources: 5, concepts: 5 },
+    { ...baseStatus, visible: false, phase: "warn" as const, paused: true, lastError: "x" },
+    { ...baseStatus, visible: false, phase: "warn" as const, partialIndex: true },
+  ]) {
+    assert.equal(statusLine(s), null);
+  }
 });
 
 test("statusLine reports a healthy pass as a dim heartbeat", () => {

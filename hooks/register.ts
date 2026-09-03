@@ -97,6 +97,13 @@ export type Status = {
   lastError: string;
   partialIndex: boolean;
   paused: boolean;
+  /**
+   * Whether the band is currently drawn. It is a receipt for work just done,
+   * not a dashboard: `turn.complete` raises it when the vault was actually
+   * consulted, and `prompt.submit` lowers it the moment the user types again.
+   * A line that persists across turns becomes furniture and stops being read.
+   */
+  visible: boolean;
 };
 
 let status: Status = {
@@ -108,6 +115,7 @@ let status: Status = {
   lastError: "",
   partialIndex: false,
   paused: false,
+  visible: false,
 };
 
 /**
@@ -120,6 +128,10 @@ let status: Status = {
 export function statusLine(
   s: Status,
 ): { text: string; color: string; dim: boolean } | null {
+  // Hidden until the vault has actually done something this turn, and hidden
+  // again as soon as the user starts the next one.
+  if (!s.visible) return null;
+
   if (s.paused) {
     const why = s.lastError ? ` — ${s.lastError}` : "";
     return {
@@ -339,6 +351,24 @@ export function renderConnection(label: string, verdict: string): string {
 
 export const register = (on: any) => {
   /**
+   * Clear the status band the moment the user starts another turn.
+   *
+   * The band is a receipt for work the vault just did, not a dashboard. Left
+   * up across turns it becomes furniture: permanently present, therefore never
+   * read, and occupying a line of screen for a feature that fires rarely.
+   *
+   * Must pass the prompt through untouched — a hook that returns anything but
+   * `next(e)` here can rewrite or drop what the user typed.
+   */
+  on("prompt.submit", async ($: any, e: any, next: any) => {
+    if (status.visible) {
+      status = { ...status, visible: false };
+      $.ui.invalidate("ui.render");
+    }
+    return next(e);
+  });
+
+  /**
    * The status band above the prompt. Wraps whatever the engine already draws
    * there rather than replacing it, so nothing else loses its slot.
    */
@@ -378,7 +408,9 @@ export const register = (on: any) => {
     // Record an outcome and ask for a redraw. Defined inside the hook because
     // the scanner forbids passing `$` to a helper.
     const note = (outcome: string, extra: Partial<Status> = {}) => {
-      status = { ...status, lastOutcome: outcome, ...extra };
+      // Raising the band is the default: note() is only called when the vault
+      // actually did something. The session-reset caller opts out.
+      status = { ...status, lastOutcome: outcome, visible: true, ...extra };
       $.ui.invalidate("ui.render");
     };
 
@@ -424,14 +456,16 @@ export const register = (on: any) => {
       // the breaker. The status band lives in module scope and would otherwise
       // keep saying "stopped" while the feature had quietly resumed.
       if (!sameSession && (status.paused || status.lastError)) {
-        note("", { paused: false, lastError: "", phase: "idle" });
+        note("", { paused: false, lastError: "", phase: "idle", visible: false });
       }
 
       // Circuit breaker: repeated failure disables the feature rather than
       // failing loudly once a turn. A broken vault must never cost the user.
       const failures = Number(state.failures ?? 0);
       if (failures >= MAX_FAILURES) {
-        if (!status.paused) note("paused", { paused: true, phase: "warn" });
+        // Re-announce every turn: the band is cleared on each new prompt, so a
+        // once-only note would make a stopped feature invisible again.
+        note("paused", { paused: true, phase: "warn" });
         return base;
       }
 
