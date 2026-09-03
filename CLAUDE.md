@@ -18,7 +18,14 @@ file is inert and the shell hooks are the whole plugin. Both wirings live in the
 same `hooks.json` (`modules` alongside `hooks`), so a broken module degrades to
 current behaviour rather than to nothing.
 
-Today it registers one hook: **`turn.complete` ambient connection surfacing**.
+It registers two hooks. **`ui.render{component=AbovePrompt}`** draws a one-line
+status band above the prompt: a dim heartbeat (`⟡ vault · N sources · N concepts
+· N surfaced · last: <outcome>`) when healthy, and a yellow warning when the
+circuit breaker has stopped surfacing or the index has outgrown the read cap.
+The breaker is deliberately silent in the transcript, so this band is the only
+place a failure becomes visible — do not remove it without replacing it.
+
+**`turn.complete` ambient connection surfacing**.
 At the end of a turn it seeds lexically against the JSONL indexes, and — only if
 a candidate survives — reads the note and asks a model whether the connection is
 real, rendering at most one line beneath the answer. This replaces asking the

@@ -71,6 +71,80 @@ let indexCache: {
 } = { vaultPath: "", at: 0, records: [] };
 
 /**
+ * What the status band above the prompt reports.
+ *
+ * An ambient feature that acts without being asked must also be legible
+ * without being asked: if it stops working, the user has to learn that from
+ * the UI rather than from the absence of something they were not expecting
+ * anyway. The circuit breaker below is deliberately silent in the transcript,
+ * which makes this band the ONLY place a failure becomes visible.
+ *
+ * Module scope, not `$.store`: the render hook must be synchronous-cheap, and
+ * this is per-process diagnostic state that should not outlive the worker.
+ */
+export type Status = {
+  phase: "idle" | "ok" | "warn";
+  sources: number;
+  concepts: number;
+  surfaced: number;
+  lastOutcome: string;
+  lastError: string;
+  partialIndex: boolean;
+  paused: boolean;
+};
+
+let status: Status = {
+  phase: "idle",
+  sources: 0,
+  concepts: 0,
+  surfaced: 0,
+  lastOutcome: "",
+  lastError: "",
+  partialIndex: false,
+  paused: false,
+};
+
+/**
+ * The one line drawn above the prompt, or null to draw nothing.
+ *
+ * Ordered by what the user needs to act on: a stopped feature first, then a
+ * degraded one, then a plain heartbeat. Returns null before the first run so
+ * an unconfigured vault never puts a band on someone's screen.
+ */
+export function statusLine(
+  s: Status,
+): { text: string; color: string; dim: boolean } | null {
+  if (s.paused) {
+    const why = s.lastError ? ` — ${s.lastError}` : "";
+    return {
+      text: `⚠ commonplace: connection surfacing stopped after repeated errors${why}`,
+      color: "yellow",
+      dim: false,
+    };
+  }
+
+  if (s.partialIndex) {
+    return {
+      text:
+        "⚠ commonplace: vault index outgrew the 2000-line read cap — " +
+        "surfacing sees only part of it",
+      color: "yellow",
+      dim: false,
+    };
+  }
+
+  if (s.phase === "idle") return null;
+
+  const bits = [
+    `${s.sources} sources`,
+    `${s.concepts} concepts`,
+    `${s.surfaced} surfaced`,
+  ];
+  if (s.lastOutcome) bits.push(`last: ${s.lastOutcome}`);
+  return { text: `⟡ vault · ${bits.join(" · ")}`, color: "gray", dim: true };
+}
+
+/**
  * Terms too generic to constitute evidence of a connection. A candidate whose
  * every matched term is on this list is dropped before it costs anything —
  * this is the "skip generic terms like 'AI' or 'model'" rule that cross-domain
@@ -222,10 +296,49 @@ export function renderConnection(label: string, verdict: string): string {
 // ---------------------------------------------------------------------------
 
 export const register = (on: any) => {
+  /**
+   * The status band above the prompt. Wraps whatever the engine already draws
+   * there rather than replacing it, so nothing else loses its slot.
+   */
+  on("ui.render", { component: "AbovePrompt" }, async ($: any, e: any, next: any) => {
+    // `$.ui.resolve`/`next` return Promises — a missing await yields undefined
+    // JSX tags and the whole tree fails validation silently.
+    const base = await next(e);
+
+    // A survey owns the band while it is up; never fight it for the space.
+    if (e?.props?.hasSurvey) return base;
+
+    const line = statusLine(status);
+    if (!line) return base;
+
+    // Props are a strict allowlist (BoxProps / TextProps) and ONE bad prop
+    // fails the whole tree — at which point the engine silently draws its own
+    // component instead. No `key` anywhere: only Button accepts one.
+    return {
+      type: "Box",
+      props: { flexDirection: "column" },
+      children: [
+        base,
+        {
+          type: "Text",
+          props: { color: line.color, dimColor: line.dim, wrap: "truncate-end" },
+          children: [line.text],
+        },
+      ],
+    };
+  });
+
   on("turn.complete", async ($: any, e: any, next: any) => {
     // Let everything beneath run first; `next` resolves to the engine's answer.
     // A hook that returns while its next is pending aborts what runs beneath.
     const base = await next(e);
+
+    // Record an outcome and ask for a redraw. Defined inside the hook because
+    // the scanner forbids passing `$` to a helper.
+    const note = (outcome: string, extra: Partial<Status> = {}) => {
+      status = { ...status, lastOutcome: outcome, ...extra };
+      $.ui.invalidate("ui.render");
+    };
 
     try {
       // -- Free guards, in ascending cost order ---------------------------
@@ -255,7 +368,10 @@ export const register = (on: any) => {
       // Circuit breaker: repeated failure disables the feature rather than
       // failing loudly once a turn. A broken vault must never cost the user.
       const failures = Number(state.failures ?? 0);
-      if (failures >= MAX_FAILURES) return base;
+      if (failures >= MAX_FAILURES) {
+        if (!status.paused) note("paused", { paused: true, phase: "warn" });
+        return base;
+      }
 
       // Rate limit: ambient means occasional. Never twice in a row.
       const turnCount = await $.session.turnCount();
@@ -324,22 +440,27 @@ export const register = (on: any) => {
           Number(conceptFile.numLines ?? 0) < Number(conceptFile.totalLines ?? 0) ||
           Number(sourceFile.numLines ?? 0) < Number(sourceFile.totalLines ?? 0)
         ) {
-          $.ui.log(
-            "commonplace: the vault index has outgrown the Read line cap, so " +
-              "connection surfacing is seeing only part of it. Switch the index " +
-              "load in hooks/register.ts from Read to a token-targeted Grep.",
-          );
+          note("partial index", { partialIndex: true, phase: "warn" });
         }
 
-        const parsed = [
-          ...parseJsonl(String(conceptFile.content ?? "")),
-          ...parseJsonl(String(sourceFile.content ?? "")),
-        ];
+        const conceptRecs = parseJsonl(String(conceptFile.content ?? ""));
+        const sourceRecs = parseJsonl(String(sourceFile.content ?? ""));
+        const parsed = [...conceptRecs, ...sourceRecs];
         if (parsed.length === 0) {
+          note("index unreadable", {
+            phase: "warn",
+            lastError: "no records parsed from .wiki indexes",
+            paused: failures + 1 >= MAX_FAILURES,
+          });
           await $.store.set("connect:session", { ...state, failures: failures + 1 });
           return base;
         }
         indexCache = { vaultPath, at: $.clock.now(), records: parsed };
+        note(status.lastOutcome || "indexed", {
+          phase: status.partialIndex ? "warn" : "ok",
+          concepts: conceptRecs.length,
+          sources: sourceRecs.length,
+        });
       }
       const records = indexCache.records;
 
@@ -352,7 +473,10 @@ export const register = (on: any) => {
       const candidates = rankCandidates(records, tokens, 4).filter(
         (c) => !seen.includes(c.path),
       );
-      if (candidates.length === 0) return base;
+      if (candidates.length === 0) {
+        note("no candidates");
+        return base;
+      }
 
       // -- Tier 2: is this turn even about vault material? -----------------
       // One cheap classify on the small fast model, framing the answer as
@@ -362,7 +486,10 @@ export const register = (on: any) => {
         answer.slice(0, 800),
         ["technical-substance", "routine-coding-chatter", "unrelated"],
       );
-      if (topical !== "technical-substance") return base;
+      if (topical !== "technical-substance") {
+        note("off-topic");
+        return base;
+      }
 
       // -- Tier 3: READ the note. This is the step that makes it not-RAG. --
 
@@ -400,6 +527,7 @@ export const register = (on: any) => {
       );
 
       if (!verdict) {
+        note("judged not relevant");
         // A considered SKIP is a success, not a failure — reset the breaker.
         // Bank the turn number anyway: the rate limit governs how often we
         // are willing to SPEND, not how often we surface. Without this, a
@@ -425,17 +553,24 @@ export const register = (on: any) => {
         seen: [...seen, best.path].slice(-40),
       });
 
+      note("surfaced a connection", { surfaced: status.surfaced + 1, phase: "ok" });
       return { text: renderConnection(best.label, verdict) };
     } catch (err) {
       // Never let an ambient feature break a turn. Count the failure so a
       // persistently broken vault stops costing model calls, and stay quiet.
       try {
         const prev = ((await $.store.get("connect:session")) ?? {}) as { failures?: number };
-        await $.store.set("connect:session", {
-          ...prev,
-          failures: Number(prev.failures ?? 0) + 1,
+        const n = Number(prev.failures ?? 0) + 1;
+        // The band above the prompt is the only place this becomes visible.
+        note("error", {
+          phase: "warn",
+          lastError: String(err).slice(0, 90),
+          paused: n >= MAX_FAILURES,
         });
-        $.ui.log(`commonplace: connection surfacing skipped (${String(err).slice(0, 120)})`);
+        await $.store.set("connect:session", { ...prev, failures: n });
+        // Deliberately no `$.ui.log` here: that writes into the transcript,
+        // and an error the user cannot act on mid-turn is noise. The status
+        // band carries it instead, where it persists and stays glanceable.
       } catch {
         /* store unavailable; nothing useful left to do */
       }

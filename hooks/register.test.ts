@@ -22,6 +22,7 @@ import {
   stripFrontmatter,
   parseVerdict,
   renderConnection,
+  statusLine,
 } from "./register.ts";
 
 test("tokenize keeps significant words and drops stopwords and short words", () => {
@@ -172,4 +173,80 @@ test("renderConnection produces one wikilinked line", () => {
   const line = renderConnection("Alpha Method", "records the same drift failure.");
   assert.equal(line, "⟡ vault · [[Alpha Method]] — records the same drift failure.");
   assert.ok(!line.includes("\n"), "must stay a single line");
+});
+
+// ---------------------------------------------------------------------------
+// Status band
+// ---------------------------------------------------------------------------
+
+const baseStatus = {
+  phase: "idle" as const,
+  sources: 0,
+  concepts: 0,
+  surfaced: 0,
+  lastOutcome: "",
+  lastError: "",
+  partialIndex: false,
+  paused: false,
+};
+
+test("statusLine draws nothing before the first run", () => {
+  assert.equal(statusLine(baseStatus), null);
+});
+
+test("statusLine reports a healthy pass as a dim heartbeat", () => {
+  const line = statusLine({
+    ...baseStatus,
+    phase: "ok",
+    sources: 12,
+    concepts: 34,
+    surfaced: 2,
+    lastOutcome: "judged not relevant",
+  });
+  assert.ok(line);
+  assert.equal(line.dim, true);
+  assert.match(line.text, /12 sources/);
+  assert.match(line.text, /34 concepts/);
+  assert.match(line.text, /2 surfaced/);
+  assert.match(line.text, /last: judged not relevant/);
+});
+
+test("statusLine surfaces a paused breaker above everything else", () => {
+  // paused must win even when a partial index is also flagged
+  const line = statusLine({
+    ...baseStatus,
+    phase: "warn",
+    paused: true,
+    partialIndex: true,
+    lastError: "vault path unresolved",
+  });
+  assert.ok(line);
+  assert.equal(line.dim, false);
+  assert.equal(line.color, "yellow");
+  assert.match(line.text, /stopped after repeated errors/);
+  assert.match(line.text, /vault path unresolved/);
+});
+
+test("statusLine reports a partial index when not paused", () => {
+  const line = statusLine({ ...baseStatus, phase: "warn", partialIndex: true });
+  assert.ok(line);
+  assert.equal(line.color, "yellow");
+  assert.match(line.text, /outgrew the 2000-line read cap/);
+});
+
+test("statusLine omits the last-outcome clause when there is none", () => {
+  const line = statusLine({ ...baseStatus, phase: "ok", sources: 1, concepts: 1 });
+  assert.ok(line);
+  assert.ok(!line.text.includes("last:"));
+});
+
+test("statusLine always returns a single line", () => {
+  for (const s of [
+    { ...baseStatus, phase: "ok" as const, lastOutcome: "surfaced a connection" },
+    { ...baseStatus, phase: "warn" as const, paused: true, lastError: "x" },
+    { ...baseStatus, phase: "warn" as const, partialIndex: true },
+  ]) {
+    const line = statusLine(s);
+    assert.ok(line && !line.text.includes("\n"));
+  }
 });
