@@ -163,8 +163,34 @@ try {
   // Scope check failed silently
 }
 
+// Step 4: impact + cross-domain analysis.
+//
+// Runs here, in sequence, rather than as its own PostToolUse hook. Both were
+// wired as separate hooks on Write, and Claude Code runs matching hooks in
+// parallel — so two `index.ts --incremental` processes wrote the same
+// .wiki/*.jsonl files concurrently. Chaining also lets the two hooks' notes
+// merge into ONE stdout object: a hook that prints two JSON documents emits
+// malformed output and its additionalContext is dropped silently.
+let researchContext = "";
+try {
+  const scriptDir = new URL(".", import.meta.url).pathname;
+  const raw = execSync(
+    `npx tsx ${scriptDir}post-write-research.ts --file "${filePath}"`,
+    { stdio: ["ignore", "pipe", "pipe"], timeout: 60000 },
+  ).toString().trim();
+  if (raw) {
+    researchContext = String(
+      JSON.parse(raw)?.hookSpecificOutput?.additionalContext ?? "",
+    );
+  }
+} catch {
+  // Analysis is advisory. A failure here must not cost the caller the
+  // validate/scope-check results that Step 1-3 already produced.
+}
+
 // Only output if there were issues or signals to surface
 if (
+  researchContext ||
   output.validate ||
   output.scopeCheck ||
   output.supersede ||
@@ -188,6 +214,7 @@ if (
       `Source note written. Vault connectedness opportunity: consider running wiki-lint (orphans, underlinked, weak summaries, bridge thinness) and/or \`/wiki-deep-link\` (embedding-discovered concept connections, requires Ollama).`,
     );
   }
+  if (researchContext) notes.push(researchContext);
   if (notes.length > 0) {
     console.log(
       JSON.stringify({

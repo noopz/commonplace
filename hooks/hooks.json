@@ -48,15 +48,6 @@
             "command": "node ${CLAUDE_PLUGIN_ROOT}/bin/commonplace post-write"
           }
         ]
-      },
-      {
-        "matcher": "Write",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node ${CLAUDE_PLUGIN_ROOT}/bin/commonplace post-write-research"
-          }
-        ]
       }
     ]
   }

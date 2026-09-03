@@ -14,21 +14,29 @@ import { spawnSync } from "child_process";
 import { discoverVault, loadDomainRegistry } from "./lib/vault.js";
 import { inferSourceDomain } from "./lib/domain.js";
 
-// Read hook context from stdin
-let input = "";
-try {
-  input = readFileSync(0, "utf-8");
-} catch {
-  process.exit(0);
-}
-
+// The file path arrives one of two ways. `--file <path>` is how `post-write`
+// invokes this as its last step, which is the only wiring hooks.json uses;
+// stdin is kept so the script still runs standalone as a PostToolUse hook (and
+// so reverting the consolidation is a hooks.json edit, not a code change).
 let filePath: string;
-try {
-  const ctx = JSON.parse(input);
-  filePath = ctx.tool_input?.file_path ?? "";
-} catch {
-  process.exit(0);
+const fileFlag = process.argv.indexOf("--file");
+if (fileFlag !== -1 && process.argv[fileFlag + 1]) {
+  filePath = process.argv[fileFlag + 1];
+} else {
+  let input = "";
+  try {
+    input = readFileSync(0, "utf-8");
+  } catch {
+    process.exit(0);
+  }
+  try {
+    const ctx = JSON.parse(input);
+    filePath = ctx.tool_input?.file_path ?? "";
+  } catch {
+    process.exit(0);
+  }
 }
+if (!filePath) process.exit(0);
 
 // Only act on files that resolve to a registered vault domain. Discover the
 // vault from the written file's own path so the impact / cross-domain checks
@@ -48,17 +56,23 @@ if (inferSourceDomain(filePath, vaultPath, registry) === "unknown") {
 
 const tsx = join(pluginRoot, "node_modules", ".bin", "tsx");
 
-// Refresh the index first. This hook and the `post-write` hook both fire on
-// Write and Claude Code runs matching hooks in parallel, so we cannot assume
-// `post-write` has already rebuilt the index — without this, impact.ts would
-// read a stale index that doesn't yet contain the file we just wrote and
-// silently find nothing. Incremental indexing is mtime-gated, so a redundant
-// run here is close to a no-op.
-spawnSync(tsx, [
-  join(pluginRoot, "scripts", "index.ts"),
-  "--vault", vaultPath,
-  "--incremental",
-], { encoding: "utf-8", cwd: pluginRoot, timeout: 15000 });
+// Refresh the index unless the caller already did. `post-write` runs its own
+// incremental index and then invokes this script with --file, so re-indexing
+// there would be pure duplication; standalone (stdin) invocation still needs
+// it, or impact.ts reads an index that predates the file just written and
+// silently finds nothing.
+//
+// This used to run unconditionally, because both scripts were wired as
+// separate PostToolUse hooks and Claude Code runs matching hooks in PARALLEL —
+// which meant two `index.ts --incremental` processes writing the same
+// .wiki/*.jsonl files at the same time. Sequencing them is what removed that.
+if (fileFlag === -1) {
+  spawnSync(tsx, [
+    join(pluginRoot, "scripts", "index.ts"),
+    "--vault", vaultPath,
+    "--incremental",
+  ], { encoding: "utf-8", cwd: pluginRoot, timeout: 15000 });
+}
 
 // Run impact check
 const impactResult = spawnSync(tsx, [
