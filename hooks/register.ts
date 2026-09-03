@@ -19,6 +19,12 @@
  * A candidate is only surfaced after the note itself is read and a model call
  * judges the connection real. Token overlap alone never reaches the user.
  *
+ * But be honest about the LIMIT of that: only notes sharing a literal token
+ * with the answer can ever become candidates here, so the motivating example
+ * in CLAUDE.md — a real connection with zero shared strings — is unreachable
+ * by this mechanism. This is a cheap ambient layer, not a replacement for
+ * wiki-query, which does the iterative search this deliberately does not.
+ *
  * COST
  * Turns that fail the free in-module prefilter cost nothing. A turn that passes
  * costs one classify (~700ms) and, if that passes, one read (~15ms) plus one
@@ -228,15 +234,44 @@ export function scoreRecord(
   const path = String(rec.path ?? "");
   if (!label || !path) return { score: 0, matched: [], label, path };
 
-  const nameHits = overlap(tokens, tokenize(label));
-  const absHits = overlap(tokens, tokenize(String(rec.abstraction ?? "")));
-  const anchors = Array.isArray(rec.anchors) ? rec.anchors.join(" ") : "";
-  const anchorHits = overlap(tokens, tokenize(anchors));
+  // Generic terms are excluded from the SCORE, not merely from the
+  // all-generic veto below. Counting them lets a title like "Claude Code"
+  // clear the threshold on tokens that appear in nearly every answer of a
+  // Claude Code session, so the veto never gets a chance to fire.
+  const substantive = (hits: string[]) => hits.filter((t) => !GENERIC.has(t));
+
+  const nameHits = substantive(overlap(tokens, tokenize(label)));
+  const absHits = substantive(overlap(tokens, tokenize(String(rec.abstraction ?? ""))));
+  // Tier B is cue anchors — the same key space `commonplace seed` uses, which
+  // is tags + MOC names + anchors, not anchors alone.
+  const cues = [
+    ...(Array.isArray(rec.anchors) ? rec.anchors : []),
+    ...(Array.isArray(rec.tags) ? rec.tags : []),
+    ...(Array.isArray(rec.mocs) ? rec.mocs : []),
+  ].join(" ");
+  const anchorHits = substantive(overlap(tokens, tokenize(cues)));
 
   const matched = Array.from(new Set([...nameHits, ...absHits, ...anchorHits]));
   const score = nameHits.length * 4 + absHits.length * 3 + anchorHits.length * 1;
 
   return { score, matched, label, path };
+}
+
+/**
+ * Notes that must never be surfaced as a live connection, whatever they score.
+ *
+ * - `scope: "private"` — a private-domain note has no business appearing
+ *   unbidden in a session that may be a screen-share or a public repo.
+ * - `retired` — surfacing a superseded entity as current is precisely the
+ *   failure `commonplace supersede` exists to prevent.
+ * - `isStub` — a stub has no content to justify a judge call.
+ */
+export function isSurfaceable(rec: Record<string, unknown>): boolean {
+  if (rec.isStub === true) return false;
+  if (rec.scope === "private") return false;
+  const tags = Array.isArray(rec.tags) ? rec.tags.map(String) : [];
+  if (tags.includes("retired")) return false;
+  return true;
 }
 
 /** True when every matched term is generic — evidence too weak to act on. */
@@ -256,6 +291,7 @@ export function rankCandidates(
 ): { score: number; matched: string[]; label: string; path: string }[] {
   const scored = [];
   for (const rec of records) {
+    if (!isSurfaceable(rec)) continue;
     const s = scoreRecord(rec, tokens);
     if (s.score < MIN_SEED_SCORE) continue;
     if (allGeneric(s.matched)) continue;
@@ -282,6 +318,12 @@ export function parseVerdict(reply: string): string | null {
   const line = String(reply ?? "").trim().split("\n")[0]?.trim() ?? "";
   if (!line) return null;
   if (/^skip\b/i.test(line)) return null;
+  // The model is told to answer SKIP, but a plain-English refusal is at least
+  // as likely — and rendering "⟡ vault · [[X]] — No connection here." under an
+  // answer is worse than saying nothing. Treat any negative opener as a skip.
+  if (/^(no\b|none\b|not\b|there('s| is) no\b|nothing\b|n\/a\b)/i.test(line)) {
+    return null;
+  }
   if (line.length < 12 || line.length > 300) return null;
   return line;
 }
@@ -340,6 +382,12 @@ export const register = (on: any) => {
       $.ui.invalidate("ui.render");
     };
 
+    // Hoisted so the catch block can write a correctly-keyed store record.
+    // Without this the failure counter lands on a record carrying the PREVIOUS
+    // session's id, the next turn sees the mismatch and resets it to zero, and
+    // the circuit breaker can never trip for a thrown error.
+    let sessionId = "";
+
     try {
       // -- Free guards, in ascending cost order ---------------------------
 
@@ -353,17 +401,31 @@ export const register = (on: any) => {
       // Rebind the state whenever the session id changes. The seen-set is
       // session-scoped for the same reason: a connection worth surfacing
       // today is worth surfacing again next week in a new conversation.
-      const sessionId = await $.session.id();
+      // The cheapest discriminator of all, and it needs nothing but the
+      // answer: too few significant tokens and no candidate could clear the
+      // seed threshold anyway. Run it before the vault is even resolved, so a
+      // thin turn never triggers the 7s path below.
+      const tokens = tokenize(answer.slice(0, ANSWER_EXCERPT));
+      if (tokens.size < 8) return base;
+
+      sessionId = await $.session.id();
       const stored = ((await $.store.get("connect:session")) ?? {}) as {
         id?: string;
         lastTurn?: number;
         failures?: number;
         seen?: string[];
       };
-      const state =
-        stored.id === sessionId
-          ? stored
-          : { id: sessionId, lastTurn: -999, failures: 0, seen: [] };
+      const sameSession = stored.id === sessionId;
+      const state = sameSession
+        ? stored
+        : { id: sessionId, lastTurn: -999, failures: 0, seen: [] };
+
+      // The store's failure count is session-scoped, so a new session clears
+      // the breaker. The status band lives in module scope and would otherwise
+      // keep saying "stopped" while the feature had quietly resumed.
+      if (!sameSession && (status.paused || status.lastError)) {
+        note("", { paused: false, lastError: "", phase: "idle" });
+      }
 
       // Circuit breaker: repeated failure disables the feature rather than
       // failing loudly once a turn. A broken vault must never cost the user.
@@ -383,7 +445,12 @@ export const register = (on: any) => {
       // not inside it, so the CLI resolves the path. That call costs ~7s, so
       // it happens at most once per machine and the result is persisted. It
       // runs after the answer is already on screen, so the cost is invisible.
-      let vaultPath = String((await $.store.get("connect:vaultPath")) ?? "");
+      // Keyed by project dir, not global: the registry supports many vaults,
+      // and a path cached once per machine would pin every project to whichever
+      // vault happened to resolve first.
+      const projectDir = await $.session.cwd();
+      const vaultKey = `connect:vaultPath:${projectDir}`;
+      let vaultPath = String((await $.store.get(vaultKey)) ?? "");
       if (!vaultPath) {
         const res = await $.tool.call({
           tool: "Bash",
@@ -391,10 +458,15 @@ export const register = (on: any) => {
         });
         vaultPath = String(res?.result?.stdout ?? "").trim();
         if (!vaultPath) {
+          note("no vault resolved", {
+            phase: "warn",
+            lastError: "commonplace vault-path returned nothing",
+            paused: failures + 1 >= MAX_FAILURES,
+          });
           await $.store.set("connect:session", { ...state, failures: failures + 1 });
           return base;
         }
-        await $.store.set("connect:vaultPath", vaultPath);
+        await $.store.set(vaultKey, vaultPath);
       }
 
       // -- Load the indexes (cheap: ~15ms each, cached for the session) ----
@@ -466,9 +538,6 @@ export const register = (on: any) => {
 
       // -- Tier 1: free lexical seed. A jumping-off point, not an answer. --
 
-      const tokens = tokenize(answer.slice(0, ANSWER_EXCERPT));
-      if (tokens.size < 8) return base;
-
       const seen = (state.seen ?? []) as string[];
       const candidates = rankCandidates(records, tokens, 4).filter(
         (c) => !seen.includes(c.path),
@@ -487,7 +556,16 @@ export const register = (on: any) => {
         ["technical-substance", "routine-coding-chatter", "unrelated"],
       );
       if (topical !== "technical-substance") {
+        // Bank the turn: this branch already SPENT a classify call, and the
+        // rate limit governs spend. Without this, a session whose answers keep
+        // matching a note pays ~700ms on every single turn.
         note("off-topic");
+        await $.store.set("connect:session", {
+          id: sessionId,
+          lastTurn: turnCount,
+          failures: 0,
+          seen,
+        });
         return base;
       }
 
@@ -559,15 +637,29 @@ export const register = (on: any) => {
       // Never let an ambient feature break a turn. Count the failure so a
       // persistently broken vault stops costing model calls, and stay quiet.
       try {
-        const prev = ((await $.store.get("connect:session")) ?? {}) as { failures?: number };
-        const n = Number(prev.failures ?? 0) + 1;
+        const prev = ((await $.store.get("connect:session")) ?? {}) as {
+          id?: string;
+          lastTurn?: number;
+          failures?: number;
+          seen?: string[];
+        };
+        // Only count failures against the CURRENT session, or the next turn
+        // rebinds the record and resets the counter to zero forever.
+        const n = (prev.id === sessionId ? Number(prev.failures ?? 0) : 0) + 1;
         // The band above the prompt is the only place this becomes visible.
         note("error", {
           phase: "warn",
           lastError: String(err).slice(0, 90),
           paused: n >= MAX_FAILURES,
         });
-        await $.store.set("connect:session", { ...prev, failures: n });
+        if (sessionId) {
+          await $.store.set("connect:session", {
+            id: sessionId,
+            lastTurn: prev.id === sessionId ? (prev.lastTurn ?? -999) : -999,
+            failures: n,
+            seen: prev.id === sessionId ? (prev.seen ?? []) : [],
+          });
+        }
         // Deliberately no `$.ui.log` here: that writes into the transcript,
         // and an error the user cannot act on mid-turn is noise. The status
         // band carries it instead, where it persists and stays glanceable.

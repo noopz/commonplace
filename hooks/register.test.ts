@@ -23,6 +23,7 @@ import {
   parseVerdict,
   renderConnection,
   statusLine,
+  isSurfaceable,
 } from "./register.ts";
 
 test("tokenize keeps significant words and drops stopwords and short words", () => {
@@ -53,14 +54,16 @@ test("parseJsonl skips malformed lines instead of throwing", () => {
 });
 
 test("scoreRecord weights a title match above an abstraction match", () => {
-  const tokens = tokenize("we compared the alpha method against a calibration baseline");
+  const tokens = tokenize("we compared the alpha technique against a calibration baseline");
 
+  // Both fixtures match on exactly ONE substantive token ("calibration"), so
+  // the comparison isolates per-token weight rather than match count.
   const titleMatch = scoreRecord(
-    { name: "Alpha Method", path: "c/alpha.md", abstraction: "unrelated wording here" },
+    { name: "Calibration", path: "c/alpha.md", abstraction: "unrelated wording here" },
     tokens,
   );
   const abstractionMatch = scoreRecord(
-    { name: "Unrelated Name", path: "c/other.md", abstraction: "an alpha calibration technique" },
+    { name: "Unrelated Naming", path: "c/other.md", abstraction: "a calibration procedure" },
     tokens,
   );
 
@@ -249,4 +252,84 @@ test("statusLine always returns a single line", () => {
     const line = statusLine(s);
     assert.ok(line && !line.text.includes("\n"));
   }
+});
+
+// ---------------------------------------------------------------------------
+// Regressions from the v1.55.1 review
+// ---------------------------------------------------------------------------
+
+test("generic terms do not inflate the score past the threshold", () => {
+  // "Alpha Code Tool" shares only generic tokens with the answer. Before the
+  // fix these counted toward the score, clearing MIN_SEED_SCORE on vocabulary
+  // that appears in nearly every answer, so the all-generic veto never ran.
+  const tokens = tokenize(
+    "we changed the code in the tool and the system produced a new output value",
+  );
+  const rec = {
+    name: "Code Tool System",
+    path: "c/generic.md",
+    abstraction: "a code tool for system output values",
+    anchors: [],
+  };
+  assert.equal(scoreRecord(rec, tokens).score, 0);
+  assert.deepEqual(rankCandidates([rec], tokens, 4), []);
+});
+
+test("scoreRecord counts tags and mocs as cue anchors, like commonplace seed", () => {
+  const tokens = tokenize("a discussion of calibration drift in gamma cohorts");
+  const viaTags = scoreRecord(
+    { name: "Unrelated", path: "c/a.md", tags: ["calibration", "drift"], anchors: [] },
+    tokens,
+  );
+  const viaMocs = scoreRecord(
+    { name: "Unrelated", path: "c/b.md", mocs: ["Calibration Drift MOC"], anchors: [] },
+    tokens,
+  );
+  assert.ok(viaTags.score > 0, "tags should contribute");
+  assert.ok(viaMocs.score > 0, "mocs should contribute");
+});
+
+test("isSurfaceable refuses stubs, private-scope notes, and retired notes", () => {
+  assert.equal(isSurfaceable({ name: "Alpha", path: "a.md" }), true);
+  assert.equal(isSurfaceable({ name: "Alpha", path: "a.md", isStub: true }), false);
+  assert.equal(isSurfaceable({ name: "Alpha", path: "a.md", scope: "private" }), false);
+  assert.equal(
+    isSurfaceable({ name: "Alpha", path: "a.md", tags: ["retired", "gamma"] }),
+    false,
+  );
+});
+
+test("rankCandidates never returns a private or retired note", () => {
+  const tokens = tokenize("alpha calibration drift gamma cohorts baseline");
+  const records = [
+    {
+      name: "Alpha Calibration",
+      path: "c/private.md",
+      abstraction: "alpha calibration drift gamma",
+      scope: "private",
+      anchors: [],
+    },
+    {
+      name: "Alpha Calibration",
+      path: "c/retired.md",
+      abstraction: "alpha calibration drift gamma",
+      tags: ["retired"],
+      anchors: [],
+    },
+  ];
+  assert.deepEqual(rankCandidates(records, tokens, 4), []);
+});
+
+test("parseVerdict rejects plain-English refusals, not just the SKIP token", () => {
+  for (const reply of [
+    "No connection here worth surfacing.",
+    "None of this relates to the note.",
+    "Not relevant to what was discussed.",
+    "There is no meaningful connection.",
+    "Nothing in the note bears on this.",
+  ]) {
+    assert.equal(parseVerdict(reply), null, `should reject: ${reply}`);
+  }
+  // a genuine verdict still passes
+  assert.ok(parseVerdict("Your Alpha Method note records this same drift failure."));
 });
