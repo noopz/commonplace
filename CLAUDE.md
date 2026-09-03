@@ -18,7 +18,7 @@ file is inert and the shell hooks are the whole plugin. Both wirings live in the
 same `hooks.json` (`modules` alongside `hooks`), so a broken module degrades to
 current behaviour rather than to nothing.
 
-It registers three hooks. **`ui.render{component=AbovePrompt}`** draws a one-line
+It registers nine hooks. **`ui.render{component=AbovePrompt}`** draws a one-line
 status band above the prompt: a dim heartbeat (`⟡ vault · N sources · N concepts
 · N surfaced · last: <outcome>`) when healthy, and a yellow warning when the
 circuit breaker has stopped surfacing or the index has outgrown the read cap.
@@ -37,6 +37,32 @@ a candidate survives — reads the note and asks a model whether the connection 
 real, rendering at most one line beneath the answer. This replaces asking the
 model, in prompt text, to remember to look for connections.
 
+The hook itself is a thin adapter: all of the decision logic lives in
+`hooks/lib/pipeline.ts` behind a `Ports` interface, so the guard order, circuit
+breaker, rate limit and index cache are covered by tests against recording fakes
+instead of only being observable in a live session. **Change the logic in
+`lib/`, not in the hook body** — and note that `$` may appear inside an arrow
+function's body, which is what makes the Ports object legal under the scanner.
+
+**Two enforcement hooks turn CLAUDE.md rules into mechanisms.**
+`tool.call{tool: "Bash"}` denies parsing `.wiki/*.jsonl` with `python3`/`jq`/
+`node -e` and denies manual `npx tsx scripts/*`, naming the right
+`commonplace <cmd>` in the deny reason. A second `tool.call` refuses to write
+private-domain vault titles into a code repository. Both fail open — a thrown
+guard never blocks a tool call — and both are **global**, so a false positive
+blocks unrelated work in any repo. Treat widening their match patterns as a
+high-risk change and see `hooks/lib/guard.ts` for the documented failure modes.
+
+Only **one matcher-less hook per event** is permitted; a second is a validation
+error naming both lines. That is why the private-leak guard and the vault-tool
+handler share one `tool.call` registration and branch internally — neither can
+use a matcher.
+
+**Unwrap tool results explicitly.** `$.tool.call({tool: "Read"})` answers
+`{result: {file: {content, ...}}}` (note the `file` level) and Bash answers
+`{result: {stdout}}`. Getting this wrong fails silently: the optional chain
+yields `undefined`, coerces to `""`, and the feature simply never finds anything.
+
 Hard constraints of this API, verified rather than assumed:
 
 - **No Node in the module.** It may import only its own files by relative path
@@ -51,8 +77,10 @@ Hard constraints of this API, verified rather than assumed:
   touching `$` lives inside the hook body.
 - `claude plugin validate <dir>` checks all of the above without running it, and
   prints the module's exact capability surface. Run it after every edit.
-- **`turn.complete` does not fire under `claude -p`** (no terminal surface).
-  Test interactively, in a pty.
+- **`turn.complete` and `ui.render` do not fire under `claude -p`** (no terminal
+  surface). `tool.call` hooks DO, which is why the enforcement guards can be
+  tested non-interactively and the connection pass cannot — another reason its
+  logic sits behind `Ports` in `lib/`.
 
 Full API notes, the probe method, and the migration checklist for when this API
 is officially documented live in the vault at
