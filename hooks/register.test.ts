@@ -13,6 +13,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
+import { statusLine } from "./lib/status.ts";
 import {
   tokenize,
   parseJsonl,
@@ -22,9 +23,8 @@ import {
   stripFrontmatter,
   parseVerdict,
   renderConnection,
-  statusLine,
   isSurfaceable,
-} from "./register.ts";
+} from "./lib/seed.ts";
 
 test("tokenize keeps significant words and drops stopwords and short words", () => {
   const t = tokenize("The Alpha Method was used for a big gamma calibration.");

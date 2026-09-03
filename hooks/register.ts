@@ -39,6 +39,25 @@
  * closes over `$`.
  */
 
+import {
+  tokenize,
+  parseJsonl,
+  rankCandidates,
+  stripFrontmatter,
+  parseVerdict,
+  renderConnection,
+} from "./lib/seed.js";
+import { statusLine, type Status } from "./lib/status.js";
+import { buildVaultBlock, mergeBlocks } from "./lib/context.js";
+import {
+  VAULT_SEARCH_SPEC,
+  VAULT_NOTE_SPEC,
+  searchVault,
+  formatSearchResult,
+  resolveNotePath,
+  isSafeVaultPath,
+} from "./lib/tools.js";
+
 // ---------------------------------------------------------------------------
 // Tunables
 // ---------------------------------------------------------------------------
@@ -52,9 +71,6 @@ const MIN_TURN_GAP = 4;
 /** Consecutive failures before the feature disables itself for the session. */
 const MAX_FAILURES = 3;
 
-/** Lexical score a candidate must clear before it costs a model call. */
-const MIN_SEED_SCORE = 6;
-
 /** How much of the answer and of the candidate note the judge model sees. */
 const ANSWER_EXCERPT = 1500;
 const NOTE_EXCERPT = 2200;
@@ -67,8 +83,8 @@ const INDEX_TTL_MS = 120_000;
 
 /**
  * Parsed indexes, cached in module scope for the life of the resident worker.
- * Not `$.store`: this is derived data, cheap to rebuild and expensive to
- * serialise, and it must not outlive a vault switch.
+ * Not `$.store`: derived data, cheap to rebuild and expensive to serialise,
+ * and it must not outlive a vault switch.
  */
 let indexCache: {
   vaultPath: string;
@@ -76,36 +92,7 @@ let indexCache: {
   records: Record<string, unknown>[];
 } = { vaultPath: "", at: 0, records: [] };
 
-/**
- * What the status band above the prompt reports.
- *
- * An ambient feature that acts without being asked must also be legible
- * without being asked: if it stops working, the user has to learn that from
- * the UI rather than from the absence of something they were not expecting
- * anyway. The circuit breaker below is deliberately silent in the transcript,
- * which makes this band the ONLY place a failure becomes visible.
- *
- * Module scope, not `$.store`: the render hook must be synchronous-cheap, and
- * this is per-process diagnostic state that should not outlive the worker.
- */
-export type Status = {
-  phase: "idle" | "ok" | "warn";
-  sources: number;
-  concepts: number;
-  surfaced: number;
-  lastOutcome: string;
-  lastError: string;
-  partialIndex: boolean;
-  paused: boolean;
-  /**
-   * Whether the band is currently drawn. It is a receipt for work just done,
-   * not a dashboard: `turn.complete` raises it when the vault was actually
-   * consulted, and `prompt.submit` lowers it the moment the user types again.
-   * A line that persists across turns becomes furniture and stops being read.
-   */
-  visible: boolean;
-};
-
+/** The band's live state. See lib/status.ts for what each field means. */
 let status: Status = {
   phase: "idle",
   sources: 0,
@@ -118,238 +105,195 @@ let status: Status = {
   visible: false,
 };
 
-/**
- * The one line drawn above the prompt, or null to draw nothing.
- *
- * Ordered by what the user needs to act on: a stopped feature first, then a
- * degraded one, then a plain heartbeat. Returns null before the first run so
- * an unconfigured vault never puts a band on someone's screen.
- */
-export function statusLine(
-  s: Status,
-): { text: string; color: string; dim: boolean } | null {
-  // Hidden until the vault has actually done something this turn, and hidden
-  // again as soon as the user starts the next one.
-  if (!s.visible) return null;
-
-  if (s.paused) {
-    const why = s.lastError ? ` — ${s.lastError}` : "";
-    return {
-      text: `⚠ commonplace: connection surfacing stopped after repeated errors${why}`,
-      color: "yellow",
-      dim: false,
-    };
-  }
-
-  if (s.partialIndex) {
-    return {
-      text:
-        "⚠ commonplace: vault index outgrew the 2000-line read cap — " +
-        "surfacing sees only part of it",
-      color: "yellow",
-      dim: false,
-    };
-  }
-
-  if (s.phase === "idle") return null;
-
-  const bits = [
-    `${s.sources} sources`,
-    `${s.concepts} concepts`,
-    `${s.surfaced} surfaced`,
-  ];
-  if (s.lastOutcome) bits.push(`last: ${s.lastOutcome}`);
-  return { text: `⟡ vault · ${bits.join(" · ")}`, color: "gray", dim: true };
-}
-
-/**
- * Terms too generic to constitute evidence of a connection. A candidate whose
- * every matched term is on this list is dropped before it costs anything —
- * this is the "skip generic terms like 'AI' or 'model'" rule that cross-domain
- * linking already applies, enforced earlier and for free.
- */
-const GENERIC = new Set([
-  "agent", "agents", "model", "models", "system", "systems", "data", "code",
-  "tool", "tools", "note", "notes", "vault", "file", "files", "text", "user",
-  "work", "thing", "things", "part", "case", "type", "kind", "line", "lines",
-  "context", "content", "value", "values", "result", "results", "problem",
-  "approach", "method", "methods", "process", "state", "level", "point",
-  "example", "question", "answer", "output", "input", "change", "changes",
-  "version", "project", "design", "build", "test", "tests", "prompt", "prompts",
-]);
-
-const STOPWORDS = new Set([
-  "the", "and", "for", "that", "this", "with", "from", "have", "has", "had",
-  "was", "were", "been", "being", "are", "is", "not", "but", "you", "your",
-  "its", "it's", "they", "them", "their", "there", "then", "than", "when",
-  "what", "which", "who", "whom", "how", "why", "where", "into", "onto", "over",
-  "under", "about", "after", "before", "between", "through", "during", "would",
-  "could", "should", "will", "can", "may", "might", "must", "shall", "does",
-  "did", "doing", "done", "each", "every", "some", "any", "all", "both", "few",
-  "more", "most", "other", "such", "only", "own", "same", "also", "just", "one",
-  "two", "three", "here", "very", "much", "many", "well", "back", "even",
-  "still", "way", "make", "made", "get", "got", "use", "used", "using", "like",
-]);
-
-// ---------------------------------------------------------------------------
-// Pure helpers — no `$`, so the scanner is satisfied and these stay testable.
-// ---------------------------------------------------------------------------
-
-/** Lowercased significant word tokens: length >= 4, not a stopword. */
-export function tokenize(text: string): Set<string> {
-  const out = new Set<string>();
-  const words = String(text).toLowerCase().match(/[a-z][a-z0-9-]{2,}/g) ?? [];
-  for (const w of words) {
-    if (w.length < 4) continue;
-    if (STOPWORDS.has(w)) continue;
-    out.add(w);
-  }
-  return out;
-}
-
-/** Parse a .wiki/*.jsonl index. Malformed lines are skipped, never thrown. */
-export function parseJsonl(content: string): Record<string, unknown>[] {
-  const out: Record<string, unknown>[] = [];
-  for (const line of String(content).split("\n")) {
-    const t = line.trim();
-    if (!t || t[0] !== "{") continue;
-    try {
-      out.push(JSON.parse(t));
-    } catch {
-      /* a partial write mid-index; skip the line, keep the index usable */
-    }
-  }
-  return out;
-}
-
-function overlap(a: Set<string>, b: Set<string>): string[] {
-  const hits: string[] = [];
-  for (const t of b) if (a.has(t)) hits.push(t);
-  return hits;
-}
-
-/**
- * Tiered lexical score for one index record against the turn's tokens, in the
- * same key-space order `commonplace seed` uses: abstraction, then cue anchors,
- * then the name/title itself. A title match is the strongest single signal, so
- * it weighs most; abstraction next, because it is the note's own summary of
- * what it is about; anchors last, being the loosest association.
- *
- * Returns the score and the matched terms so the caller can drop candidates
- * whose entire match is generic vocabulary.
- */
-export function scoreRecord(
-  rec: Record<string, unknown>,
-  tokens: Set<string>,
-): { score: number; matched: string[]; label: string; path: string } {
-  const label = String(rec.title ?? rec.name ?? "");
-  const path = String(rec.path ?? "");
-  if (!label || !path) return { score: 0, matched: [], label, path };
-
-  // Generic terms are excluded from the SCORE, not merely from the
-  // all-generic veto below. Counting them lets a title like "Claude Code"
-  // clear the threshold on tokens that appear in nearly every answer of a
-  // Claude Code session, so the veto never gets a chance to fire.
-  const substantive = (hits: string[]) => hits.filter((t) => !GENERIC.has(t));
-
-  const nameHits = substantive(overlap(tokens, tokenize(label)));
-  const absHits = substantive(overlap(tokens, tokenize(String(rec.abstraction ?? ""))));
-  // Tier B is cue anchors — the same key space `commonplace seed` uses, which
-  // is tags + MOC names + anchors, not anchors alone.
-  const cues = [
-    ...(Array.isArray(rec.anchors) ? rec.anchors : []),
-    ...(Array.isArray(rec.tags) ? rec.tags : []),
-    ...(Array.isArray(rec.mocs) ? rec.mocs : []),
-  ].join(" ");
-  const anchorHits = substantive(overlap(tokens, tokenize(cues)));
-
-  const matched = Array.from(new Set([...nameHits, ...absHits, ...anchorHits]));
-  const score = nameHits.length * 4 + absHits.length * 3 + anchorHits.length * 1;
-
-  return { score, matched, label, path };
-}
-
-/**
- * Notes that must never be surfaced as a live connection, whatever they score.
- *
- * - `scope: "private"` — a private-domain note has no business appearing
- *   unbidden in a session that may be a screen-share or a public repo.
- * - `retired` — surfacing a superseded entity as current is precisely the
- *   failure `commonplace supersede` exists to prevent.
- * - `isStub` — a stub has no content to justify a judge call.
- */
-export function isSurfaceable(rec: Record<string, unknown>): boolean {
-  if (rec.isStub === true) return false;
-  if (rec.scope === "private") return false;
-  const tags = Array.isArray(rec.tags) ? rec.tags.map(String) : [];
-  if (tags.includes("retired")) return false;
-  return true;
-}
-
-/** True when every matched term is generic — evidence too weak to act on. */
-export function allGeneric(matched: string[]): boolean {
-  return matched.length === 0 || matched.every((t) => GENERIC.has(t));
-}
-
-/**
- * Rank index records against the turn's tokens and return the best few.
- * Ties break toward the more authoritative note (HITS authority is already in
- * the index), so a hub-like MOC does not crowd out a substantive note.
- */
-export function rankCandidates(
-  records: Record<string, unknown>[],
-  tokens: Set<string>,
-  limit: number,
-): { score: number; matched: string[]; label: string; path: string }[] {
-  const scored = [];
-  for (const rec of records) {
-    if (!isSurfaceable(rec)) continue;
-    const s = scoreRecord(rec, tokens);
-    if (s.score < MIN_SEED_SCORE) continue;
-    if (allGeneric(s.matched)) continue;
-    scored.push({ ...s, authority: Number(rec.authority ?? 0) });
-  }
-  scored.sort((a, b) => b.score - a.score || b.authority - a.authority);
-  return scored.slice(0, limit);
-}
-
-/** Strip frontmatter so the judge model reads prose, not YAML. */
-export function stripFrontmatter(text: string): string {
-  const t = String(text);
-  if (!t.startsWith("---")) return t;
-  const end = t.indexOf("\n---", 3);
-  return end === -1 ? t : t.slice(end + 4);
-}
-
-/**
- * The judge's verdict is one line: either SKIP, or a sentence naming the
- * connection. Anything else (a refusal, a preamble, an empty string) is treated
- * as SKIP — surfacing nothing is always the safe failure.
- */
-export function parseVerdict(reply: string): string | null {
-  const line = String(reply ?? "").trim().split("\n")[0]?.trim() ?? "";
-  if (!line) return null;
-  if (/^skip\b/i.test(line)) return null;
-  // The model is told to answer SKIP, but a plain-English refusal is at least
-  // as likely — and rendering "⟡ vault · [[X]] — No connection here." under an
-  // answer is worse than saying nothing. Treat any negative opener as a skip.
-  if (/^(no\b|none\b|not\b|there('s| is) no\b|nothing\b|n\/a\b)/i.test(line)) {
-    return null;
-  }
-  if (line.length < 12 || line.length > 300) return null;
-  return line;
-}
-
-/** The rendered line. Deliberately one line and visually quiet. */
-export function renderConnection(label: string, verdict: string): string {
-  return `⟡ vault · [[${label}]] — ${verdict}`;
-}
-
 // ---------------------------------------------------------------------------
 // Registration
 // ---------------------------------------------------------------------------
 
 export const register = (on: any) => {
+  /**
+   * Register the vault tools so they are listed by turn one.
+   *
+   * `session.start` is awaited before the first prompt, which is exactly why
+   * registration belongs here rather than lazily: a tool the model cannot see
+   * on its first turn may as well not exist.
+   */
+  on("session.start", async ($: any, e: any, next: any) => {
+    try {
+      await $.tool.register(VAULT_SEARCH_SPEC);
+      await $.tool.register(VAULT_NOTE_SPEC);
+    } catch {
+      /* registration is best-effort; the rest of the plugin still works */
+    }
+    return next(e);
+  });
+
+  /**
+   * Answer the vault tools.
+   *
+   * Both are matched on their full `mcp__<plugin>__<name>` names. A registered
+   * tool whose call no hook answers fails saying so, so this handler and the
+   * specs above must stay in step.
+   */
+  on("tool.call", async ($: any, e: any, next: any) => {
+    const name = String(e?.tool ?? "");
+    const isSearch = name.endsWith("__vault_search");
+    const isNote = name.endsWith("__vault_note");
+    if (!isSearch && !isNote) return next(e);
+
+    try {
+      // Vault resolution and index loading are inlined rather than factored
+      // into helpers because the scanner refuses `$` being passed as an
+      // argument — it may only appear as `$.noun.verb(...)` at a call site.
+      const projectDir = await $.session.cwd();
+      const vaultKey = `connect:vaultPath:${projectDir}`;
+      let vaultPath = String((await $.store.get(vaultKey)) ?? "");
+      if (!vaultPath) {
+        const res = await $.tool.call({
+          tool: "Bash",
+          command: "commonplace vault-path",
+        });
+        vaultPath = String(res?.result?.stdout ?? "").trim();
+        if (vaultPath) await $.store.set(vaultKey, vaultPath);
+      }
+      if (!vaultPath) {
+        return {
+          deny:
+            "No commonplace vault is configured for this machine. " +
+            "Run `commonplace init --vault <path>` first.",
+        };
+      }
+
+      if (
+        indexCache.vaultPath !== vaultPath ||
+        $.clock.now() - indexCache.at > INDEX_TTL_MS
+      ) {
+        const conceptRes = await $.tool.call({
+          tool: "Read",
+          file_path: `${vaultPath}/.wiki/concept-index.jsonl`,
+        });
+        const sourceRes = await $.tool.call({
+          tool: "Read",
+          file_path: `${vaultPath}/.wiki/source-index.jsonl`,
+        });
+        const parsed = [
+          ...parseJsonl(String(conceptRes?.result?.file?.content ?? "")),
+          ...parseJsonl(String(sourceRes?.result?.file?.content ?? "")),
+        ];
+        if (parsed.length > 0) {
+          indexCache = { vaultPath, at: $.clock.now(), records: parsed };
+        }
+      }
+      const records = indexCache.vaultPath === vaultPath ? indexCache.records : [];
+      if (records.length === 0) {
+        return {
+          deny:
+            `Could not read the vault indexes at ${vaultPath}/.wiki/. ` +
+            "Run `commonplace index` to build them.",
+        };
+      }
+
+      if (isSearch) {
+        const query = String(e?.query ?? "");
+        const hits = searchVault(records, query, Number(e?.limit ?? 8));
+        return { result: formatSearchResult(hits, query) };
+      }
+
+      const ref = String(e?.note ?? "");
+      const path = resolveNotePath(records, ref);
+      if (!path || !isSafeVaultPath(path)) {
+        return {
+          deny:
+            `No vault note matches "${ref}". Use a path or title from ` +
+            "vault_search rather than guessing one.",
+        };
+      }
+      const res = await $.tool.call({
+        tool: "Read",
+        file_path: `${vaultPath}/${path}`,
+      });
+      return {
+        result: {
+          path,
+          content: String(res?.result?.file?.content ?? ""),
+        },
+      };
+    } catch (err) {
+      return { deny: `commonplace vault tool failed: ${String(err).slice(0, 200)}` };
+    }
+  });
+
+  /**
+   * The vault's orienting block on the conversation's first user message.
+   *
+   * Replaces `scripts/prompt-context.ts`, a shell hook wired to
+   * UserPromptSubmit — which meant a `node` cold start on EVERY PROMPT to
+   * re-count three index files and inject ~800 words mid-transcript. This
+   * fires ONCE PER CONVERSATION and lands as a real context block, so it is
+   * both far cheaper and in the right place. `$.ui.invalidate("prompt.context")`
+   * re-runs it when the vault actually changes.
+   */
+  on("prompt.context", async ($: any, e: any, next: any) => {
+    const built = await next(e);
+    try {
+      const projectDir = await $.session.cwd();
+      const vaultKey = `connect:vaultPath:${projectDir}`;
+      let vaultPath = String((await $.store.get(vaultKey)) ?? "");
+      if (!vaultPath) {
+        const res = await $.tool.call({
+          tool: "Bash",
+          command: "commonplace vault-path",
+        });
+        vaultPath = String(res?.result?.stdout ?? "").trim();
+        if (vaultPath) await $.store.set(vaultKey, vaultPath);
+      }
+      if (!vaultPath) return built;
+
+      // Counting lines is all the old hook did with these, and Read gives us
+      // that for ~15ms each instead of a process spawn.
+      const readCount = async (name: string) => {
+        const res = await $.tool.call({
+          tool: "Read",
+          file_path: `${vaultPath}/.wiki/${name}`,
+        });
+        return parseJsonl(String(res?.result?.file?.content ?? "")).length;
+      };
+      const sources = await readCount("source-index.jsonl");
+      const concepts = await readCount("concept-index.jsonl");
+      const mocs = await readCount("moc-index.jsonl");
+
+      // Untuned genres are actionable state: genre-aware lint checks do not
+      // apply until rules exist, and nothing else surfaces that.
+      let untunedGenres: string[] = [];
+      try {
+        const convRes = await $.tool.call({
+          tool: "Read",
+          file_path: `${vaultPath}/.wiki/conventions.json`,
+        });
+        const conv = JSON.parse(String(convRes?.result?.file?.content ?? "{}"));
+        untunedGenres = (conv.genres ?? [])
+          .filter((g: any) => !g?.rules || Object.keys(g.rules).length === 0)
+          .map((g: any) => String(g?.name ?? ""))
+          .filter(Boolean);
+      } catch {
+        /* conventions.json not written yet; not an error */
+      }
+
+      const inVault = projectDir.startsWith(vaultPath);
+      const block = buildVaultBlock({
+        vaultPath,
+        inVault,
+        sources,
+        concepts,
+        mocs,
+        untunedGenres,
+      });
+      return { blocks: mergeBlocks(built.blocks ?? [], block) };
+    } catch {
+      // A broken vault must never cost the user their context block set.
+      return built;
+    }
+  });
+
   /**
    * Clear the status band the moment the user starts another turn.
    *

@@ -27,6 +27,14 @@ interface HookInput {
   cwd?: string;
 }
 
+// Double-fire guard. `hooks/hooks.json` wires BOTH this shell hook and the
+// in-process module, deliberately, so that a broken or unavailable module
+// degrades to this rather than to nothing. But when the module IS loaded its
+// `prompt.context` hook does this job better — once per conversation instead of
+// once per prompt, as a real context block instead of injected transcript text.
+// Without this guard the user would get both, every prompt.
+if (process.env.CLAUDE_CODE_ENABLE_FUNCTION_HOOKS === "1") process.exit(0);
+
 const input = JSON.parse(readFileSync(0, "utf-8")) as HookInput;
 const prompt = input.prompt ?? "";
 const cwd = input.cwd ?? process.cwd();
