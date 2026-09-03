@@ -13,7 +13,6 @@ import {
   VAULT_BLOCK_NAME,
   buildVaultBlock,
   mergeBlocks,
-  vaultIntent,
   type ContextBlock,
   type VaultFacts,
 } from "./context.ts";
@@ -150,51 +149,4 @@ test("mergeBlocks does not mutate its input", () => {
   const snapshot = list.map((b) => ({ ...b }));
   mergeBlocks(list, { name: VAULT_BLOCK_NAME, text: "vault" });
   assert.deepEqual(list, snapshot);
-});
-
-// --- vaultIntent: positives ------------------------------------------------
-
-test("vaultIntent: wiki-* skill names, CLI subcommands, obsidian vault, note kinds", () => {
-  assert.ok(vaultIntent("run wiki-query on this", []));
-  assert.ok(vaultIntent("please commonplace lint the vault", []));
-  assert.ok(vaultIntent("commonplace paper:fetch 1234.5678", []));
-  assert.ok(vaultIntent("open my obsidian vault", []));
-  assert.ok(vaultIntent("write a concept note for Alpha Method", []));
-  assert.ok(vaultIntent("what do my notes say about gamma?", []));
-  assert.ok(vaultIntent("look in .wiki/concept-index.jsonl", []));
-  assert.ok(vaultIntent("look in .wiki\\concept-index.jsonl", []));
-  assert.ok(vaultIntent("see [[Alpha Method]]", []));
-});
-
-test("vaultIntent: a registered vault path matches, separator- and case-insensitively", () => {
-  assert.ok(vaultIntent(`edit ${VAULT}/notes/alpha.md`, [VAULT]));
-  assert.ok(vaultIntent("edit /TMP/Example-Vault/notes/alpha.md", [VAULT]));
-  assert.ok(vaultIntent("edit \\tmp\\example-vault\\notes\\alpha.md", [VAULT]));
-  assert.ok(!vaultIntent(`edit ${VAULT}/notes/alpha.md`, []));
-  assert.ok(!vaultIntent(`edit ${VAULT}/notes/alpha.md`, [""]));
-});
-
-// --- vaultIntent: deliberate non-matches -----------------------------------
-
-test("vaultIntent: bash [[ -f x ]] is not a wikilink", () => {
-  assert.ok(!vaultIntent("if [[ -f config.json ]]; then echo ok; fi", []));
-  assert.ok(!vaultIntent("[[ $x == y ]] && run", []));
-});
-
-test("vaultIntent: HashiCorp-style 'vault' is not the notes vault", () => {
-  assert.ok(!vaultIntent("rotate the secret in vault", []));
-  assert.ok(!vaultIntent("my vault token expired", []));
-  assert.ok(!vaultIntent("the vault agent sidecar is failing", []));
-});
-
-test("vaultIntent: bare 'commonplace' without a known subcommand does not match", () => {
-  assert.ok(!vaultIntent("refactor the commonplace plugin", []));
-  assert.ok(!vaultIntent("commonplace is a nice word", []));
-  assert.ok(!vaultIntent("commonplace build", []));
-});
-
-test("vaultIntent: bare 'MOC' and generic notes phrasing do not match", () => {
-  assert.ok(!vaultIntent("update the MOC", []));
-  assert.ok(!vaultIntent("take notes on this meeting", []));
-  assert.ok(!vaultIntent("", []));
 });

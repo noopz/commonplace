@@ -347,6 +347,16 @@ for (const filePath of allFiles) {
 for (const concept of concepts) {
   concept.backlinkCount = backlinkCounts.get(concept.name) ?? 0;
   concept.domains = inferConceptDomains(concept.name, domainConceptRefs);
+  // A concept can only be as public as its most sensitive domain. Source
+  // records have carried `scope` since the beginning; concepts did not, so
+  // every `scope === "private"` check downstream (ambient surfacing, the
+  // private-leak guard, the vault_search caution) silently passed private
+  // concepts through. Both of those rules are stated in terms of concept
+  // NAMES specifically, so the gap defeated their whole purpose.
+  const isPrivate = concept.domains.some(
+    (slug) => registry.domains[slug]?.scope === "private",
+  );
+  concept.scope = isPrivate ? "private" : "public";
 }
 
 // Compute source counts and domains for MOCs (public sources only)

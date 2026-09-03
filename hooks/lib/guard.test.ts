@@ -94,22 +94,33 @@ test("mentionsVaultJson is narrow: .wiki paths, index basenames, vaults.json", (
   for (const t of [
     ".wiki/concept-index.jsonl", "$VAULT/.wiki/config.json",
     "/home/u/notes/.wiki/domains.json", "concept-index.jsonl",
-    "backlink-index.jsonl", "vaults.json", "open('.wiki/freshness.json')",
+    "backlink-index.jsonl", "open('.wiki/freshness.json')",
+    "$CLAUDE_PLUGIN_DATA/vaults.json",
   ]) {
     assert.equal(mentionsVaultJson(t), true, `should match: ${t}`);
   }
   for (const t of [
     "package.json", "config.json", "data.jsonl", "tsconfig.json",
     "/tmp/other/events.jsonl", ".wiki/log.md", ".wiki/", "index.json",
+    // A bare vaults.json belongs to some other tool; only the registry under
+    // the plugin's data dir is ours.
+    "vaults.json", "jq . ./vaults.json",
   ]) {
     assert.equal(mentionsVaultJson(t), false, `should NOT match: ${t}`);
   }
 });
 
-test("manualScriptPath recognises plugin scripts run by hand", () => {
-  assert.equal(manualScriptPath("npx tsx scripts/lint.ts"), "scripts/lint.ts");
-  assert.equal(manualScriptPath("node scripts/index.ts --incremental"), "scripts/index.ts");
-  assert.equal(manualScriptPath("tsx ./scripts/seed.ts --query x"), "./scripts/seed.ts");
+test("manualScriptPath ignores bare scripts/ paths in foreign repos", () => {
+  // This hook is global. A basename allowlist here denied `npx tsx
+  // scripts/seed.ts` in every Prisma/Drizzle project on the machine, which is
+  // far worse than missing a hand-run inside commonplace itself.
+  assert.equal(manualScriptPath("npx tsx scripts/seed.ts"), null);
+  assert.equal(manualScriptPath("node scripts/index.ts --incremental"), null);
+  assert.equal(manualScriptPath("tsx ./scripts/lint.ts"), null);
+  assert.equal(manualScriptPath("npx tsx scripts/migrate.ts"), null);
+});
+
+test("manualScriptPath recognises plugin scripts run by an explicit path", () => {
   assert.equal(
     manualScriptPath("node ${CLAUDE_PLUGIN_ROOT}/scripts/anything.ts"),
     "${CLAUDE_PLUGIN_ROOT}/scripts/anything.ts",
@@ -118,8 +129,14 @@ test("manualScriptPath recognises plugin scripts run by hand", () => {
     manualScriptPath('npx tsx "/u/z/projects/commonplace/scripts/custom.ts"'),
     "/u/z/projects/commonplace/scripts/custom.ts",
   );
-  assert.equal(manualScriptPath("bun scripts/lint.ts"), "scripts/lint.ts");
-  assert.equal(manualScriptPath("deno run scripts/lint.ts"), "scripts/lint.ts");
+  assert.equal(
+    manualScriptPath("bun /opt/commonplace/scripts/lint.ts"),
+    "/opt/commonplace/scripts/lint.ts",
+  );
+  assert.equal(
+    manualScriptPath("deno run ${CLAUDE_PLUGIN_ROOT}/scripts/lint.ts"),
+    "${CLAUDE_PLUGIN_ROOT}/scripts/lint.ts",
+  );
 });
 
 test("manualScriptPath leaves foreign repos, tests, and the bin shim alone", () => {
@@ -180,10 +197,10 @@ test("checkBashCommand denies piping commonplace --json into a parser", () => {
 });
 
 test("checkBashCommand denies manual plugin script invocation with a CLI pointer", () => {
-  const r = checkBashCommand("npx tsx scripts/index.ts --incremental");
+  const r = checkBashCommand("npx tsx ${CLAUDE_PLUGIN_ROOT}/scripts/index.ts --incremental");
   assert.ok(r);
   assert.match(r.deny, /commonplace/);
-  assert.ok(checkBashCommand("cd /x && node scripts/lint.ts --json"));
+  assert.ok(checkBashCommand("cd /x && node /opt/commonplace/scripts/lint.ts --json"));
 });
 
 // ---------------------------------------------------------------------------
@@ -380,18 +397,11 @@ test("findPrivateMatches catches any title written as a wikilink", () => {
   assert.deepEqual(findPrivateMatches("see [[Delta Rule]]", titles), []);
 });
 
-test("checkPrivateLeak returns null for a private repo regardless of content", () => {
-  assert.equal(
-    checkPrivateLeak("the Alpha Method in full", ["Alpha Method"], { repoIsPublic: false }),
-    null,
-  );
-});
 
 test("checkPrivateLeak denies a public-repo write that reproduces a private title", () => {
   const r = checkPrivateLeak(
     'test("links Alpha Method to Gamma Term", () => {})',
     ["Alpha Method", "Gamma Term", "Delta Rule"],
-    { repoIsPublic: true },
   );
   assert.ok(r);
   assert.match(r.deny, /"Alpha Method"/);
@@ -403,7 +413,7 @@ test("checkPrivateLeak denies a public-repo write that reproduces a private titl
 test("checkPrivateLeak caps the titles it names but counts the rest", () => {
   const titles = ["Alpha Method", "Gamma Term", "Delta Rule", "Epsilon Bound", "Zeta Cohort"];
   const text = titles.join(", ");
-  const r = checkPrivateLeak(text, titles, { repoIsPublic: true });
+  const r = checkPrivateLeak(text, titles);
   assert.ok(r);
   assert.match(r.deny, /\+2 more/);
 });
@@ -411,24 +421,32 @@ test("checkPrivateLeak caps the titles it names but counts the rest", () => {
 test("checkPrivateLeak allows invented fixtures, empty lists, and empty text", () => {
   const priv = ["Alpha Method", "Gamma Term"];
   assert.equal(
-    checkPrivateLeak('test("Beta Rule links to Delta Cohort")', priv, { repoIsPublic: true }),
+    checkPrivateLeak('test("Beta Rule links to Delta Cohort")', priv),
     null,
   );
-  assert.equal(checkPrivateLeak("anything at all", [], { repoIsPublic: true }), null);
-  assert.equal(checkPrivateLeak("", priv, { repoIsPublic: true }), null);
+  assert.equal(checkPrivateLeak("anything at all", []), null);
+  assert.equal(checkPrivateLeak("", priv), null);
   assert.equal(
-    checkPrivateLeak(undefined as unknown as string, priv, { repoIsPublic: true }),
+    checkPrivateLeak(undefined as unknown as string, priv),
     null,
   );
   assert.equal(
-    checkPrivateLeak("x", undefined as unknown as string[], { repoIsPublic: true }),
+    checkPrivateLeak("x", undefined as unknown as string[]),
     null,
   );
-  assert.equal(checkPrivateLeak("Alpha Method", priv, undefined as never), null);
+});
+
+test("checkPrivateLeak denies regardless of repo visibility", () => {
+  // The dropped `{repoIsPublic}` option was always passed true and nothing
+  // available to the caller can determine a repo's visibility anyway, so the
+  // rule is now unconditional: private vault material does not leave the vault.
+  const r = checkPrivateLeak("the Alpha Method in full", ["Alpha Method"]);
+  assert.ok(r);
+  assert.match(r.deny, /outside the vault/);
 });
 
 test("checkPrivateLeak tolerates junk in the title list", () => {
   const priv = ["", "   ", "---", undefined as unknown as string, "Alpha Method"];
-  assert.equal(checkPrivateLeak("nothing here", priv, { repoIsPublic: true }), null);
-  assert.ok(checkPrivateLeak("alpha method", priv, { repoIsPublic: true }));
+  assert.equal(checkPrivateLeak("nothing here", priv), null);
+  assert.ok(checkPrivateLeak("alpha method", priv));
 });

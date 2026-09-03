@@ -94,6 +94,17 @@ export interface ConceptNote {
   domains: string[];
   backlinkCount: number;
   isStub: boolean;
+  /**
+   * "private" when ANY domain this concept appears in is private — a concept
+   * is shared across domains, so it can only be as public as its most
+   * sensitive membership. Derived in index.ts after `domains` is resolved.
+   *
+   * Load-bearing for privacy, not decoration: consumers filter on
+   * `scope === "private"` to decide whether a note may be surfaced unbidden
+   * or copied out of the vault. Concept records carried no scope at all until
+   * v1.57.2, so every one of those checks silently passed private concepts.
+   */
+  scope?: "public" | "private";
   /** Indexed retrieval key: ~6-12 word noun-phrase descriptor. Absent on un-migrated notes. */
   abstraction?: string;
   /** Outgoing wikilink display texts — the note's cue anchors (Tier B seed keys). */

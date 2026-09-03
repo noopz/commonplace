@@ -17,6 +17,8 @@ import assert from "node:assert/strict";
 import {
   runConnectionPass,
   resetIndexCache,
+  ensureRecords,
+  privateNames,
   MAX_FAILURES,
   MIN_TURN_GAP,
   INDEX_TTL_MS,
@@ -671,5 +673,84 @@ describe("runConnectionPass", () => {
     assert.ok(out);
     assert.equal(fake.status.partialIndex, true);
     assert.ok(fake.calls.some((c) => c.name === "note" && c.args[0] === "partial index"));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ensureRecords / privateNames — the deterministic loader behind the leak guard
+// ---------------------------------------------------------------------------
+
+describe("ensureRecords", () => {
+  beforeEach(() => resetIndexCache());
+
+  const CONCEPTS = '{"name":"Gamma Term","path":"c/Gamma Term.md","scope":"private"}\n';
+  const SOURCES = '{"title":"Acme Report","path":"s/Acme Report.md","scope":"public"}\n';
+
+  function reader(log: string[], concepts = CONCEPTS, sources = SOURCES) {
+    return async (path: string): Promise<ReadResult> => {
+      log.push(path);
+      return { content: path.includes("concept") ? concepts : sources };
+    };
+  }
+
+  test("reads both indexes once and serves the rest from cache", async () => {
+    const log: string[] = [];
+    const first = await ensureRecords("/v", reader(log), () => 1000);
+    assert.equal(first.length, 2);
+    assert.equal(log.length, 2);
+
+    // Same vault, inside the TTL: no further reads. This is the property the
+    // leak guard depends on — it runs on every Write outside the vault.
+    const second = await ensureRecords("/v", reader(log), () => 1000 + INDEX_TTL_MS - 1);
+    assert.equal(log.length, 2);
+    assert.deepEqual(second, first);
+  });
+
+  test("re-reads once the TTL lapses and when the vault changes", async () => {
+    const log: string[] = [];
+    await ensureRecords("/v", reader(log), () => 1000);
+    await ensureRecords("/v", reader(log), () => 1000 + INDEX_TTL_MS + 1);
+    assert.equal(log.length, 4);
+    await ensureRecords("/other", reader(log), () => 1000 + INDEX_TTL_MS + 1);
+    assert.equal(log.length, 6);
+  });
+
+  test("returns [] rather than throwing on an empty path, empty index, or a throwing reader", async () => {
+    // A guard that throws would block a legitimate Write, so every failure
+    // here has to be silence, not an exception.
+    assert.deepEqual(await ensureRecords("", reader([]), () => 1), []);
+    assert.deepEqual(await ensureRecords("/v", reader([], "", ""), () => 1), []);
+    assert.deepEqual(
+      await ensureRecords("/v", async () => { throw new Error("no"); }, () => 1),
+      [],
+    );
+  });
+
+  test("a failed load does not poison the cache", async () => {
+    const log: string[] = [];
+    await ensureRecords("/v", async () => { throw new Error("no"); }, () => 1000);
+    const recovered = await ensureRecords("/v", reader(log), () => 1000);
+    assert.equal(recovered.length, 2);
+  });
+});
+
+describe("privateNames", () => {
+  test("returns private source titles AND private concept names", () => {
+    // Concept records carried no scope at all before v1.57.2, so this used to
+    // return source titles only — while the rule it serves is about concept
+    // names specifically.
+    assert.deepEqual(
+      privateNames([
+        { title: "Acme Report", scope: "private" },
+        { name: "Gamma Term", scope: "private" },
+        { title: "Public Paper", scope: "public" },
+        { name: "Open Term" },
+      ]),
+      ["Acme Report", "Gamma Term"],
+    );
+  });
+
+  test("drops records whose title and name are both missing", () => {
+    assert.deepEqual(privateNames([{ scope: "private" }, { scope: "private", title: "" }]), []);
   });
 });

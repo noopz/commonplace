@@ -1,10 +1,10 @@
 /**
- * Tests for the pure seeding/judging helpers of the function-hooks module.
+ * Tests for `seed.ts` and `status.ts` — the pure seeding/judging helpers and
+ * the status-band renderer.
  *
- * The hook body itself needs a live `$` and a terminal surface, so it is not
- * unit-testable here — what IS testable is every decision that determines
- * whether a candidate ever costs a model call, which is where the behaviour
- * (and the cost) actually lives.
+ * (This was `hooks/register.test.ts`, which never tested `register.ts` at all.
+ * The hook body needs a live `$` and a terminal surface; the logic it used to
+ * hold now lives in `pipeline.ts` and is tested there against fake ports.)
  *
  * FIXTURES ARE INVENTED. Per CLAUDE.md: this repo is public, so no note title,
  * concept name, domain slug or body text may come from a real vault.
@@ -13,7 +13,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { statusLine } from "./lib/status.ts";
+import { statusLine } from "./status.ts";
 import {
   tokenize,
   parseJsonl,
@@ -24,7 +24,7 @@ import {
   parseVerdict,
   renderConnection,
   isSurfaceable,
-} from "./lib/seed.ts";
+} from "./seed.ts";
 
 test("tokenize keeps significant words and drops stopwords and short words", () => {
   const t = tokenize("The Alpha Method was used for a big gamma calibration.");

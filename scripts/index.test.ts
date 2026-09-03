@@ -78,3 +78,50 @@ test("index run on a linkless vault emits records without hub/authority keys", (
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("concept records carry a scope derived from their domains", () => {
+  // Concept records had no `scope` field at all until v1.57.2, so every
+  // downstream `scope === "private"` check — ambient surfacing, the
+  // private-leak guard, the vault_search caution — silently passed private
+  // concepts through. Two of those rules are stated in terms of concept NAMES
+  // specifically, so the omission defeated their purpose entirely.
+  const root = mkdtempSync(join(tmpdir(), "index-scope-vault-"));
+  try {
+    mkdirSync(join(root, ".wiki"), { recursive: true });
+    writeFileSync(join(root, ".wiki", "config.json"), JSON.stringify({
+      structure: { sources: "02 - Research", concepts: "03 - Concepts", mocs: "05 - MOCs" },
+      stubPattern: "Definition pending",
+      mocCountPattern: "**Papers:** N",
+    }, null, 2) + "\n");
+    writeFileSync(join(root, ".wiki", "domains.json"), JSON.stringify({
+      domains: {
+        alpha: { path: "02 - Research/Alpha", scope: "public" },
+        delta: { path: "02 - Research/Delta", scope: "private" },
+      },
+    }, null, 2));
+    mkdirSync(join(root, "02 - Research", "Alpha"), { recursive: true });
+    mkdirSync(join(root, "02 - Research", "Delta"), { recursive: true });
+    mkdirSync(join(root, "03 - Concepts"), { recursive: true });
+
+    writeFileSync(join(root, "02 - Research", "Alpha", "Acme Report.md"),
+      "---\ntags: [paper]\ncreated: '2026-01-01'\n---\n\n# Acme Report\n\nUses [[Gamma Term]].\n");
+    writeFileSync(join(root, "02 - Research", "Delta", "Delta Ledger.md"),
+      "---\ntags: [paper]\ncreated: '2026-01-01'\n---\n\n# Delta Ledger\n\nUses [[Omega Measure]] and [[Gamma Term]].\n");
+    writeFileSync(join(root, "03 - Concepts", "Gamma Term.md"),
+      "---\ntags: [concept]\ncreated: '2026-01-01'\n---\n\n# Gamma Term\n\nA real definition here.\n");
+    writeFileSync(join(root, "03 - Concepts", "Omega Measure.md"),
+      "---\ntags: [concept]\ncreated: '2026-01-01'\n---\n\n# Omega Measure\n\nA real definition here.\n");
+
+    execFileSync(process.execPath, ["--import", "tsx", CLI, "--vault", root], { encoding: "utf-8" });
+    const concepts = records(root, "concept-index.jsonl");
+    const byName = Object.fromEntries(concepts.map((c) => [c.name, c]));
+
+    // Referenced only from a private domain.
+    assert.equal(byName["Omega Measure"].scope, "private");
+    // Referenced from BOTH: a concept is only as public as its most sensitive
+    // membership, so shared membership must not launder it back to public.
+    assert.equal(byName["Gamma Term"].scope, "private");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});

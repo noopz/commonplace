@@ -38,7 +38,8 @@ export interface VaultFacts {
  * the model with: no configured vault, or an in-vault session on a vault with
  * no ingested sources (the indexes are empty, so nothing below would be true).
  *
- * Two tiers, as before:
+ * Two tiers, matching the shell hook's shape — though NOT its gating; see the
+ * note on the deleted vault-intent heuristic below:
  *
  *   - Outside the vault: one paragraph. The vault exists at <path>; route reads
  *     through wiki-query and writes through wiki-ingest rather than touching
@@ -146,52 +147,22 @@ export function mergeBlocks(
   return out;
 }
 
-// ---------------------------------------------------------------------------
-// Vault-intent heuristic. Ported verbatim from scripts/lib/vault-signals.ts so
-// it can run in the builtin-free hook sandbox; semantics are unchanged.
-// ---------------------------------------------------------------------------
-
 /*
- * Folder markers use [\\/] to match either separator so .wiki\foo on
- * Windows and .wiki/foo on POSIX both hit.
+ * VAULT_SIGNALS / vaultIntent used to live here — a port of
+ * `scripts/lib/vault-signals.ts`, which gated the OLD shell hook so it only
+ * injected context when the user's prompt mentioned the vault. It was never
+ * called from `register.ts` and is deleted rather than kept as ballast.
  *
- * Precision over recall: the same signal set gates agent-guard, which BLOCKS
- * Agent/Task dispatches, and wiki-query already auto-triggers as a skill, so a
- * missed signal costs at most one inefficient dispatch. A false positive, by
- * contrast, blocks legitimate work — including dev tasks in unrelated repos,
- * since this is a global plugin hook. So every signal here must be one that
- * effectively never appears outside a genuine vault-content question. Bare
- * words that collide with normal dev vocabulary ("vault" → HashiCorp Vault,
- * "MOC", "commonplace", bash "[[ ]]") are deliberately excluded or verb-gated.
+ * The gate is genuinely gone, and that IS a behaviour change: the
+ * outside-vault paragraph now goes into every conversation in every repo.
+ * That is an accepted trade, not an oversight. `prompt.context` builds a real
+ * context block ONCE PER CONVERSATION, where the shell hook injected
+ * transcript text on EVERY prompt — so the thing the gate protected against
+ * (repeating ~150 words at someone working in an unrelated repo) is already
+ * two orders of magnitude smaller. Gating it again would need `prompt.submit`
+ * to stash the prompt text and `$.ui.invalidate("prompt.context")` to force a
+ * rebuild, which is real ordering complexity to save one short paragraph once.
+ *
+ * If the block ever grows back toward its original size, restore the gate —
+ * `scripts/lib/vault-signals.ts` still has the regexes and their rationale.
  */
-export const VAULT_SIGNALS: readonly RegExp[] = [
-  // wiki-* skill / agent names — unambiguous vault tooling.
-  /\bwiki-(query|ingest|domain|compile|deep-linker|moc-updater|linter|pruner|freshness-checker|domain-manager|conventions-tuner|cross-domain-linker|impact-checker)\b/i,
-  // commonplace CLI invocation — require a known subcommand; the bare project
-  // name matched far too much (esp. when developing commonplace itself).
-  /\bcommonplace\s+(query|ingest|index|lint|validate|scope-check|score|prune|init|post-write|raw|freshen|deep-link|log|supersede|vault-path|config|paper:)/i,
-  // Obsidian-specific phrasing only — generic "the/my vault" hit HashiCorp Vault.
-  /\bobsidian\s+vault\b/i,
-  /\b(concept|source|MOC)\s+note\b/i,
-  /\bmy\s+notes\s+(on|about|say)\b/i,
-  /\.wiki[\\/]/,
-  /\.obsidian[\\/]/,
-  // [[Wikilink]] syntax. The (?!\s) lookahead rejects a bash `[[ -f x ]]` test,
-  // which always has whitespace after the brackets; real wikilinks never do.
-  /\[\[(?!\s)[^\[\]\n]+\]\]/,
-];
-
-/**
- * True when `text` carries an explicit vault signal, or mentions one of the
- * registered vault paths (separator- and case-insensitive, so a Windows path
- * pasted into a prompt still matches its registry entry).
- */
-export function vaultIntent(text: string, vaultPaths: string[]): boolean {
-  if (VAULT_SIGNALS.some((re) => re.test(text))) return true;
-  if (vaultPaths.length > 0) {
-    const norm = (s: string) => s.replace(/\\/g, "/").toLowerCase();
-    const t = norm(text);
-    if (vaultPaths.some((p) => p && t.includes(norm(p)))) return true;
-  }
-  return false;
-}

@@ -40,7 +40,7 @@
  */
 
 import { parseJsonl } from "./lib/seed.js";
-import { runConnectionPass, cachedRecords } from "./lib/pipeline.js";
+import { runConnectionPass, ensureRecords, privateNames } from "./lib/pipeline.js";
 import { statusLine, type Status } from "./lib/status.js";
 import { buildVaultBlock, mergeBlocks } from "./lib/context.js";
 import { checkBashCommand, checkPrivateLeak } from "./lib/guard.js";
@@ -159,30 +159,36 @@ export const register = (on: any) => {
         const vaultPath = String(
           (await $.store.get(`connect:vaultPath:${projectDir}`)) ?? "",
         );
-        // Writing inside the vault is the whole point of the vault.
-        if (!vaultPath || target.startsWith(vaultPath)) return next(e);
+        // Writing inside the vault is the whole point of the vault. The
+        // trailing separator matters: without it a sibling vault directory
+        // (`/Users/x/Vault2`) is exempted by a vault at `/Users/x/Vault`.
+        if (!vaultPath || target.startsWith(`${vaultPath}/`)) return next(e);
 
         const repo = await $.session.repo();
         if (!repo) return next(e);
 
-        // Either cache may be the warm one: this module's is filled by the
-        // vault tools, the pipeline's by the connection pass. Neither loads
-        // here — blocking a Write on index I/O to enforce a heuristic is a bad
-        // trade, so before either has run the guard is simply inert.
-        const known =
-          indexCache.vaultPath === vaultPath
-            ? indexCache.records
-            : cachedRecords(vaultPath);
-        if (known.length === 0) return next(e);
-        const privateTitles = known
-          .filter((r) => r.scope === "private")
-          .map((r) => String(r.title ?? r.name ?? ""))
-          .filter(Boolean);
-        if (privateTitles.length === 0) return next(e);
+        // Load rather than peek at whatever cache happens to be warm. Reading
+        // the cache opportunistically made this guard NONDETERMINISTIC — the
+        // same Write allowed at 10:00 and denied at 10:05 once another hook had
+        // filled it — which is the worst property a global deny can have. The
+        // read is ~15ms and cached for two minutes.
+        const records = await ensureRecords(
+          vaultPath,
+          async (path: string) => {
+            const res = await $.tool.call({ tool: "Read", file_path: path });
+            const file = res?.result?.file ?? {};
+            return {
+              content: String(file.content ?? ""),
+              numLines: file.numLines,
+              totalLines: file.totalLines,
+            };
+          },
+          () => $.clock.now(),
+        );
+        const names = privateNames(records);
+        if (names.length === 0) return next(e);
 
-        const verdict = checkPrivateLeak(text, privateTitles, {
-          repoIsPublic: true,
-        });
+        const verdict = checkPrivateLeak(text, names);
         if (verdict) return verdict;
       } catch {
         /* a broken guard must never block a write */
@@ -284,8 +290,13 @@ export const register = (on: any) => {
    * after the model has already composed a vault-shaped prompt — a post-hoc
    * refusal over a regex, which over-fires often enough that it needed the
    * `ALLOW_VAULT_AGENT` escape hatch. Amending the tool's own description
-   * steers before the wrong dispatch is composed, which is the cheaper fix:
-   * nothing to escape from, because nothing is blocked.
+   * steers before the wrong dispatch is composed, which is the cheaper fix.
+   *
+   * This does NOT replace the shell guard — both are live, and agent-guard
+   * still denies (the handbook's flag-no-op rule applies to hooks the module
+   * has taken over, and steering is not enforcement). Removing the guard is a
+   * separate decision that wants evidence the steer works; until then, expect
+   * `ALLOW_VAULT_AGENT` to still be needed.
    *
    * Deliberately additive. The engine caches rendered schemas for the session,
    * so this costs one string concatenation per session, not per call.
@@ -319,7 +330,13 @@ export const register = (on: any) => {
     const built = await next(e);
     try {
       const skill = String(e?.skill ?? "");
-      if (!skill.startsWith("wiki-") && skill !== "autoimprove") return built;
+      // `includes`, not `startsWith`: it is not established whether a plugin
+      // skill arrives bare (`wiki-query`) or namespaced
+      // (`commonplace:wiki-query`). Under `startsWith` the namespaced form
+      // never matches and this hook is silently inert — a failure with no
+      // symptom. Verify the real shape when the API is documented, then
+      // tighten. `wiki-` is distinctive enough that the loose match is safe.
+      if (!skill.includes("wiki-") && !skill.includes("autoimprove")) return built;
 
       const projectDir = await $.session.cwd();
       const vaultPath = String(
@@ -361,32 +378,51 @@ export const register = (on: any) => {
       const vaultKey = `connect:vaultPath:${projectDir}`;
       let vaultPath = String((await $.store.get(vaultKey)) ?? "");
       if (!vaultPath) {
+        // NEGATIVE CACHE. This hook runs before the first model turn, and
+        // resolving the vault costs a 7.3s subprocess. Without remembering a
+        // failure, a machine with no vault configured pays that on the first
+        // prompt of EVERY conversation, forever — the worst-placed 7 seconds
+        // in the product. An hour is long enough to stop being felt and short
+        // enough that `commonplace init` takes effect the same working session.
+        const missKey = `connect:noVault:${projectDir}`;
+        const missAt = Number((await $.store.get(missKey)) ?? 0);
+        if (missAt && $.clock.now() - missAt < 3_600_000) return built;
+
         const res = await $.tool.call({
           tool: "Bash",
           command: "commonplace vault-path",
         });
         vaultPath = String(res?.result?.stdout ?? "").trim();
         if (vaultPath) await $.store.set(vaultKey, vaultPath);
+        else await $.store.set(missKey, $.clock.now());
       }
       if (!vaultPath) return built;
 
-      // Counting lines is all the old hook did with these, and Read gives us
-      // that for ~15ms each instead of a process spawn.
+      const inVault = projectDir.startsWith(`${vaultPath}/`) || projectDir === vaultPath;
+
+      // Counts are only rendered for the in-vault block, so outside the vault
+      // this skips three whole-index reads whose result was discarded.
+      //
+      // `totalLines` rather than counting parsed records: Read caps at 2000
+      // lines, so a 3000-concept vault used to report "2000 concepts" — a
+      // wrong number stated confidently, which is worse than no number.
       const readCount = async (name: string) => {
         const res = await $.tool.call({
           tool: "Read",
           file_path: `${vaultPath}/.wiki/${name}`,
         });
-        return parseJsonl(String(res?.result?.file?.content ?? "")).length;
+        const file = res?.result?.file ?? {};
+        const total = Number(file.totalLines ?? 0);
+        return total || parseJsonl(String(file.content ?? "")).length;
       };
-      const sources = await readCount("source-index.jsonl");
-      const concepts = await readCount("concept-index.jsonl");
-      const mocs = await readCount("moc-index.jsonl");
+      const sources = inVault ? await readCount("source-index.jsonl") : 0;
+      const concepts = inVault ? await readCount("concept-index.jsonl") : 0;
+      const mocs = inVault ? await readCount("moc-index.jsonl") : 0;
 
       // Untuned genres are actionable state: genre-aware lint checks do not
       // apply until rules exist, and nothing else surfaces that.
       let untunedGenres: string[] = [];
-      try {
+      if (inVault) try {
         const convRes = await $.tool.call({
           tool: "Read",
           file_path: `${vaultPath}/.wiki/conventions.json`,
@@ -400,7 +436,6 @@ export const register = (on: any) => {
         /* conventions.json not written yet; not an error */
       }
 
-      const inVault = projectDir.startsWith(vaultPath);
       const block = buildVaultBlock({
         vaultPath,
         inVault,
@@ -452,17 +487,18 @@ export const register = (on: any) => {
     // Props are a strict allowlist (BoxProps / TextProps) and ONE bad prop
     // fails the whole tree — at which point the engine silently draws its own
     // component instead. No `key` anywhere: only Button accepts one.
+    const ours = {
+      type: "Text",
+      props: { color: line.color, dimColor: line.dim, wrap: "truncate-end" },
+      children: [line.text],
+    };
+    // `base` may be null when nothing beneath renders. A null in `children`
+    // fails the tree's validation, and a failed tree draws NOTHING — so the
+    // band would vanish in exactly the case where it is the only content.
     return {
       type: "Box",
       props: { flexDirection: "column" },
-      children: [
-        base,
-        {
-          type: "Text",
-          props: { color: line.color, dimColor: line.dim, wrap: "truncate-end" },
-          children: [line.text],
-        },
-      ],
+      children: base ? [base, ours] : [ours],
     };
   });
 

@@ -209,7 +209,10 @@ export function mentionsVaultJson(text: string): boolean {
   const t = String(text ?? "");
   if (/\.wiki\/[^\s'"|;&)]*\.jsonl?\b/.test(t)) return true;
   if (/\b(source|concept|moc|domain|backlink)-index\.jsonl\b/.test(t)) return true;
-  if (/\bvaults\.json\b/.test(t)) return true;
+  // The vault registry lives under CLAUDE_PLUGIN_DATA, so require that
+  // context. A bare `jq . vaults.json` in a HashiCorp or gamedev repo is a
+  // different file entirely and none of this guard's business.
+  if (/(CLAUDE_PLUGIN_DATA|commonplace)[^\s'"|;&)]*\/vaults\.json\b/.test(t)) return true;
   return false;
 }
 
@@ -218,27 +221,28 @@ function isCommonplaceJsonStage(stage: string): boolean {
   return firstCommandWord(stage) === "commonplace" && /(^|\s)--json(\s|$)/.test(stage);
 }
 
-/**
- * Basenames under the plugin's `scripts/` that have a `commonplace` verb.
- * Used to recognise a bare `npx tsx scripts/lint.ts` as a plugin script
- * without knowing the cwd. Kept as a list, not a wildcard, so a foreign repo's
- * `npx tsx scripts/migrate.ts` is untouched.
+/*
+ * There used to be a PLUGIN_SCRIPTS basename allowlist here, so that a bare
+ * `npx tsx scripts/lint.ts` was recognised as a plugin script without knowing
+ * the cwd. It was removed: this hook is GLOBAL, and the list contained
+ * `seed`, `index`, `init`, `lint`, `validate` and `log` — so it denied
+ * `npx tsx scripts/seed.ts` in every Prisma or Drizzle project on the machine.
+ * A guard that blocks unrelated repos' ordinary work is worse than a guard
+ * that occasionally misses.
+ *
+ * It was also wrong for the one repo it targeted: inside commonplace itself,
+ * running `npx tsx scripts/<name>.ts` by hand is the only way to exercise
+ * UNCOMMITTED script code, because the `commonplace` bin runs the installed
+ * plugin's copy. Only an explicit plugin path is denied now.
  */
-export const PLUGIN_SCRIPTS = new Set([
-  "abstract", "agent-guard", "cleanup-cache", "connect", "cross-domain",
-  "deep-link", "detect-structure", "discover-genres", "freshen", "hub-score",
-  "impact", "index", "init", "link", "lint", "log", "moc-sync", "post-write",
-  "post-write-research", "prompt-context", "prune", "raw", "scope-check",
-  "seed", "supersede", "validate", "vault-score", "vaults",
-]);
 
 /**
  * A stage that runs one of the plugin's TypeScript scripts by hand instead of
  * through the `commonplace` CLI. Matches `npx tsx`, `tsx`, `node`, `bun`,
- * `deno run` against a `scripts/<name>.ts` path that is either visibly inside
- * the plugin (`commonplace/scripts/`, `${CLAUDE_PLUGIN_ROOT}/scripts/`) or has
- * a known plugin script basename. Test runs (`--test`, `*.test.ts`) are the
- * legitimate way to exercise those files and are never denied.
+ * `deno run` against a `scripts/<name>.ts` path that is visibly inside
+ * the plugin (`commonplace/scripts/`, `${CLAUDE_PLUGIN_ROOT}/scripts/`) —
+ * an explicit plugin path. Test runs (`--test`, `*.test.ts`) are the legitimate
+ * way to exercise those files and are never denied.
  */
 export function manualScriptPath(stage: string): string | null {
   const s = String(stage ?? "").trim();
@@ -253,9 +257,7 @@ export function manualScriptPath(stage: string): string | null {
   if (!m) return null;
   const [, path, base] = m;
   if (base.endsWith(".test")) return null;
-  const inPlugin = /commonplace\/|CLAUDE_PLUGIN_ROOT/.test(path);
-  if (inPlugin || PLUGIN_SCRIPTS.has(base)) return path;
-  return null;
+  return /commonplace\/|CLAUDE_PLUGIN_ROOT/.test(path) ? path : null;
 }
 
 /**
@@ -402,28 +404,32 @@ export function findPrivateMatches(text: string, privateTitles: string[]): strin
 }
 
 /**
- * Deny a write whose text reproduces private-domain vault material, when the
- * destination repo is public. Returns null when the repo is private — the
- * rule is about leakage, not about private notes being mentioned at all.
+ * Deny a write whose text reproduces private-domain vault material.
  *
- * `privateTitles` is the caller's concern: titles and concept names from
- * every `scope: "private"` domain in `.wiki/domains.json`. This function
- * only decides whether the text contains them; see `findPrivateMatches` for
- * the matching rule and its limits.
+ * There was a `{repoIsPublic}` option here; it was always passed `true` and
+ * the private-repo branch was dead. Nothing available to the caller can
+ * actually determine a repo's visibility — `$.session.repo().internal` means
+ * "a repo this build treats as its own", which a private personal repo is
+ * not — so the rule enforced is the one that holds either way: private vault
+ * material belongs in the vault, and copying it into a code repository is
+ * suspect regardless of who can read that repository.
+ *
+ * `privateTitles` is the caller's concern: source titles AND concept names
+ * from every `scope: "private"` domain. This function only decides whether
+ * the text contains them; see `findPrivateMatches` for the matching rule and
+ * its limits.
  */
 export function checkPrivateLeak(
   text: string,
   privateTitles: string[],
-  opts: { repoIsPublic: boolean },
 ): { deny: string } | null {
-  if (!opts?.repoIsPublic) return null;
   const hits = findPrivateMatches(text, privateTitles);
   if (hits.length === 0) return null;
   const shown = hits.slice(0, 3).map((h) => `"${h}"`).join(", ");
   const more = hits.length > 3 ? ` (+${hits.length - 3} more)` : "";
   return {
     deny:
-      `This repo is public and the text reproduces private vault material: ${shown}${more}. ` +
+      `This write reproduces private vault material outside the vault: ${shown}${more}. ` +
       `Invent fixtures and examples instead (\`Alpha Method\`, \`Gamma Term\`, domains \`alpha\`/\`gamma\`) — ` +
       `see CLAUDE.md, "Test fixtures must be invented".`,
   };

@@ -125,7 +125,7 @@ Command hooks (shell subprocesses) don't inherit the Bash tool PATH, so they use
 
 All commands auto-discover the vault via cwd (`.obsidian/` or `.wiki/` marker) or `.vault-path` fallback. The `--vault <path>` flag is optional — only needed for `init` or when overriding auto-discovery.
 
-- `commonplace vault-path` — Print the configured vault path (no tsx spawn, instant)
+- `commonplace vault-path` — Print the configured vault path (no tsx spawn, instant). "Instant" is the script itself; reaching it from an in-process hook via `$.tool.call({tool:"Bash"})` measured **7.3s** of tool + shell overhead, which is why the hooks cache the resolved path rather than re-asking.
 - `commonplace vaults [--match "<phrase>"] [--json]` — List registered vaults, or match one by name (used by wiki-query to resolve "search in <name>")
 - `commonplace config` — Print `.wiki/config.json` contents (no tsx spawn, instant)
 - `commonplace index [--incremental]` — Build/update `.wiki/*.jsonl` indexes: `source-index`, `concept-index`, `moc-index`, `domain-index`, `backlink-index` (human-readable output by default)

@@ -313,6 +313,13 @@ export async function runConnectionPass(
           lastError: "no records parsed from .wiki indexes",
           paused: failures + 1 >= MAX_FAILURES,
         });
+        // Forget the cached path. The overwhelmingly likely cause of a vault
+        // whose indexes cannot be read is that it MOVED — a rename, or a
+        // `commonplace init` pointing somewhere new. Nothing else ever cleared
+        // this key, so a stale path meant three failures and a permanently
+        // paused band in every session from then on, with no way back short of
+        // wiping the store. Clearing it costs one re-resolution.
+        await ports.setState(vaultKey, "");
         await ports.setState(SESSION_KEY, { ...state, failures: failures + 1 });
         return null;
       }
@@ -333,7 +340,12 @@ export async function runConnectionPass(
       (c) => !seen.includes(c.path),
     );
     if (candidates.length === 0) {
-      ports.note("no candidates");
+      // Deliberately does NOT raise the band. The band is a receipt for the
+      // vault having been consulted usefully; a free lexical miss is the
+      // common case on any long technical answer, and showing
+      // "last: no candidates" on most turns is exactly the furniture the
+      // receipt design exists to avoid. Record the outcome without raising.
+      ports.note("no candidates", { visible: ports.status().visible });
       return null;
     }
 
@@ -456,4 +468,57 @@ export async function runConnectionPass(
  */
 export function cachedRecords(vaultPath: string): Record<string, unknown>[] {
   return indexCache.vaultPath === vaultPath ? indexCache.records : [];
+}
+
+/**
+ * Load (or reuse) the parsed indexes for a vault, filling the shared cache.
+ *
+ * Exists so the private-leak guard is DETERMINISTIC. It previously read
+ * whatever the cache happened to hold, which meant the same Write was allowed
+ * at 10:00 and denied at 10:05 once some other hook had warmed it — the worst
+ * property a global deny can have. A ~15ms Read, cached for INDEX_TTL_MS, buys
+ * consistency cheaply.
+ *
+ * Returns [] on any failure. Callers that need failure *counted* against the
+ * circuit breaker (the connection pass) keep their own handling; this one is
+ * for callers where an unreadable index simply means "no opinion".
+ */
+export async function ensureRecords(
+  vaultPath: string,
+  readFile: (path: string) => Promise<ReadResult>,
+  now: () => number,
+): Promise<Record<string, unknown>[]> {
+  if (!vaultPath) return [];
+  if (indexCache.vaultPath === vaultPath && now() - indexCache.at <= INDEX_TTL_MS) {
+    return indexCache.records;
+  }
+  try {
+    const conceptFile = await readFile(`${vaultPath}/.wiki/concept-index.jsonl`);
+    const sourceFile = await readFile(`${vaultPath}/.wiki/source-index.jsonl`);
+    const parsed = [
+      ...parseJsonl(String(conceptFile?.content ?? "")),
+      ...parseJsonl(String(sourceFile?.content ?? "")),
+    ];
+    if (parsed.length === 0) return [];
+    indexCache = { vaultPath, at: now(), records: parsed };
+    return parsed;
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Names that must not be copied out of the vault: every source title and
+ * concept name in a `scope: private` domain.
+ *
+ * Concept records carried no `scope` field at all before v1.57.2, so this
+ * returned source titles only — while the rule it serves (CLAUDE.md, "test
+ * fixtures must be invented") is stated in terms of concept NAMES. Keep
+ * `r.name` in the mapping.
+ */
+export function privateNames(records: Record<string, unknown>[]): string[] {
+  return records
+    .filter((r) => r.scope === "private")
+    .map((r) => String(r.title ?? r.name ?? ""))
+    .filter(Boolean);
 }
