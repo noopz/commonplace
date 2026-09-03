@@ -442,3 +442,18 @@ export async function runConnectionPass(
     return null;
   }
 }
+
+/**
+ * The parsed index records currently cached for `vaultPath`, or an empty array
+ * when the cache holds a different vault (or nothing yet).
+ *
+ * Exists so the private-leak guard in `register.ts` can consult the same cache
+ * this pass populates instead of keeping a second one. It deliberately never
+ * loads: the guard runs on the critical path of a Write, and blocking a write
+ * on index I/O to enforce a heuristic is a bad trade. Before the first
+ * connection pass of a session this returns nothing and the guard is inert —
+ * an accepted gap, documented at the call site.
+ */
+export function cachedRecords(vaultPath: string): Record<string, unknown>[] {
+  return indexCache.vaultPath === vaultPath ? indexCache.records : [];
+}
