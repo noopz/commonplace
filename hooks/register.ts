@@ -223,6 +223,73 @@ export const register = (on: any) => {
   });
 
   /**
+   * Steer vault research away from ad-hoc subagents, at the point of decision.
+   *
+   * `scripts/agent-guard.ts` handles this today by DENYING an Agent dispatch
+   * after the model has already composed a vault-shaped prompt — a post-hoc
+   * refusal over a regex, which over-fires often enough that it needed the
+   * `ALLOW_VAULT_AGENT` escape hatch. Amending the tool's own description
+   * steers before the wrong dispatch is composed, which is the cheaper fix:
+   * nothing to escape from, because nothing is blocked.
+   *
+   * Deliberately additive. The engine caches rendered schemas for the session,
+   * so this costs one string concatenation per session, not per call.
+   */
+  on("tool.describe", { tool: "Agent" }, async ($: any, e: any, next: any) => {
+    const built = await next(e);
+    try {
+      return {
+        description:
+          `${built.description}\n\n` +
+          "For the user's commonplace knowledge vault, do NOT dispatch a " +
+          "general-purpose agent to search it: call mcp__commonplace__vault_search " +
+          "for pointers and mcp__commonplace__vault_note to read one, or use the " +
+          "wiki-query skill for a question needing iterative search and graph " +
+          "traversal. Dispatching agents to edit many notes in parallel is still " +
+          "a legitimate use of this tool.",
+      };
+    } catch {
+      return built;
+    }
+  });
+
+  /**
+   * Give the vault skills their live state instead of making them fetch it.
+   *
+   * Every wiki-* skill opens by resolving the vault path and reading config,
+   * which is a round-trip the plugin can simply answer — and a class of bug
+   * ("the skill forgot to resolve the vault") that then cannot happen.
+   */
+  on("skill.prompt", async ($: any, e: any, next: any) => {
+    const built = await next(e);
+    try {
+      const skill = String(e?.skill ?? "");
+      if (!skill.startsWith("wiki-") && skill !== "autoimprove") return built;
+
+      const projectDir = await $.session.cwd();
+      const vaultPath = String(
+        (await $.store.get(`connect:vaultPath:${projectDir}`)) ?? "",
+      );
+      if (!vaultPath) return built;
+
+      const counts =
+        indexCache.vaultPath === vaultPath && indexCache.records.length > 0
+          ? ` It currently holds ${indexCache.records.length} indexed notes.`
+          : "";
+
+      return {
+        text:
+          `The commonplace vault for this session is at ${vaultPath}.${counts} ` +
+          "It is already resolved — do not run `commonplace vault-path` or " +
+          "search for it.\n\n" +
+          built.text,
+      };
+    } catch {
+      return built;
+    }
+  });
+
+  /**
    * The vault's orienting block on the conversation's first user message.
    *
    * Replaces `scripts/prompt-context.ts`, a shell hook wired to
