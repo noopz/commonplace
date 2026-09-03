@@ -300,9 +300,24 @@ export const register = (on: any) => {
           file_path: `${vaultPath}/.wiki/source-index.jsonl`,
         });
 
-        // Read caps at 2000 lines. A vault larger than that yields a partial
-        // index — still usable (we only need candidates, not completeness),
-        // but say so once rather than degrading silently.
+        // SCALING CEILING — the whole-index read has a hard limit.
+        //
+        // Read caps at 2000 LINES, and the indexes are one line per note, so
+        // this wall arrives at ~2000 concepts and ~2000 sources. Long records
+        // are NOT a problem: Read returns them whole (verified against a
+        // 2737-char record), so `parseJsonl` never sees a torn line from the
+        // reader — only from a genuinely partial write.
+        //
+        // When a vault does cross the cap, the fix is not a bigger read: it is
+        // to stop reading the whole index at all and switch this block to
+        // `$.tool.call({tool: "Grep"})` against the indexes, using the turn's
+        // top tokens as the pattern, pulling back only matching records. That
+        // scales indefinitely and stays inside the doctrine — grepping an
+        // index to FIND candidates is exactly what `commonplace seed` does;
+        // the judgment still comes from reading the note below.
+        //
+        // Until then, a partial index is degraded but honest: we only ever
+        // needed candidates, not completeness. Say so rather than go quiet.
         const conceptFile = conceptRes?.result?.file ?? {};
         const sourceFile = sourceRes?.result?.file ?? {};
         if (
@@ -310,8 +325,9 @@ export const register = (on: any) => {
           Number(sourceFile.numLines ?? 0) < Number(sourceFile.totalLines ?? 0)
         ) {
           $.ui.log(
-            "commonplace: vault index exceeds the Read line cap; " +
-              "connection surfacing is seeing a partial index.",
+            "commonplace: the vault index has outgrown the Read line cap, so " +
+              "connection surfacing is seeing only part of it. Switch the index " +
+              "load in hooks/register.ts from Read to a token-targeted Grep.",
           );
         }
 
