@@ -124,12 +124,15 @@ export function stripDataHeredocs(command: string): string {
     const terminator = m[2];
     const firstWord = firstCommandWord(line.split("|").pop() ?? line);
     const isProgram = INTERPRETER.test(firstWord);
-    // Skip to the terminator; keep the body only when it is a program.
+    // Skip to the terminator. A program body is folded onto the command line
+    // so the pipeline splitter sees it as part of the interpreter's stage.
     let j = i + 1;
+    const body: string[] = [];
     while (j < lines.length && lines[j].trim() !== terminator) {
-      if (isProgram) out.push(lines[j]);
+      if (isProgram) body.push(lines[j]);
       j++;
     }
+    if (isProgram && body.length) out[out.length - 1] += " " + body.join(" ");
     i = j;
   }
   return out.join("\n");
@@ -149,11 +152,20 @@ const WRAPPERS = new Set(["sudo", "command", "time", "env", "exec", "nohup", "bu
 /** The program a stage actually runs, past `VAR=x` assignments and wrappers. */
 export function firstCommandWord(stage: string): string {
   const words = String(stage ?? "").trim().split(/\s+/);
-  for (const w of words) {
+  let inWrapper = false;
+  for (let i = 0; i < words.length; i++) {
+    const w = words[i];
     if (!w) continue;
     if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(w)) continue;
-    if (WRAPPERS.has(w)) continue;
-    if (w.startsWith("-") && WRAPPERS.has(words[0])) continue; // `env -i`, `sudo -u x`
+    if (WRAPPERS.has(w)) {
+      inWrapper = true;
+      continue;
+    }
+    if (inWrapper && w.startsWith("-")) {
+      // `sudo -u alpha`, `env -C dir`: these flags consume the next word.
+      if (/^-(u|g|C|S)$/.test(w)) i++;
+      continue;
+    }
     return w.replace(/^.*\//, ""); // basename: /usr/bin/python3 → python3
   }
   return "";

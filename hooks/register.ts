@@ -49,6 +49,7 @@ import {
 } from "./lib/seed.js";
 import { statusLine, type Status } from "./lib/status.js";
 import { buildVaultBlock, mergeBlocks } from "./lib/context.js";
+import { checkBashCommand, checkPrivateLeak } from "./lib/guard.js";
 import {
   VAULT_SEARCH_SPEC,
   VAULT_NOTE_SPEC,
@@ -128,14 +129,79 @@ export const register = (on: any) => {
   });
 
   /**
-   * Answer the vault tools.
+   * Enforce the two CLAUDE.md rules that a model keeps breaking.
    *
-   * Both are matched on their full `mcp__<plugin>__<name>` names. A registered
-   * tool whose call no hook answers fails saying so, so this handler and the
-   * specs above must stay in step.
+   * Both exist as prose precisely BECAUSE they are violated often, and prose
+   * has never stopped a violation. A deny with the correct path in its reason
+   * turns each into a mechanism.
+   *
+   * Deliberately conservative: this hook is global, so a false positive blocks
+   * real work in an unrelated repo. See lib/guard.ts for the matching rules
+   * and their documented failure modes.
+   */
+  on("tool.call", { tool: "Bash" }, async ($: any, e: any, next: any) => {
+    try {
+      const verdict = checkBashCommand(String(e?.command ?? ""));
+      if (verdict) return verdict;
+    } catch {
+      /* a broken guard must never block a command */
+    }
+    return next(e);
+  });
+
+  /**
+   * Two responsibilities, one registration: refuse to write private vault
+   * material into a repository, and answer the vault tools.
+   *
+   * NOTE on the signal: `$.session.repo().internal` means "a repository this
+   * BUILD treats as its own", which is not the same as "public" — a private
+   * personal repo is also non-internal. So the rule enforced here is the one
+   * that actually holds regardless: private-domain vault content belongs in
+   * the vault, and copying it into any code repository is suspect. That covers
+   * CLAUDE.md's "test fixtures must be invented" rule without needing to know
+   * a repo's visibility, which nothing here can determine.
    */
   on("tool.call", async ($: any, e: any, next: any) => {
-    const name = String(e?.tool ?? "");
+    const tool = String(e?.tool ?? "");
+
+    // The private-leak guard and the vault tools share one registration: the
+    // scanner allows only one matcher-less hook per event, and neither of
+    // these can use a matcher — the guard covers two tool names, and the vault
+    // tools' real names carry a plugin prefix this file cannot know.
+    if (tool === "Write" || tool === "Edit") {
+      try {
+        const target = String(e?.file_path ?? "");
+        const text = String(e?.content ?? e?.new_string ?? "");
+        if (!target || !text) return next(e);
+
+        const projectDir = await $.session.cwd();
+        const vaultPath = String(
+          (await $.store.get(`connect:vaultPath:${projectDir}`)) ?? "",
+        );
+        // Writing inside the vault is the whole point of the vault.
+        if (!vaultPath || target.startsWith(vaultPath)) return next(e);
+
+        const repo = await $.session.repo();
+        if (!repo) return next(e);
+
+        if (indexCache.vaultPath !== vaultPath) return next(e);
+        const privateTitles = indexCache.records
+          .filter((r) => r.scope === "private")
+          .map((r) => String(r.title ?? r.name ?? ""))
+          .filter(Boolean);
+        if (privateTitles.length === 0) return next(e);
+
+        const verdict = checkPrivateLeak(text, privateTitles, {
+          repoIsPublic: true,
+        });
+        if (verdict) return verdict;
+      } catch {
+        /* a broken guard must never block a write */
+      }
+      return next(e);
+    }
+
+    const name = tool;
     const isSearch = name.endsWith("__vault_search");
     const isNote = name.endsWith("__vault_note");
     if (!isSearch && !isNote) return next(e);

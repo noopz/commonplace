@@ -1,0 +1,675 @@
+/**
+ * Tests for the ambient connection-surfacing pipeline.
+ *
+ * ALL FIXTURES HERE ARE INVENTED. This repo is public: no note title, concept
+ * name, domain slug, path or body text below comes from any real vault. The
+ * placeholders (`Alpha Lattice`, `Gamma Term`, domains `alpha`/`gamma`) exist
+ * only to exercise code paths.
+ *
+ * The assertions are on the RECORDED PORT CALLS, not just on return values:
+ * the cost behaviour (which model calls happen, and when) is the thing worth
+ * locking down.
+ */
+
+import { test, describe, beforeEach } from "node:test";
+import assert from "node:assert/strict";
+
+import {
+  runConnectionPass,
+  resetIndexCache,
+  MAX_FAILURES,
+  MIN_TURN_GAP,
+  INDEX_TTL_MS,
+  SESSION_KEY,
+  VAULT_KEY_PREFIX,
+  type Ports,
+  type ReadResult,
+  type SessionState,
+} from "./pipeline.js";
+import type { Status } from "./status.js";
+
+// ---------------------------------------------------------------------------
+// Fixtures (invented)
+// ---------------------------------------------------------------------------
+
+const VAULT = "/fake/vault-alpha";
+const PROJECT = "/fake/project-alpha";
+const ALPHA_PATH = "concepts/alpha/Alpha Lattice.md";
+
+/** Long enough to clear MIN_ANSWER_CHARS and carry >= 8 significant tokens. */
+const ANSWER =
+  "The alpha lattice folding technique reshapes the gamma tensor by walking " +
+  "every vertex twice, first collapsing redundant edges and then rebalancing " +
+  "the weights so that the resulting structure keeps its diagonal symmetry " +
+  "intact. This differs from the older beta traversal, which rebalanced only " +
+  "once and therefore drifted whenever the input was sparse or irregular.";
+
+/** Long enough to clear MIN_ANSWER_CHARS but with a single distinct token. */
+const THIN_ANSWER = "aaaa ".repeat(60);
+
+/** Title tokens alpha+lattice both match the answer: 2 * 4 = 8 >= MIN_SEED_SCORE. */
+const ALPHA_RECORD = {
+  title: "Alpha Lattice",
+  path: ALPHA_PATH,
+  abstraction: "folding a lattice while preserving diagonal symmetry",
+  tags: ["alpha"],
+  authority: 0.5,
+};
+
+/** A second matchable note, for tests that need a candidate after the first is seen. */
+const ALPHA_SIBLING_RECORD = {
+  title: "Alpha Tensor Rebalancing",
+  path: "concepts/alpha/Alpha Tensor Rebalancing.md",
+  abstraction: "rebalancing weights in an alpha tensor after folding",
+  tags: ["alpha"],
+  authority: 0.3,
+};
+
+/** Shares no substantive token with ANSWER. */
+const UNRELATED_RECORD = {
+  title: "Gamma Term",
+  path: "concepts/gamma/Gamma Term.md",
+  abstraction: "an unrelated placeholder concept about quarterly ledgers",
+  tags: ["gamma"],
+  authority: 0.1,
+};
+
+const NOTE_BODY =
+  "---\ntitle: Alpha Lattice\n---\n\n" +
+  "The alpha lattice is a folding scheme that preserves diagonal symmetry by " +
+  "rebalancing after every collapse step rather than once at the end. " +
+  "Earlier experiments showed the single-pass variant drifting on sparse input.";
+
+const VERDICT = "Records the earlier drift finding that motivated double rebalancing.";
+
+function jsonl(recs: object[]): string {
+  return recs.map((r) => JSON.stringify(r)).join("\n") + "\n";
+}
+
+function initialStatus(): Status {
+  return {
+    phase: "idle",
+    sources: 0,
+    concepts: 0,
+    surfaced: 0,
+    lastOutcome: "",
+    lastError: "",
+    partialIndex: false,
+    paused: false,
+    visible: false,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Fake ports
+// ---------------------------------------------------------------------------
+
+type Call = { name: keyof Ports; args: unknown[] };
+
+type Fake = {
+  ports: Ports;
+  calls: Call[];
+  store: Map<string, unknown>;
+  /** Mutable knobs, read at call time. */
+  session: string;
+  turn: number;
+  clock: number;
+  classifyResult: string;
+  completeResult: string;
+  indexRecords: object[];
+  noteBody: string;
+  /** Port names that should throw when called. */
+  throwing: Set<keyof Ports>;
+  status: Status;
+  count(name: keyof Ports): number;
+  sessionRecord(): SessionState | undefined;
+  reset(): void;
+};
+
+function makeFake(): Fake {
+  const fake = {
+    calls: [] as Call[],
+    store: new Map<string, unknown>(),
+    session: "session-one",
+    turn: 1,
+    clock: 1_000_000,
+    classifyResult: "technical-substance",
+    completeResult: VERDICT,
+    indexRecords: [ALPHA_RECORD, UNRELATED_RECORD] as object[],
+    noteBody: NOTE_BODY,
+    throwing: new Set<keyof Ports>(),
+    status: initialStatus(),
+  } as Fake;
+
+  const rec = (name: keyof Ports, ...args: unknown[]) => {
+    fake.calls.push({ name, args });
+    if (fake.throwing.has(name)) throw new Error(`boom:${name}`);
+  };
+
+  fake.ports = {
+    sessionId: async () => {
+      rec("sessionId");
+      return fake.session;
+    },
+    turnCount: async () => {
+      rec("turnCount");
+      return fake.turn;
+    },
+    cwd: async () => {
+      rec("cwd");
+      return PROJECT;
+    },
+    getState: async (key) => {
+      rec("getState", key);
+      return fake.store.get(key);
+    },
+    setState: async (key, value) => {
+      rec("setState", key, value);
+      fake.store.set(key, value);
+    },
+    readFile: async (path): Promise<ReadResult> => {
+      rec("readFile", path);
+      if (path.endsWith("/.wiki/concept-index.jsonl")) {
+        const c = jsonl(fake.indexRecords);
+        const n = fake.indexRecords.length;
+        return { content: c, numLines: n, totalLines: n };
+      }
+      if (path.endsWith("/.wiki/source-index.jsonl")) {
+        return { content: "", numLines: 0, totalLines: 0 };
+      }
+      return { content: fake.noteBody, numLines: 5, totalLines: 5 };
+    },
+    runCommand: async (cmd) => {
+      rec("runCommand", cmd);
+      return cmd === "commonplace vault-path" ? VAULT : "";
+    },
+    classify: async (text, labels) => {
+      rec("classify", text, labels);
+      return fake.classifyResult;
+    },
+    complete: async (req) => {
+      rec("complete", req);
+      return fake.completeResult;
+    },
+    now: () => {
+      rec("now");
+      return fake.clock;
+    },
+    status: () => fake.status,
+    note: (outcome, extra = {}) => {
+      rec("note", outcome, extra);
+      fake.status = { ...fake.status, lastOutcome: outcome, visible: true, ...extra };
+    },
+  };
+
+  fake.count = (name) => fake.calls.filter((c) => c.name === name).length;
+  fake.sessionRecord = () => fake.store.get(SESSION_KEY) as SessionState | undefined;
+  fake.reset = () => {
+    fake.calls.length = 0;
+  };
+  return fake;
+}
+
+const answerInput = (answer = ANSWER) => ({ answer, reason: "answer", aborted: false });
+
+/** Names of ports that spend money or time — the ones the guards protect. */
+const EXPENSIVE: (keyof Ports)[] = ["runCommand", "readFile", "classify", "complete"];
+
+function assertNoExpensiveCalls(fake: Fake, msg?: string) {
+  for (const name of EXPENSIVE) {
+    assert.equal(fake.count(name), 0, `${msg ?? "expected no spend"}: ${name} was called`);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+describe("runConnectionPass", () => {
+  let fake: Fake;
+
+  beforeEach(() => {
+    resetIndexCache();
+    fake = makeFake();
+  });
+
+  // -- Free guards ---------------------------------------------------------
+
+  test("non-answer reasons and aborted turns touch no port at all", async () => {
+    assert.equal(
+      await runConnectionPass(fake.ports, { answer: ANSWER, reason: "tool", aborted: false }),
+      null,
+    );
+    assert.equal(
+      await runConnectionPass(fake.ports, { answer: ANSWER, reason: "answer", aborted: true }),
+      null,
+    );
+    assert.equal(fake.calls.length, 0);
+  });
+
+  test("a short answer touches no port at all", async () => {
+    assert.equal(await runConnectionPass(fake.ports, answerInput("tiny")), null);
+    assert.equal(fake.calls.length, 0);
+  });
+
+  test("the token-count guard runs before the session or vault is resolved", async () => {
+    assert.equal(await runConnectionPass(fake.ports, answerInput(THIN_ANSWER)), null);
+    // Not even sessionId: the guard is meant to be entirely free.
+    assert.equal(fake.calls.length, 0);
+  });
+
+  // -- Happy path ----------------------------------------------------------
+
+  test("full path: classify, read the note, judge, surface, bank the turn", async () => {
+    const out = await runConnectionPass(fake.ports, answerInput());
+    assert.deepEqual(out, { text: `⟡ vault · [[Alpha Lattice]] — ${VERDICT}` });
+
+    // Order of spend: vault resolve, two index reads, classify, note read, judge.
+    const spend = fake.calls
+      .filter((c) => EXPENSIVE.includes(c.name))
+      .map((c) => `${c.name}:${String(c.args[0]).split("/").pop()}`);
+    assert.deepEqual(spend, [
+      "runCommand:commonplace vault-path",
+      "readFile:concept-index.jsonl",
+      "readFile:source-index.jsonl",
+      `classify:${ANSWER.slice(0, 800).split("/").pop()}`,
+      "readFile:Alpha Lattice.md",
+      "complete:[object Object]",
+    ]);
+
+    // The judge saw the note body with frontmatter stripped.
+    const req = fake.calls.find((c) => c.name === "complete")!.args[0] as { prompt: string };
+    assert.ok(req.prompt.includes('VAULT NOTE "Alpha Lattice"'));
+    assert.ok(!req.prompt.includes("title: Alpha Lattice"));
+
+    // Vault path persisted under the project-keyed key.
+    assert.equal(fake.store.get(`${VAULT_KEY_PREFIX}${PROJECT}`), VAULT);
+
+    // Session record: correct id, turn banked, note remembered, breaker clear.
+    assert.deepEqual(fake.sessionRecord(), {
+      id: "session-one",
+      lastTurn: 1,
+      failures: 0,
+      seen: [ALPHA_PATH],
+    });
+    assert.equal(fake.status.surfaced, 1);
+    assert.equal(fake.status.lastOutcome, "surfaced a connection");
+  });
+
+  test("a cached vault path skips the 7s resolve", async () => {
+    fake.store.set(`${VAULT_KEY_PREFIX}${PROJECT}`, VAULT);
+    await runConnectionPass(fake.ports, answerInput());
+    assert.equal(fake.count("runCommand"), 0);
+    assert.equal(fake.count("complete"), 1);
+  });
+
+  // -- Circuit breaker -----------------------------------------------------
+
+  test("breaker trips after MAX_FAILURES thrown errors within one session", async () => {
+    fake.throwing.add("complete");
+
+    for (let i = 1; i <= MAX_FAILURES; i++) {
+      fake.turn = i * MIN_TURN_GAP;
+      fake.reset();
+      assert.equal(await runConnectionPass(fake.ports, answerInput()), null);
+      assert.equal(fake.count("complete"), 1, `attempt ${i} should reach the judge`);
+      const recd = fake.sessionRecord();
+      assert.equal(recd?.id, "session-one", "failure record carries the CURRENT session id");
+      assert.equal(recd?.failures, i, "failures accumulate across thrown errors");
+    }
+    assert.equal(fake.status.paused, true);
+
+    // Next turn: paused, re-announced, and nothing expensive runs.
+    fake.turn = (MAX_FAILURES + 1) * MIN_TURN_GAP;
+    fake.reset();
+    assert.equal(await runConnectionPass(fake.ports, answerInput()), null);
+    assertNoExpensiveCalls(fake, "tripped breaker must not spend");
+    assert.equal(fake.count("turnCount"), 0, "breaker check precedes the rate limit");
+    const paused = fake.calls.find((c) => c.name === "note");
+    assert.equal(paused?.args[0], "paused");
+    assert.deepEqual(paused?.args[1], { paused: true, phase: "warn" });
+  });
+
+  test("breaker does not trip when the errors span different session ids", async () => {
+    fake.throwing.add("complete");
+
+    for (let i = 1; i <= MAX_FAILURES + 1; i++) {
+      fake.session = `session-${i}`;
+      fake.turn = 1;
+      fake.reset();
+      await runConnectionPass(fake.ports, answerInput());
+      assert.equal(fake.count("complete"), 1, `session ${i} still attempts`);
+      assert.deepEqual(fake.sessionRecord(), {
+        id: `session-${i}`,
+        lastTurn: -999,
+        failures: 1,
+        seen: [],
+      });
+    }
+    assert.equal(fake.status.paused, false);
+  });
+
+  test("a stale record from a previous session does not reset the counter forever", async () => {
+    // The real bug: the catch block wrote the failure under the PREVIOUS
+    // session's id, so the next turn saw a mismatch, rebound to failures: 0,
+    // and the breaker could never trip. Seed the store with such a stale
+    // record and check the counter climbs under the new id.
+    fake.store.set(SESSION_KEY, {
+      id: "session-stale",
+      lastTurn: 7,
+      failures: MAX_FAILURES - 1,
+      seen: ["concepts/gamma/Gamma Term.md"],
+    });
+    fake.session = "session-new";
+    fake.throwing.add("complete");
+
+    fake.turn = 1;
+    await runConnectionPass(fake.ports, answerInput());
+    // Not inherited from the stale record — and not lost either.
+    assert.deepEqual(fake.sessionRecord(), {
+      id: "session-new",
+      lastTurn: -999,
+      failures: 1,
+      seen: [],
+    });
+
+    fake.turn = 2;
+    fake.reset();
+    await runConnectionPass(fake.ports, answerInput());
+    assert.equal(fake.count("complete"), 1);
+    assert.equal(fake.sessionRecord()?.failures, 2, "second error accumulates, not resets");
+
+    fake.turn = 3;
+    fake.reset();
+    await runConnectionPass(fake.ports, answerInput());
+    assert.equal(fake.sessionRecord()?.failures, 3);
+    assert.equal(fake.status.paused, true);
+
+    fake.turn = 4;
+    fake.reset();
+    await runConnectionPass(fake.ports, answerInput());
+    assertNoExpensiveCalls(fake, "breaker should now be tripped");
+  });
+
+  test("a new session clears a paused band from module scope", async () => {
+    fake.status = { ...initialStatus(), paused: true, lastError: "old", phase: "warn" };
+    fake.store.set(SESSION_KEY, { id: "session-old", failures: MAX_FAILURES, seen: [] });
+    fake.session = "session-fresh";
+    await runConnectionPass(fake.ports, answerInput());
+    const clear = fake.calls.find((c) => c.name === "note");
+    assert.equal(clear?.args[0], "");
+    assert.deepEqual(clear?.args[1], {
+      paused: false,
+      lastError: "",
+      phase: "idle",
+      visible: false,
+    });
+    // And the feature actually resumed.
+    assert.equal(fake.count("complete"), 1);
+  });
+
+  test("an empty vault-path resolution counts as a failure under the right id", async () => {
+    fake.ports.runCommand = async (cmd) => {
+      fake.calls.push({ name: "runCommand", args: [cmd] });
+      return "   ";
+    };
+    assert.equal(await runConnectionPass(fake.ports, answerInput()), null);
+    assert.equal(fake.count("readFile"), 0);
+    assert.deepEqual(fake.sessionRecord(), {
+      id: "session-one",
+      lastTurn: -999,
+      failures: 1,
+      seen: [],
+    });
+    assert.equal(fake.status.lastError, "commonplace vault-path returned nothing");
+  });
+
+  test("an unparseable index counts as a failure and is not cached", async () => {
+    fake.indexRecords = [];
+    for (let i = 1; i <= MAX_FAILURES; i++) {
+      fake.turn = i;
+      fake.reset();
+      await runConnectionPass(fake.ports, answerInput());
+      assert.equal(fake.count("readFile"), 2, "re-read each turn: nothing was cached");
+      assert.equal(fake.sessionRecord()?.failures, i);
+    }
+    assert.equal(fake.status.paused, true);
+  });
+
+  // -- Rate limit ----------------------------------------------------------
+
+  test("rate limit blocks a second expensive attempt within MIN_TURN_GAP turns", async () => {
+    fake.turn = 1;
+    await runConnectionPass(fake.ports, answerInput());
+    assert.equal(fake.count("classify"), 1);
+
+    for (let t = 2; t < 1 + MIN_TURN_GAP; t++) {
+      fake.turn = t;
+      fake.reset();
+      assert.equal(await runConnectionPass(fake.ports, answerInput()), null);
+      assertNoExpensiveCalls(fake, `turn ${t} inside the gap`);
+      assert.equal(fake.count("cwd"), 0, "rate limit precedes vault resolution");
+    }
+
+    // The first attempt surfaced Alpha Lattice, so it is in the seen-set;
+    // give the gap-elapsed attempt a fresh candidate to spend on.
+    fake.indexRecords = [ALPHA_RECORD, ALPHA_SIBLING_RECORD, UNRELATED_RECORD];
+    fake.clock += INDEX_TTL_MS + 1;
+    fake.turn = 1 + MIN_TURN_GAP;
+    fake.reset();
+    await runConnectionPass(fake.ports, answerInput());
+    assert.equal(fake.count("classify"), 1, "gap elapsed: attempt again");
+  });
+
+  test("rate limit is per session: turnCount restarting at 1 does not starve a new session", async () => {
+    fake.turn = 9;
+    await runConnectionPass(fake.ports, answerInput());
+    assert.equal(fake.sessionRecord()?.lastTurn, 9);
+
+    fake.session = "session-two";
+    fake.turn = 1;
+    fake.reset();
+    await runConnectionPass(fake.ports, answerInput());
+    assert.equal(fake.count("classify"), 1, "stored lastTurn: 9 must not apply to a new session");
+  });
+
+  test("a classify rejection still banks the turn", async () => {
+    fake.classifyResult = "routine-coding-chatter";
+    fake.turn = 1;
+    assert.equal(await runConnectionPass(fake.ports, answerInput()), null);
+    assert.equal(fake.count("classify"), 1);
+    assert.equal(fake.count("complete"), 0, "judge never runs after a classify rejection");
+    // Note read is the third readFile; only the two index reads should exist.
+    assert.equal(fake.count("readFile"), 2);
+    assert.deepEqual(fake.sessionRecord(), {
+      id: "session-one",
+      lastTurn: 1,
+      failures: 0,
+      seen: [],
+    });
+
+    fake.turn = 2;
+    fake.reset();
+    await runConnectionPass(fake.ports, answerInput());
+    assert.equal(fake.count("classify"), 0, "classify spend is bounded by the rate limit");
+  });
+
+  test("a judged SKIP banks the turn and remembers the note", async () => {
+    fake.completeResult = "SKIP";
+    fake.turn = 1;
+    assert.equal(await runConnectionPass(fake.ports, answerInput()), null);
+    assert.deepEqual(fake.sessionRecord(), {
+      id: "session-one",
+      lastTurn: 1,
+      failures: 0,
+      seen: [ALPHA_PATH],
+    });
+    fake.turn = 2;
+    fake.reset();
+    await runConnectionPass(fake.ports, answerInput());
+    assertNoExpensiveCalls(fake, "inside the gap after a SKIP");
+  });
+
+  // -- Seen-set ------------------------------------------------------------
+
+  test("the seen-set prevents re-judging the same note within a session", async () => {
+    fake.completeResult = "SKIP";
+    fake.turn = 1;
+    await runConnectionPass(fake.ports, answerInput());
+    assert.equal(fake.count("complete"), 1);
+
+    fake.turn = 1 + MIN_TURN_GAP;
+    fake.reset();
+    assert.equal(await runConnectionPass(fake.ports, answerInput()), null);
+    assert.equal(fake.count("classify"), 0, "no candidates left: no classify");
+    assert.equal(fake.count("complete"), 0);
+    assert.equal(
+      fake.calls.filter((c) => c.name === "readFile" && String(c.args[0]).endsWith(".md")).length,
+      0,
+      "the note itself is not re-read",
+    );
+    assert.equal(fake.calls.find((c) => c.name === "note")?.args[0], "no candidates");
+  });
+
+  test("the seen-set is session-scoped", async () => {
+    fake.store.set(SESSION_KEY, { id: "session-old", lastTurn: 1, failures: 0, seen: [ALPHA_PATH] });
+    fake.session = "session-new";
+    fake.turn = 1;
+    await runConnectionPass(fake.ports, answerInput());
+    assert.equal(fake.count("complete"), 1, "a note seen last week is judgeable again today");
+  });
+
+  // -- Seed ----------------------------------------------------------------
+
+  test("no model call at all when the lexical seed finds nothing", async () => {
+    fake.indexRecords = [UNRELATED_RECORD];
+    assert.equal(await runConnectionPass(fake.ports, answerInput()), null);
+    assert.equal(fake.count("classify"), 0);
+    assert.equal(fake.count("complete"), 0);
+    assert.equal(fake.count("readFile"), 2, "only the two index reads");
+    assert.equal(fake.count("setState"), 1, "only the vault path was persisted");
+    assert.equal(fake.calls.find((c) => c.name === "setState")?.args[0], `${VAULT_KEY_PREFIX}${PROJECT}`);
+    assert.equal(fake.status.lastOutcome, "no candidates");
+  });
+
+  test("a thin note body stops before the judge", async () => {
+    fake.noteBody = "---\ntitle: Alpha Lattice\n---\nstub";
+    assert.equal(await runConnectionPass(fake.ports, answerInput()), null);
+    assert.equal(fake.count("classify"), 1);
+    assert.equal(fake.count("complete"), 0);
+  });
+
+  // -- Error containment ---------------------------------------------------
+
+  test("a thrown error from any port never propagates", async () => {
+    const names: (keyof Ports)[] = [
+      "sessionId",
+      "turnCount",
+      "cwd",
+      "getState",
+      "setState",
+      "readFile",
+      "runCommand",
+      "classify",
+      "complete",
+      "now",
+      "note",
+    ];
+    for (const name of names) {
+      resetIndexCache();
+      const f = makeFake();
+      f.throwing.add(name);
+      let out: unknown = "unset";
+      await assert.doesNotReject(async () => {
+        out = await runConnectionPass(f.ports, answerInput());
+      }, `${name} threw out of runConnectionPass`);
+      assert.equal(out, null, `${name}: a failed pass surfaces nothing`);
+    }
+  });
+
+  test("an error before the session is known writes no store record", async () => {
+    fake.throwing.add("sessionId");
+    await runConnectionPass(fake.ports, answerInput());
+    assert.equal(fake.count("setState"), 0);
+    // But the band still reports it.
+    assert.equal(fake.status.lastError.startsWith("Error: boom:sessionId"), true);
+  });
+
+  test("a thrown error preserves lastTurn and seen from the current session", async () => {
+    fake.store.set(SESSION_KEY, {
+      id: "session-one",
+      lastTurn: 1,
+      failures: 0,
+      seen: ["concepts/gamma/Gamma Term.md"],
+    });
+    fake.turn = 1 + MIN_TURN_GAP;
+    fake.throwing.add("complete");
+    await runConnectionPass(fake.ports, answerInput());
+    assert.deepEqual(fake.sessionRecord(), {
+      id: "session-one",
+      lastTurn: 1,
+      failures: 1,
+      seen: ["concepts/gamma/Gamma Term.md"],
+    });
+  });
+
+  // -- Index cache ---------------------------------------------------------
+
+  test("the index cache is not re-read within its TTL", async () => {
+    fake.turn = 1;
+    await runConnectionPass(fake.ports, answerInput());
+    assert.equal(fake.count("readFile"), 3, "two index reads + the note");
+    assert.equal(fake.status.concepts, 2);
+
+    fake.clock += INDEX_TTL_MS - 1;
+    fake.turn = 1 + MIN_TURN_GAP;
+    fake.completeResult = "SKIP"; // keep the store's seen-set irrelevant to the read count
+    fake.store.set(SESSION_KEY, { id: "session-one", lastTurn: 1, failures: 0, seen: [] });
+    fake.reset();
+    await runConnectionPass(fake.ports, answerInput());
+    const indexReads = fake.calls.filter(
+      (c) => c.name === "readFile" && String(c.args[0]).includes("/.wiki/"),
+    );
+    assert.equal(indexReads.length, 0, "inside TTL: served from the module cache");
+    assert.equal(fake.count("complete"), 1, "the cached records still yield a candidate");
+
+    fake.clock += 2;
+    fake.turn = 1 + 2 * MIN_TURN_GAP;
+    fake.store.set(SESSION_KEY, { id: "session-one", lastTurn: 1, failures: 0, seen: [] });
+    fake.reset();
+    await runConnectionPass(fake.ports, answerInput());
+    const rereads = fake.calls.filter(
+      (c) => c.name === "readFile" && String(c.args[0]).includes("/.wiki/"),
+    );
+    assert.equal(rereads.length, 2, "past TTL: both indexes re-read");
+  });
+
+  test("the index cache is keyed by vault path, so a vault switch re-reads", async () => {
+    fake.turn = 1;
+    await runConnectionPass(fake.ports, answerInput());
+
+    // Same TTL window, different resolved vault for this project.
+    fake.store.set(`${VAULT_KEY_PREFIX}${PROJECT}`, "/fake/vault-gamma");
+    fake.store.set(SESSION_KEY, { id: "session-one", lastTurn: 1, failures: 0, seen: [] });
+    fake.turn = 1 + MIN_TURN_GAP;
+    fake.reset();
+    await runConnectionPass(fake.ports, answerInput());
+    const reads = fake.calls
+      .filter((c) => c.name === "readFile")
+      .map((c) => String(c.args[0]));
+    assert.ok(reads.includes("/fake/vault-gamma/.wiki/concept-index.jsonl"));
+    assert.ok(reads.includes("/fake/vault-gamma/.wiki/source-index.jsonl"));
+  });
+
+  test("a capped index read raises the partial-index warning but still proceeds", async () => {
+    const orig = fake.ports.readFile;
+    fake.ports.readFile = async (path) => {
+      const r = await orig(path);
+      return path.endsWith("concept-index.jsonl") ? { ...r, totalLines: 5000 } : r;
+    };
+    const out = await runConnectionPass(fake.ports, answerInput());
+    assert.ok(out);
+    assert.equal(fake.status.partialIndex, true);
+    assert.ok(fake.calls.some((c) => c.name === "note" && c.args[0] === "partial index"));
+  });
+});
