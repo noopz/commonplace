@@ -8,7 +8,7 @@
  * decision; `register.ts` supplies the real ports by calling `$` inline inside
  * each closure, and tests supply fakes that record every call.
  *
- * PURE: no Node APIs, no I/O, no imports beyond `./seed.js` / `./status.js`.
+ * PURE: no Node APIs, no I/O, no imports beyond its sibling `lib/` modules.
  * Everything that touches the world goes through `Ports`.
  *
  * The guard ORDER below is load-bearing for cost. Each guard is placed where it
@@ -20,10 +20,12 @@ import {
   tokenize,
   parseJsonl,
   rankCandidates,
+  isSurfaceable,
   stripFrontmatter,
   parseVerdict,
   renderConnection,
 } from "./seed.js";
+import { connectArgv, parseConnectOutput, mergeSeeds } from "./graph.js";
 import type { Status } from "./status.js";
 
 // ---------------------------------------------------------------------------
@@ -363,33 +365,101 @@ export async function runConnectionPass(
     }
     const records = indexCache.records;
 
-    // -- Tier 1: free lexical seed. A jumping-off point, not an answer. ----
+    // -- Tier 1: is this turn even about vault material? -------------------
+    // One cheap classify on the small fast model, framing the answer as data.
+    //
+    // THIS USED TO RUN AFTER THE LEXICAL SEED, as a second gate on turns that
+    // had already matched a note. It moved in front because the graph tier
+    // below exists precisely to reach notes the lexical seed cannot see, and
+    // a lexical miss can no longer be allowed to end the pass. Something has
+    // to decide whether a turn is worth spending on, and "is this technical
+    // substance" is a better question than "did a string match".
+    //
+    // The cost of the move is one classify on every turn that clears the rate
+    // limit, rather than only on turns with a lexical hit. That is bounded by
+    // MIN_TURN_GAP and paid on the small fast model, after the answer is
+    // already on screen.
 
     const seen = (state.seen ?? []) as string[];
-    const candidates = rankCandidates(records, tokens, 4).filter(
-      (c) => !seen.includes(c.path),
-    );
-    if (candidates.length === 0) {
-      // Deliberately does NOT raise the band. The band is a receipt for the
-      // vault having been consulted usefully; a free lexical miss is the
-      // common case on any long technical answer, and showing
-      // "last: no candidates" on most turns is exactly the furniture the
-      // receipt design exists to avoid. Record the outcome without raising.
-      ports.trace("skip:no-candidates", { tokens: tokens.size, records: records.length });
-      ports.note("no candidates", { visible: ports.status().visible });
-      return null;
-    }
-
-    // -- Tier 2: is this turn even about vault material? -------------------
-    // One cheap classify on the small fast model, framing the answer as
-    // data. Cuts the expensive path on the large majority of turns.
-
     const topical = await ports.classify(answer.slice(0, 800), CLASSIFY_LABELS);
     if (topical !== "technical-substance") {
       // Bank the turn: this branch already SPENT a classify call, and the
       // rate limit governs spend. Without this, a session whose answers keep
       // matching a note pays ~700ms on every single turn.
+      ports.trace("skip:off-topic", { label: topical });
       ports.note("off-topic");
+      await ports.setState(SESSION_KEY, {
+        id: sessionId,
+        lastTurn: turnCount,
+        failures: 0,
+        seen,
+      });
+      return null;
+    }
+
+    // -- Tier 2a: free lexical seed. A jumping-off point, not an answer. ---
+
+    const lexical = rankCandidates(records, tokens, 4);
+
+    // -- Tier 2b: graph seed, only when the free tier came up empty --------
+    //
+    // `commonplace connect` runs a Personalized PageRank walk over the
+    // content graph and ranks by norm(PPR) + lambda * norm(lexical), so it
+    // reaches notes that share NO literal string with the answer — the case
+    // CLAUDE.md names as the whole point and the lexical tier structurally
+    // cannot serve.
+    //
+    // Gated on the lexical tier being empty, not because the graph is worse
+    // but because it would change nothing: `mergeSeeds` orders lexical first
+    // (the answer literally discusses those notes), only the top candidate is
+    // ever read, and the walk costs ~300ms of subprocess. When the free tier
+    // has an opinion, that is the one acted on either way.
+    //
+    // Failure here is not the circuit breaker's business: an empty pool and a
+    // crashed walk are the same outcome — no graph opinion — and neither is
+    // worth pausing an ambient feature over.
+    let graph: { path: string; label: string }[] = [];
+    if (lexical.length === 0 || lexical.every((c) => seen.includes(c.path))) {
+      try {
+        const out = await ports.runCommand(connectArgv(answer.slice(0, ANSWER_EXCERPT)));
+        graph = parseConnectOutput(out);
+        ports.trace("seed:graph", { candidates: graph.length });
+      } catch (err) {
+        ports.trace("seed:graph-failed", { error: String(err).slice(0, 90) });
+      }
+    }
+
+    // Fail-closed privacy join. `connect` ranks the whole vault with no scope
+    // filter and returns MOC paths that `records` does not even contain, so a
+    // path with no surfaceable record behind it is dropped, not surfaced.
+    const surfaceableByPath = new Map<string, boolean>();
+    for (const rec of records) {
+      const p = String(rec.path ?? "");
+      if (p) surfaceableByPath.set(p, isSurfaceable(rec));
+    }
+
+    const candidates = mergeSeeds(
+      lexical,
+      graph,
+      (p) => surfaceableByPath.get(p) === true,
+      seen,
+      4,
+    );
+    if (candidates.length === 0) {
+      // Deliberately does NOT raise the band. The band is a receipt for the
+      // vault having been consulted usefully; a seed miss is the common case
+      // on any long technical answer, and showing "last: no candidates" on
+      // most turns is exactly the furniture the receipt design exists to
+      // avoid. Record the outcome without raising.
+      //
+      // Bank the turn anyway — a classify was spent, and possibly a walk.
+      ports.trace("skip:no-candidates", {
+        tokens: tokens.size,
+        records: records.length,
+        lexical: lexical.length,
+        graph: graph.length,
+      });
+      ports.note("no candidates", { visible: ports.status().visible });
       await ports.setState(SESSION_KEY, {
         id: sessionId,
         lastTurn: turnCount,

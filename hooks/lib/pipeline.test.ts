@@ -75,6 +75,18 @@ const UNRELATED_RECORD = {
   authority: 0.1,
 };
 
+const GAMMA_PATH = UNRELATED_RECORD.path;
+
+/** A private-domain note: never surfaceable, however the graph ranks it. */
+const PRIVATE_PATH = "concepts/delta/Delta Ledger.md";
+const PRIVATE_RECORD = {
+  title: "Delta Ledger",
+  path: PRIVATE_PATH,
+  abstraction: "a placeholder note in a private domain",
+  scope: "private",
+  authority: 0.9,
+};
+
 const NOTE_BODY =
   "---\ntitle: Alpha Lattice\n---\n\n" +
   "The alpha lattice is a folding scheme that preserves diagonal symmetry by " +
@@ -82,6 +94,22 @@ const NOTE_BODY =
   "Earlier experiments showed the single-pass variant drifting on sparse input.";
 
 const VERDICT = "Records the earlier drift finding that motivated double rebalancing.";
+
+/** Stdout in the shape `commonplace connect --json` prints. */
+function connectJson(cands: { path: string; title: string }[]): string {
+  return JSON.stringify({
+    query: "q",
+    k: cands.length,
+    candidates: cands.map((c, i) => ({
+      ...c,
+      kind: "concept",
+      abstraction: null,
+      ppr: 0.09 - i * 0.01,
+      lex: 0,
+      score: 1.2 - i * 0.1,
+    })),
+  });
+}
 
 function jsonl(recs: object[]): string {
   return recs.map((r) => JSON.stringify(r)).join("\n") + "\n";
@@ -119,6 +147,8 @@ type Fake = {
   completeResult: string;
   indexRecords: object[];
   noteBody: string;
+  /** Raw stdout the fake `commonplace connect` returns. "" = no graph opinion. */
+  connectResult: string;
   /** Port names that should throw when called. */
   throwing: Set<keyof Ports>;
   status: Status;
@@ -139,6 +169,7 @@ function makeFake(): Fake {
     completeResult: VERDICT,
     indexRecords: [ALPHA_RECORD, UNRELATED_RECORD] as object[],
     noteBody: NOTE_BODY,
+    connectResult: "",
     throwing: new Set<keyof Ports>(),
     status: initialStatus(),
   } as Fake;
@@ -177,7 +208,9 @@ function makeFake(): Fake {
     },
     runCommand: async (argv) => {
       rec("runCommand", argv.join(" "));
-      return argv.join(" ") === "vault-path" ? VAULT : "";
+      if (argv.join(" ") === "vault-path") return VAULT;
+      if (argv[0] === "connect") return fake.connectResult;
+      return "";
     },
     classify: async (text, labels) => {
       rec("classify", text, labels);
@@ -524,8 +557,7 @@ describe("runConnectionPass", () => {
     fake.turn = 1 + MIN_TURN_GAP;
     fake.reset();
     assert.equal(await runConnectionPass(fake.ports, answerInput()), null);
-    assert.equal(fake.count("classify"), 0, "no candidates left: no classify");
-    assert.equal(fake.count("complete"), 0);
+    assert.equal(fake.count("complete"), 0, "the judge is not paid twice for one note");
     assert.equal(
       fake.calls.filter((c) => c.name === "readText" && String(c.args[0]).endsWith(".md")).length,
       0,
@@ -544,15 +576,64 @@ describe("runConnectionPass", () => {
 
   // -- Seed ----------------------------------------------------------------
 
-  test("no model call at all when the lexical seed finds nothing", async () => {
+  test("neither seed tier finds anything: no judge, and the turn is banked", async () => {
     fake.indexRecords = [UNRELATED_RECORD];
     assert.equal(await runConnectionPass(fake.ports, answerInput()), null);
-    assert.equal(fake.count("classify"), 0);
-    assert.equal(fake.count("complete"), 0);
+    assert.equal(fake.count("complete"), 0, "the expensive judge is never reached");
     assert.equal(fake.count("readText"), 2, "only the two index reads");
-    assert.equal(fake.count("setState"), 1, "only the vault path was persisted");
-    assert.equal(fake.calls.find((c) => c.name === "setState")?.args[0], `${VAULT_KEY_PREFIX}${PROJECT}`);
     assert.equal(fake.status.lastOutcome, "no candidates");
+    // The classify and the walk were both SPENT, so the rate limit has to
+    // count this turn or a session that never seeds pays on every turn.
+    assert.equal(fake.sessionRecord()?.lastTurn, fake.turn);
+  });
+
+  // -- Tier 2b: the graph seed --------------------------------------------
+
+  test("the graph tier reaches a note with no lexical overlap at all", async () => {
+    // The point of the tier: GAMMA_RECORD shares no token with the answer, so
+    // `rankCandidates` cannot see it. PPR can.
+    fake.indexRecords = [UNRELATED_RECORD];
+    fake.connectResult = connectJson([{ path: GAMMA_PATH, title: "Gamma Term" }]);
+
+    const out = await runConnectionPass(fake.ports, answerInput());
+    assert.ok(out, "a graph-only candidate still reaches the judge");
+    assert.match(out!.text, /Gamma Term/);
+    assert.ok(
+      fake.calls.some(
+        (c) => c.name === "readText" && String(c.args[0]) === `${VAULT}/${GAMMA_PATH}`,
+      ),
+      "the note is READ before judging — a PPR score is not relevance either",
+    );
+  });
+
+  test("the graph tier is skipped when the free tier already has a candidate", async () => {
+    // ~300ms of subprocess that could not change the outcome: `mergeSeeds`
+    // orders lexical first and only the top candidate is ever read.
+    await runConnectionPass(fake.ports, answerInput());
+    assert.equal(
+      fake.calls.filter((c) => c.name === "runCommand" && String(c.args[0]).startsWith("connect")).length,
+      0,
+    );
+  });
+
+  test("a graph candidate with no surfaceable index record is dropped", async () => {
+    // `connect` ranks the whole vault with no scope filter and returns MOC
+    // paths the pass never loads. Fail closed: no record, no surface.
+    fake.indexRecords = [UNRELATED_RECORD, PRIVATE_RECORD];
+    fake.connectResult = connectJson([
+      { path: "00 - Maps/Some Map.md", title: "Some Map" },
+      { path: PRIVATE_PATH, title: "Private Thing" },
+    ]);
+    assert.equal(await runConnectionPass(fake.ports, answerInput()), null);
+    assert.equal(fake.count("complete"), 0, "nothing unvouched-for reaches the judge");
+  });
+
+  test("a broken graph walk is a shrug, not a circuit-breaker failure", async () => {
+    fake.indexRecords = [UNRELATED_RECORD];
+    fake.connectResult = "not json at all";
+    assert.equal(await runConnectionPass(fake.ports, answerInput()), null);
+    assert.equal(fake.sessionRecord()?.failures, 0, "an opinionless graph is not a failure");
+    assert.equal(fake.status.paused, false);
   });
 
   test("a thin note body stops before the judge", async () => {

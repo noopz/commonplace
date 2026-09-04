@@ -32,10 +32,22 @@ stops being read. A paused breaker therefore re-announces itself every turn
 rather than noting once.
 
 **`turn.complete` ambient connection surfacing**.
-At the end of a turn it seeds lexically against the JSONL indexes, and — only if
-a candidate survives — reads the note and asks a model whether the connection is
-real, rendering at most one line beneath the answer. This replaces asking the
-model, in prompt text, to remember to look for connections.
+At the end of a turn a cheap classify decides whether the answer is technical
+substance at all; if it is, the pass seeds lexically against the JSONL indexes
+and, **only when that free tier comes up empty**, runs `commonplace connect` for
+a PPR pool over the content graph. Either way it then reads the candidate note
+and asks a model whether the connection is real, rendering at most one line
+beneath the answer. This replaces asking the model, in prompt text, to remember
+to look for connections.
+
+The graph tier is what lets the pass reach a note sharing **no literal string**
+with the answer — the case the "No RAG" section names and lexical seeding
+structurally cannot serve. It buys recall, not precision: `connect` always
+returns k candidates with no "no opinion" signal, so the judge (not a score
+threshold) remains the relevance authority, and the rate limit bounds how often
+it is asked. `connect` output carries no scope filter and includes MOC paths the
+pass never indexes, so `mergeSeeds` is **fail-closed** — a path with no
+surfaceable index record behind it is dropped rather than surfaced.
 
 The hook itself is a thin adapter: all of the decision logic lives in
 `hooks/lib/pipeline.ts` behind a `Ports` interface, so the guard order, circuit
