@@ -10,6 +10,14 @@
  * have produced, and one nobody could act on, because "the judge is too
  * strict" and "nothing was worth surfacing" look identical from outside.
  *
+ * IT IS NOISY, AND THE NOISE IS NOT A DEFECT TO TUNE OUT. The pass runs on the
+ * model's ANSWER, which differs between runs of the same prompt, so the seed
+ * differs too: one gold case seeded the right note at score 23 in one run and a
+ * plausible-but-wrong note at 17 in the next. Individual case outcomes are
+ * therefore not a stable metric. The MISS HISTOGRAM is — it held at "3 dead at
+ * the judge" across both runs even as every individual candidate changed —
+ * so read that, and compare a change over repeated runs, never one against one.
+ *
  * So the eval drives real sessions (`claude -p`, which does fire
  * `turn.complete`) and reads the trace log the pass writes. The value is not
  * the pass/fail count. It is WHERE a miss died: a miss at the seed, at the

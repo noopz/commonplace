@@ -20,12 +20,13 @@
 /*
  * WHEN THIS TIER RUNS, and why it is not "when the lexical tier finds nothing".
  *
- * It was, for exactly one version, and that made it dead code. On a 637-record
- * vault `rankCandidates` returns its full four candidates for ANY technical
- * answer — measured across five live probes including sourdough fermentation
- * and bicycle derailleurs, none of which the vault contains a word about. A
- * MIN_SEED_SCORE of 6 is simply easy to clear once there are enough records.
- * "Did anything match" is not a signal on a vault of this size.
+ * It was, for exactly one version, and that made it very nearly dead code. On a
+ * 637-record vault `rankCandidates` returns its full four candidates for almost
+ * any technical answer — including sourdough fermentation and bicycle
+ * derailleurs, neither of which the vault contains a word about. Measured over
+ * 16 live passes it came up empty exactly once. A MIN_SEED_SCORE of 6 is simply
+ * easy to clear once there are enough records, so "did anything match" carries
+ * almost no signal at this vault size; how WELL it matched carries all of it.
  *
  * So the gate is the STRENGTH of the lexical evidence (LEX_STRONG_SCORE in the
  * pipeline), and when the walk runs because that evidence was thin, the graph's
