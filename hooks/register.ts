@@ -34,9 +34,9 @@
  * SCANNER CONSTRAINTS
  * The static scanner requires `register` to be a top-level const function, `on`
  * to take string-literal event names, and `$` to appear only as `$.noun.verb()`
- * at a call site — it may not be bound, passed, or spread. So every helper here
- * is either pure (takes plain values) or defined inside the hook body where it
- * closes over `$`.
+ * at a call site — never bound, spread, stored or returned. It MAY be passed to
+ * a function declared in THIS file (see `ensureVaultPath`), but never across an
+ * import, so helpers in `lib/` take plain values or a Ports object of arrows.
  */
 
 import { parseJsonl } from "./lib/seed.js";

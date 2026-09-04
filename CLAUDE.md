@@ -18,10 +18,10 @@ file is inert and the shell hooks are the whole plugin. Both wirings live in the
 same `hooks.json` (`modules` alongside `hooks`), so a broken module degrades to
 current behaviour rather than to nothing.
 
-It registers nine hooks. **`ui.render{component=AbovePrompt}`** draws a one-line
+It registers ten hooks. **`ui.render{component=AbovePrompt}`** draws a one-line
 status band above the prompt: a dim heartbeat (`⟡ vault · N sources · N concepts
 · N surfaced · last: <outcome>`) when healthy, and a yellow warning when the
-circuit breaker has stopped surfacing or the index has outgrown the read cap.
+circuit breaker has stopped surfacing.
 The breaker is deliberately silent in the transcript, so this band is the only
 place a failure becomes visible — do not remove it without replacing it.
 
@@ -54,9 +54,10 @@ blocks unrelated work in any repo. Treat widening their match patterns as a
 high-risk change and see `hooks/lib/guard.ts` for the documented failure modes.
 
 Only **one matcher-less hook per event** is permitted; a second is a validation
-error naming both lines. That is why the private-leak guard and the vault-tool
-handler share one `tool.call` registration and branch internally — neither can
-use a matcher.
+error naming both lines. The private-leak guard and the vault-tool handler share
+one `tool.call` registration for that reason. They need not: matchers accept a
+one-of array and a RegExp (`{ tool: ["Write","Edit"] }`, `{ tool: /^mcp__.*__vault_/ }`),
+so this could be split into two hooks whenever it earns the change.
 
 **Unwrap tool results explicitly.** `$.tool.call({tool: "Read"})` answers
 `{result: {file: {content, ...}}}` (note the `file` level) and Bash answers
@@ -69,18 +70,37 @@ Hard constraints of this API, verified rather than assumed:
   and the types-only `claude-code` module. `scripts/lib/*` cannot be imported —
   do not try to port them.
 - **`$.fs` is confined to the session project**; the vault is normally outside
-  it. Vault files are reached with `$.tool.call({tool: "Read"})`, which is not so
-  confined (~15ms). Never shell out to the CLI in a per-turn hook — a
-  `commonplace vault-path` subprocess measured **7.3s**.
-- **The scanner refuses `$` and `on` used as anything but direct calls.** No
-  binding, passing, or spreading. Pure helpers take plain values; everything
-  touching `$` lives inside the hook body.
+  it. Reach vault files with **`$.process.run`** — a direct host exec, no shell:
+  `cat` on a 149KB index is ~2ms and `commonplace vault-path` ~46ms.
+- **Do NOT use `$.tool.call({tool: "Read"})` for indexes.** It caps a result
+  near **48KB** — measured: 114 of 347 concept records — and the truncation is
+  silent, so seeding ran against a third of the vault for several versions. The
+  old "never shell out, it costs 7.3s" rule measured Bash-TOOL overhead, not the
+  CLI, and no longer applies.
+- **`Grep` and `Glob` are not available to hooks** ("no tool named Grep in this
+  session", verified). If an index ever outgrows a per-turn parse, the answer is
+  `$.process.run(["grep", ...])`.
+- **The scanner refuses `$` and `on` used as anything but direct calls** — no
+  binding, spreading, storing or returning. It MAY be passed to a function
+  declared in the same file (validate reports `$.session.cwd (via f)` and
+  follows it two hops), but never across an import: "followed only into a
+  function declared in this same file". So `hooks/lib/*` still takes plain
+  values or a Ports object of arrows, while `register.ts` may factor its own
+  helpers normally.
 - `claude plugin validate <dir>` checks all of the above without running it, and
   prints the module's exact capability surface. Run it after every edit.
 - **`turn.complete` and `ui.render` do not fire under `claude -p`** (no terminal
-  surface). `tool.call` hooks DO, which is why the enforcement guards can be
-  tested non-interactively and the connection pass cannot — another reason its
-  logic sits behind `Ports` in `lib/`.
+  surface — `$.session.surface()` answers `null` there). Both fire normally in an
+  interactive session: verified as `turn.complete settled in 25.1ms` in a
+  `--debug-file` log. `tool.call` hooks fire under `-p` too, which is why the
+  enforcement guards can be tested non-interactively and the connection pass
+  cannot — another reason its logic sits behind `Ports` in `lib/`.
+- **Diagnose with `claude --plugin-dir . --debug-file <path>`.** It logs every
+  hook that loads, fires, and how long it settled, and says why a render tree
+  failed validation. It is the only way to see any of that.
+- **A module reload does not re-fire `session.start`.** Module scope is
+  re-instantiated, so anything cached there is silently empty mid-session. Cache
+  lazily, never only eagerly.
 
 Full API notes, the probe method, and the migration checklist for when this API
 is officially documented live in the vault at
@@ -88,7 +108,22 @@ is officially documented live in the vault at
 
 ## Parallel agents over vault content
 
-A PreToolUse guard (`agent-guard`) redirects general-purpose Agent/Task dispatches that look like vault **research** to the wiki-query skill — because wiki-query already does iterative search, MOC traversal, and file-back. It targets research, not work. To fan out general-purpose workers for legitimate orchestrated **work** (compiling, fixing, linting, or editing many notes in parallel), include the marker `ALLOW_VAULT_AGENT` in each dispatch prompt to bypass the guard. Registered `commonplace:` agents are never gated. If a dispatch is blocked, don't fall back to doing the whole job inline — pick the right path: wiki-query for a lookup, the marker for orchestrated work.
+Two mechanisms, depending on whether the in-process module is loaded.
+
+**With the module (`agent.spawn`)**: a general-purpose dispatch that a classify
+judges to be vault **research** has its prompt REWRITTEN, not refused — it gains
+instructions to use `vault_search`/`vault_note` and the doctrine that a pointer
+is not a finding. Nothing is blocked, so nothing needs an escape hatch.
+Orchestrated **work** (`vault-work`) and unrelated dispatches pass untouched, and
+telling those apart is the thing a regex could not do. Forks and named agents
+(`commonplace:*`, `code-reviewer`, `Explore`) are never steered.
+
+**Without it (`agent-guard`, the shell PreToolUse hook)**: the older behaviour —
+a vault-research dispatch is DENIED and redirected to wiki-query. Because a
+regex cannot separate research from work, orchestrated work must carry the
+marker `ALLOW_VAULT_AGENT` in each dispatch prompt to bypass it. If a dispatch
+is blocked, don't fall back to doing the whole job inline — pick the right path:
+wiki-query for a lookup, the marker for orchestrated work.
 
 ## No RAG — grep finds, reading connects
 
