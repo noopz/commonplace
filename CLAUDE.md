@@ -12,13 +12,32 @@ LLM-maintained knowledge base for any folder of notes. Transforms raw sources in
 ## In-process function hooks (EARLY ACCESS)
 
 `hooks/register.ts` is an in-process plugin module, loaded into a sandboxed
-worker only when `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1`. It runs **beside** the
-shell hooks in `hooks/hooks.json`, not instead of them — without the flag the
-file is inert and the shell hooks are the whole plugin. Both wirings live in the
-same `hooks.json` (`modules` alongside `hooks`), so a broken module degrades to
+worker when `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1` **or** the account is in the
+`tengu_plugin_hooks_modules` rollout. It runs **beside** the shell hooks in
+`hooks/hooks.json`, not instead of them — without either gate the file is inert
+and the shell hooks are the whole plugin. Both wirings live in the same
+`hooks.json` (`modules` alongside `hooks`), so a broken module degrades to
 current behaviour rather than to nothing.
 
-It registers ten hooks. **`ui.render{component=AbovePrompt}`** draws a one-line
+Because both wirings load, each job must run on exactly one of them. The shell
+hooks used to decide by reading the env var, which **misses the flag-based
+rollout entirely** — a session there ran both, giving two context blocks per
+prompt and two concurrent index rebuilds per vault write. So the module now
+announces itself: at `session.start` it writes its session id to
+`<vault>/.wiki/hooks-module.json`, and `scripts/lib/module-gate.ts` stands a
+shell hook down when that id matches the one on its own stdin payload. Comparing
+ids, not timestamps, means there is no staleness window to tune. The marker
+filename is **duplicated** in `hooks/register.ts` because the sandbox cannot
+import from `scripts/`; `scripts/module-gate.test.ts` asserts the two agree.
+
+`plugin.json` declares one `userConfig` field, `ambientConnections`, which turns
+the connection pass off. Everything else the module does is either a guard
+(which must not be optional) or free. Declaring it is also what silences the
+host's "options requested but its manifest declares no userConfig" warning —
+that fires for any plugin shipping a module, verified against a bare probe
+plugin, not just this one.
+
+It registers eleven hooks. **`ui.render{component=AbovePrompt}`** draws a one-line
 status band above the prompt: a dim heartbeat (`⟡ vault · N sources · N concepts
 · N surfaced · last: <outcome>`) when healthy, and a yellow warning when the
 circuit breaker has stopped surfacing.
@@ -55,6 +74,15 @@ breaker, rate limit and index cache are covered by tests against recording fakes
 instead of only being observable in a live session. **Change the logic in
 `lib/`, not in the hook body** — and note that `$` may appear inside an arrow
 function's body, which is what makes the Ports object legal under the scanner.
+
+Every guard and every pass appends a line to **`<vault>/.wiki/hook-log.jsonl`**
+— the only durable record of what the module decided, since `turn.complete`
+writes nothing to the transcript and the status band is gone the moment the user
+types. Trace both branches of any decision you add: a pass that logs only when a
+tier RUNS reads identically to the code that never had the tier, which is how
+v1.61.0 shipped unverifiable. `session.start` trims the file to the last 2000
+lines (`tail` then `tee`, two execs — `$.process.run` runs no shell, so there is
+no pipe and no `>`).
 
 **Two enforcement hooks turn CLAUDE.md rules into mechanisms.**
 `tool.call{tool: "Bash"}` denies parsing `.wiki/*.jsonl` with `python3`/`jq`/

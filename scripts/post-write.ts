@@ -14,6 +14,7 @@ import { resolve, dirname } from "path";
 import { discoverVault, getVaultConfig, isInVault, classifyNote } from "./lib/vault.js";
 import { parseNote, validateFrontmatter } from "./lib/frontmatter.js";
 import { sanitizeIngestedBody, splitFrontmatterRaw } from "./lib/sanitize.js";
+import { moduleIsLive } from "./lib/module-gate.js";
 import { execSync } from "child_process";
 
 const { values } = parseArgs({
@@ -22,24 +23,9 @@ const { values } = parseArgs({
   },
 });
 
-// Double-fire guard. `hooks/hooks.json` wires BOTH the shell PostToolUse hook
-// and the in-process module, deliberately, so a broken module degrades to this
-// rather than to nothing. When the module is loaded it runs this same script
-// itself (via $.process.run) and merges the result into the tool's own
-// `context`, so without this guard a vault write would run the whole pipeline
-// twice — including two concurrent index rebuilds, the race v1.57.1 removed.
-//
-// COMMONPLACE_HOOK_CHILD marks the module's own invocation so it is not
-// guarded against itself.
-if (
-  process.env.CLAUDE_CODE_ENABLE_FUNCTION_HOOKS === "1" &&
-  process.env.COMMONPLACE_HOOK_CHILD !== "1"
-) {
-  process.exit(0);
-}
-
 // Read stdin for tool input JSON
 let filePath: string | undefined;
+let sessionId: string | undefined;
 try {
   let input = "";
   // Set a short timeout so we don't hang if there's no stdin
@@ -87,6 +73,7 @@ try {
       data.tool_input?.filePath ||
       data.file_path ||
       data.filePath;
+    sessionId = data.session_id;
   }
 } catch {
   // No valid stdin, exit silently
@@ -100,6 +87,25 @@ const vaultPath = values.vault
   ? resolve(values.vault)
   : discoverVault(dirname(filePath));
 if (!vaultPath) process.exit(0);
+
+// Double-fire guard. `hooks/hooks.json` wires BOTH the shell PostToolUse hook
+// and the in-process module, deliberately, so a broken module degrades to this
+// rather than to nothing. When the module is loaded it runs this same script
+// itself (via $.process.run) and merges the result into the tool's own
+// `context`, so without this guard a vault write would run the whole pipeline
+// twice — including two concurrent index rebuilds, the race v1.57.1 removed.
+//
+// COMMONPLACE_HOOK_CHILD marks the module's own invocation so it is not guarded
+// against itself. Runs after vault resolution because `moduleIsLive` reads the
+// module's marker from the vault; see scripts/lib/module-gate.ts for why an
+// env-var check alone misses the flag-based rollout.
+if (
+  process.env.COMMONPLACE_HOOK_CHILD !== "1" &&
+  moduleIsLive(sessionId, vaultPath)
+) {
+  process.exit(0);
+}
+
 const config = getVaultConfig(vaultPath);
 
 if (!isInVault(filePath, config.vaultPath)) {

@@ -15,19 +15,21 @@
  * one line beneath the answer. The model is not asked to do anything.
  *
  * DOCTRINE (see CLAUDE.md, "No RAG — grep finds, reading connects")
- * The lexical pass over the indexes is a JUMPING-OFF POINT, never the answer.
- * A candidate is only surfaced after the note itself is read and a model call
- * judges the connection real. Token overlap alone never reaches the user.
+ * Both seed tiers are JUMPING-OFF POINTS, never the answer. A candidate is only
+ * surfaced after the note itself is read and a model call judges the connection
+ * real. Neither token overlap nor a PPR score ever reaches the user alone.
  *
- * But be honest about the LIMIT of that: only notes sharing a literal token
- * with the answer can ever become candidates here, so the motivating example
- * in CLAUDE.md — a real connection with zero shared strings — is unreachable
- * by this mechanism. This is a cheap ambient layer, not a replacement for
+ * Seeding is two-tiered. The free lexical pass over the indexes can only reach
+ * notes sharing a literal token with the answer; when it comes up empty, a PPR
+ * walk over the content graph (`commonplace connect`) can reach a note sharing
+ * none — the motivating example in CLAUDE.md, which was unreachable here until
+ * v1.61.0. This is still a cheap ambient layer, not a replacement for
  * wiki-query, which does the iterative search this deliberately does not.
  *
  * COST
  * Turns that fail the free in-module prefilter cost nothing. A turn that passes
- * costs one classify (~700ms) and, if that passes, one read (~15ms) plus one
+ * costs one classify (~700ms); if that says technical-substance, a lexical seed
+ * (free) or, on a miss, a graph walk (~400ms), then one read (~2ms) and one
  * completion (~900ms). All of it runs AFTER the answer is on screen, so none of
  * it is on the user's critical path. Rate-limited and circuit-broken below.
  *
@@ -69,6 +71,28 @@ import {
  * note ingested earlier in the session becomes reachable without a restart.
  */
 const INDEX_TTL_MS = 120_000;
+
+/** The durable trace log, under the vault's `.wiki/`. */
+const LOG_FILE = "hook-log.jsonl";
+
+/**
+ * Marker file announcing that this module is handling the session's hooks.
+ *
+ * DUPLICATED from `scripts/lib/module-gate.ts` — deliberately. The sandbox lets
+ * this module import only its own files by relative path, so there is no way to
+ * share the constant. `scripts/module-gate.test.ts` asserts the two literals
+ * still agree; if you rename it here, that test is what will tell you.
+ */
+const MODULE_MARKER = "hooks-module.json";
+
+/**
+ * Lines kept when the log is rotated at session start.
+ *
+ * Sized to be readable, not to be complete: this file answers "what did the
+ * last few sessions decide, and why", and a question that needs more history
+ * than this wants a real analysis pass over a copy, not a bigger tail.
+ */
+const LOG_KEEP_LINES = 2000;
 
 /**
  * Resolved vault path per project dir, for the life of the resident worker.
@@ -141,7 +165,21 @@ const ensureVaultPath = async ($: any, projectDir: string): Promise<string> => {
 // Registration
 // ---------------------------------------------------------------------------
 
-export const register = (on: any) => {
+export const register = (on: any, options: any = {}) => {
+  /**
+   * The one thing a user can turn off.
+   *
+   * Declared as `ambientConnections` in plugin.json's `userConfig`, which is
+   * also what stops the host warning that options were requested against a
+   * manifest that declares none. Everything else this module does is either a
+   * guard (which must not be optional) or free, so there is nothing else worth
+   * a switch — the connection pass is the only part that spends model calls on
+   * the user's behalf without being asked.
+   *
+   * Absent reads as true: the default for a plugin nobody has configured.
+   */
+  const ambientOn = options?.ambientConnections !== false;
+
   /**
    * Register the vault tools so they are listed by turn one.
    *
@@ -163,7 +201,50 @@ export const register = (on: any) => {
     // Warm the cache before turn one so the first turn does not pay for it.
     // Correctness does not depend on this — every reader resolves lazily.
     try {
-      await ensureVaultPath($, await $.session.cwd());
+      const vp = await ensureVaultPath($, await $.session.cwd());
+
+      // Rotate the trace log, once per session.
+      //
+      // Every guard and every connection pass appends a line to it and nothing
+      // ever removed one, so a file that exists to be read by a human was on
+      // its way to being too large for a human to read. Rotation belongs here
+      // rather than at the append site: appends happen on the turn path and
+      // must stay fire-and-forget, and a per-session trim is bounded work at a
+      // moment when nothing is waiting.
+      //
+      // `tail | tee` as two execs, because $.process.run takes an argv and
+      // runs NO shell — there is no pipe and no `>` to use. `tee` without
+      // `-a` truncates, which is exactly the write half of a rotation.
+      if (vp) {
+        // ANNOUNCE THAT THIS MODULE IS LIVE, for the shell hooks' benefit.
+        //
+        // They stand down when the module is loaded so each job runs once, and
+        // they used to infer that from CLAUDE_CODE_ENABLE_FUNCTION_HOOKS. That
+        // misses the `tengu_plugin_hooks_modules` rollout, where the module
+        // loads with no env var set anywhere and BOTH wirings then run — two
+        // context blocks per prompt, two concurrent index rebuilds per write.
+        // Writing the session id is exact: a marker from a previous session
+        // does not match, so there is no staleness window to tune.
+        await $.process.run(["tee", `${vp}/.wiki/${MODULE_MARKER}`], {
+          stdin: JSON.stringify({
+            sessionId: await $.session.id(),
+            at: new Date().toISOString(),
+          }),
+        });
+
+        const logPath = `${vp}/.wiki/${LOG_FILE}`;
+        const kept = await $.process.run(["tail", "-n", String(LOG_KEEP_LINES), logPath]);
+        if (kept.exitCode === 0) {
+          const text = String(kept.stdout ?? "");
+          // Only rewrite when the tail is actually shorter than the file, so
+          // an ordinary session does not rewrite the log for nothing.
+          const size = await $.process.run(["wc", "-l", logPath]);
+          const lines = Number(String(size.stdout ?? "").trim().split(/\s+/)[0] ?? 0);
+          if (lines > LOG_KEEP_LINES) {
+            await $.process.run(["tee", logPath], { stdin: text });
+          }
+        }
+      }
     } catch {
       /* no vault configured, or the CLI is unavailable; hooks degrade */
     }
@@ -652,12 +733,17 @@ export const register = (on: any) => {
     // A hook that returns while its next is pending aborts what runs beneath.
     const base = await next(e);
 
+    // Turned off in settings: hand back the engine's answer untouched. Checked
+    // here rather than by skipping the registration so that flipping the
+    // setting takes effect on reload without a differently-shaped hook list.
+    if (!ambientOn) return base;
+
     // Resolved before the ports object so the note() closure can see it.
     // Empty when no vault is configured, which disables the log rather than
     // guessing a path.
     const projectDir = await $.session.cwd();
     const vp = await ensureVaultPath($, projectDir);
-    const logPath = vp ? `${vp}/.wiki/hook-log.jsonl` : "";
+    const logPath = vp ? `${vp}/.wiki/${LOG_FILE}` : "";
 
     const surfaced = await runConnectionPass(
       {

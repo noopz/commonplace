@@ -1,6 +1,14 @@
 {
   "name": "commonplace",
-  "version": "1.61.1",
+  "version": "1.62.0",
   "description": "LLM-maintained knowledge base for Obsidian vaults. Auto-triggers on paper sharing, vault health queries, concept compilation, research questions, and domain management.",
-  "homepage": "https://github.com/noopz/commonplace"
+  "homepage": "https://github.com/noopz/commonplace",
+  "userConfig": {
+    "ambientConnections": {
+      "type": "boolean",
+      "title": "Ambient vault connections",
+      "description": "Surface a one-line pointer beneath an answer when it genuinely connects to a note you have already written. Costs one small model call per rate-limited turn, after the answer is on screen.",
+      "default": true
+    }
+  }
 }

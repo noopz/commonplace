@@ -21,19 +21,13 @@ import { readFileSync } from "fs";
 import { join } from "path";
 import { hasVaultIntent } from "./lib/vault-signals.js";
 import { isCwdInVault, loadVaultRegistry } from "./lib/vault.js";
+import { moduleIsLive } from "./lib/module-gate.js";
 
 interface HookInput {
   prompt?: string;
   cwd?: string;
+  session_id?: string;
 }
-
-// Double-fire guard. `hooks/hooks.json` wires BOTH this shell hook and the
-// in-process module, deliberately, so that a broken or unavailable module
-// degrades to this rather than to nothing. But when the module IS loaded its
-// `prompt.context` hook does this job better — once per conversation instead of
-// once per prompt, as a real context block instead of injected transcript text.
-// Without this guard the user would get both, every prompt.
-if (process.env.CLAUDE_CODE_ENABLE_FUNCTION_HOOKS === "1") process.exit(0);
 
 const input = JSON.parse(readFileSync(0, "utf-8")) as HookInput;
 const prompt = input.prompt ?? "";
@@ -42,6 +36,18 @@ const cwd = input.cwd ?? process.cwd();
 const { inVault, vaultPath } = isCwdInVault(cwd);
 
 if (!vaultPath) process.exit(0); // plugin not configured for any vault yet
+
+// Double-fire guard. `hooks/hooks.json` wires BOTH this shell hook and the
+// in-process module, deliberately, so that a broken or unavailable module
+// degrades to this rather than to nothing. But when the module IS loaded its
+// `prompt.context` hook does this job better — once per conversation instead of
+// once per prompt, as a real context block instead of injected transcript text.
+// Without this guard the user would get both, every prompt.
+//
+// Runs AFTER vault resolution because `moduleIsLive` reads the module's marker
+// from the vault. See scripts/lib/module-gate.ts for why an env-var check alone
+// is not enough.
+if (moduleIsLive(input.session_id, vaultPath)) process.exit(0);
 const vaultPaths = loadVaultRegistry().vaults.map((v) => v.path);
 if (!hasVaultIntent(prompt, vaultPaths)) process.exit(0);
 
