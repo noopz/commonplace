@@ -45,6 +45,13 @@ import { statusLine, type Status } from "./lib/status.js";
 import { buildVaultBlock, mergeBlocks } from "./lib/context.js";
 import { checkBashCommand, checkPrivateLeak } from "./lib/guard.js";
 import {
+  looksVaultShaped,
+  isSteerableSpawn,
+  steerPrompt,
+  SPAWN_LABELS,
+  SPAWN_CLASSIFY_PROMPT,
+} from "./lib/agent.js";
+import {
   VAULT_SEARCH_SPEC,
   VAULT_NOTE_SPEC,
   searchVault,
@@ -293,6 +300,51 @@ export const register = (on: any) => {
   });
 
   /**
+   * Equip vault-research dispatches instead of refusing them.
+   *
+   * `agent.spawn` fires before the subagent resolves and may rewrite `prompt`,
+   * which is a strictly better lever than the PreToolUse deny in
+   * `scripts/agent-guard.ts`: the dispatch proceeds, carrying instructions to
+   * use `vault_search`/`vault_note` and the doctrine that pointers are not
+   * findings. Nothing is blocked, so nothing needs `ALLOW_VAULT_AGENT`.
+   *
+   * Order matters for cost: the free checks (fork, agent type, marker match)
+   * run before the classify, so an ordinary dispatch in an unrelated repo
+   * spends nothing. See lib/agent.ts on why that marker check is allowed to be
+   * loose — it gates a model call, not a decision.
+   */
+  on("agent.spawn", async ($: any, e: any, next: any) => {
+    try {
+      if (!isSteerableSpawn(String(e?.subagentType ?? ""), Boolean(e?.fork))) {
+        return next(e);
+      }
+      const prompt = String(e?.prompt ?? "");
+      if (!prompt) return next(e);
+
+      const projectDir = await $.session.cwd();
+      const vaultPath = vaultPaths.get(projectDir) ?? "";
+      // No vault on this machine means nothing to steer toward.
+      if (!vaultPath) return next(e);
+      if (!looksVaultShaped(prompt, vaultPath)) return next(e);
+
+      const verdict = await $.model.classify(
+        SPAWN_CLASSIFY_PROMPT(prompt),
+        SPAWN_LABELS,
+      );
+      // Only research is steered. Orchestrated WORK over many notes is a
+      // legitimate pattern whose prompts carry the same vocabulary — telling
+      // those two apart is the thing a regex could never do, and the reason
+      // the old guard needed an escape hatch.
+      if (verdict !== "vault-research") return next(e);
+
+      return next({ ...e, prompt: steerPrompt(prompt) });
+    } catch {
+      /* steering is advisory; a broken hook must never block a dispatch */
+    }
+    return next(e);
+  });
+
+  /**
    * Steer vault research away from ad-hoc subagents, at the point of decision.
    *
    * `scripts/agent-guard.ts` handles this today by DENYING an Agent dispatch
@@ -506,6 +558,13 @@ export const register = (on: any) => {
     // A hook that returns while its next is pending aborts what runs beneath.
     const base = await next(e);
 
+    // Resolved before the ports object so the note() closure can see it.
+    // Empty when no vault is configured, which disables the log rather than
+    // guessing a path.
+    const projectDir = await $.session.cwd();
+    const vp = vaultPaths.get(projectDir) ?? "";
+    const logPath = vp ? `${vp}/.wiki/hook-log.jsonl` : "";
+
     const surfaced = await runConnectionPass(
       {
         sessionId: () => $.session.id(),
@@ -533,6 +592,30 @@ export const register = (on: any) => {
           // vault actually did something. The session-reset caller opts out.
           status = { ...status, lastOutcome: outcome, visible: true, ...extra };
           $.ui.invalidate("ui.render");
+
+          // DURABLE OUTCOME LOG.
+          //
+          // The band is a receipt: ephemeral by design, gone the moment the
+          // user types. That makes it useless for answering "did this ever
+          // run, and what did it decide?" — the question this feature spent
+          // its whole development unable to answer, because turn.complete
+          // produces no transcript output and a silent circuit breaker looks
+          // identical to a vault with nothing to surface.
+          //
+          // `tee -a` rather than a shell redirect: process.run takes an argv
+          // and runs no shell, so `>>` would be a literal argument. Not
+          // awaited — an ambient feature must not make the user wait on its
+          // own bookkeeping — and the catch keeps a failed append from
+          // surfacing as an unhandled rejection.
+          if (logPath) {
+            $.process.run(["tee", "-a", logPath], {
+              stdin: `${JSON.stringify({
+                at: new Date().toISOString(),
+                outcome,
+                ...extra,
+              })}\n`,
+            }).catch(() => {});
+          }
         },
       },
       {
