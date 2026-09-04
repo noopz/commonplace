@@ -400,6 +400,14 @@ export async function runConnectionPass(
     // -- Tier 2a: free lexical seed. A jumping-off point, not an answer. ---
 
     const lexical = rankCandidates(records, tokens, 4);
+    // Traced unconditionally, including the zero case. A pass that seeds
+    // lexically and goes straight on to the judge otherwise leaves NO record
+    // of which tier produced the candidate — the log reads identically to the
+    // pre-graph code, so "did the new tier ship" is unanswerable from it.
+    ports.trace("seed:lexical", {
+      candidates: lexical.length,
+      top: lexical[0]?.path ?? "",
+    });
 
     // -- Tier 2b: graph seed, only when the free tier came up empty --------
     //
@@ -427,6 +435,8 @@ export async function runConnectionPass(
       } catch (err) {
         ports.trace("seed:graph-failed", { error: String(err).slice(0, 90) });
       }
+    } else {
+      ports.trace("seed:graph-skipped", { lexical: lexical.length });
     }
 
     // Fail-closed privacy join. `connect` ranks the whole vault with no scope
@@ -472,6 +482,9 @@ export async function runConnectionPass(
     // -- Tier 3: READ the note. This is the step that makes it not-RAG. ----
 
     const best = candidates[0];
+    // Which note the judge is about to be paid for, and which tier found it.
+    // The outcome alone ("judged not relevant") never said either.
+    ports.trace("judge:candidate", { path: best.path, tier: best.tier });
     const noteRaw = await ports.readText(`${vaultPath}/${best.path}`);
     const noteText = stripFrontmatter(noteRaw).slice(
       0,
