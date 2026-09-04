@@ -557,6 +557,20 @@ export async function runConnectionPass(
       seen,
       4,
     );
+    // THE WHOLE POOL, not just the one that gets read.
+    //
+    // Only the top candidate is ever judged, so a log that records only that
+    // one cannot distinguish "the right note was never a candidate" from "it
+    // was a candidate, ranked third". Those are a seeding bug and a ranking
+    // bug, and `eval:connection` scored two runs at 5/8 that differed by
+    // exactly that distinction without being able to say so. Recording the
+    // ordered pool makes Hit@K and MRR computable from logs already written,
+    // with no extra sessions — the standard retrieval metrics, which top-1
+    // outcome logging silently throws away.
+    ports.trace("seed:pool", {
+      pool: candidates.map((c) => `${c.tier}:${c.path}`),
+    });
+
     if (candidates.length === 0) {
       // Deliberately does NOT raise the band. The band is a receipt for the
       // vault having been consulted usefully; a seed miss is the common case

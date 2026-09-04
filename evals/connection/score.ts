@@ -68,6 +68,11 @@ export type PassObservation = {
   score: number;
   /** True when the graph walk ran. */
   walked: boolean;
+  /**
+   * The ORDERED candidate pool, `tier:path`. Only pool[0] is ever judged, so
+   * this is what separates a seeding failure from a ranking failure.
+   */
+  pool: string[];
   /** Milliseconds from `pass:enter` to the last line of the pass. */
   ms: number;
 };
@@ -80,6 +85,13 @@ export type CaseResult = {
   correct: boolean;
   /** Surfaced, but not one of the expected notes. */
   wrongNote: boolean;
+  /**
+   * 1-based rank of the first expected note in the candidate pool; 0 when the
+   * pool never contained one. A high `correct` rate with poor ranks means the
+   * judge is carrying the system; good ranks with a low `correct` rate means
+   * the judge is throwing away work the seed already did.
+   */
+  rank: number;
 };
 
 /**
@@ -97,6 +109,7 @@ export function observePass(lines: readonly LogLine[]): PassObservation {
     tier: "",
     score: 0,
     walked: false,
+    pool: [],
     ms: 0,
   };
   // Split into passes on each `pass:enter`, and keep the last.
@@ -118,6 +131,9 @@ export function observePass(lines: readonly LogLine[]): PassObservation {
 
     if (stage === "seed:lexical") out.score = Number(line.score ?? 0);
     if (stage === "seed:graph") out.walked = true;
+    if (stage === "seed:pool" && Array.isArray(line.pool)) {
+      out.pool = (line.pool as unknown[]).map(String);
+    }
     if (stage === "judge:candidate") {
       out.candidate = String(line.path ?? "");
       out.tier = String(line.tier ?? "");
@@ -144,12 +160,22 @@ export function scoreCase(gold: GoldCase, observed: PassObservation): CaseResult
   // No expected list means "any surface counts" — see GoldCase.notes.
   const rightNote = expected.length === 0 || expected.includes(observed.candidate);
 
+  // The pool records `tier:path`; match on the path half so a note found by
+  // either tier counts, which is the point of having two.
+  const rank =
+    expected.length === 0
+      ? 0
+      : observed.pool.findIndex((entry) =>
+          expected.includes(entry.slice(entry.indexOf(":") + 1)),
+        ) + 1;
+
   return {
     id: gold.id,
     expect: gold.expect,
     observed,
     correct: gold.expect === "surface" ? surfaced && rightNote : !surfaced,
     wrongNote: surfaced && !rightNote,
+    rank,
   };
 }
 
@@ -171,6 +197,22 @@ export type Summary = {
    * eval itself is contending for the budget.
    */
   missStages: Record<string, number>;
+  /**
+   * Correct surfaces over ALL surfaces. For an ambient feature that
+   * interrupts, this is the metric that matters: low precision is alert
+   * fatigue, and alert fatigue kills the feature outright.
+   */
+  precision: number;
+  /** Correct surfaces over cases that should have surfaced. */
+  recall: number;
+  /**
+   * Cases whose pool contained an expected note, over cases that should have
+   * surfaced. THE DIAGNOSTIC PAIR: poolRecall far above recall means seeding
+   * is fine and everything downstream of it is losing the note.
+   */
+  poolRecall: number;
+  /** Mean reciprocal rank of the first expected note, over positive cases. */
+  mrr: number;
   /** Median pass duration in ms, over passes that actually ran. */
   medianMs: number;
 };
@@ -197,6 +239,9 @@ export function summarize(results: readonly CaseResult[]): Summary {
   }
 
   const ran = results.map((r) => r.observed.ms).filter((m) => m > 0).sort((a, b) => a - b);
+  const positives = results.filter((r) => r.expect === "surface");
+  const surfaces = results.filter((r) => r.observed.stage === "surfaced").length;
+  const ranked = positives.filter((r) => r.rank > 0);
 
   return {
     total: results.length,
@@ -206,14 +251,34 @@ export function summarize(results: readonly CaseResult[]): Summary {
     falsePositives,
     wrongNotes,
     missStages,
-    medianMs: ran.length ? ran[Math.floor(ran.length / 2)] : 0,
+    precision: surfaces ? hits / surfaces : 0,
+    recall: positives.length ? hits / positives.length : 0,
+    poolRecall: positives.length ? ranked.length / positives.length : 0,
+    mrr: positives.length
+      ? positives.reduce((a, r) => a + (r.rank > 0 ? 1 / r.rank : 0), 0) / positives.length
+      : 0,
+  medianMs: ran.length ? ran[Math.floor(ran.length / 2)] : 0,
   };
 }
 
 /** Human-readable report. The stage histogram is the point; read that first. */
 export function formatSummary(s: Summary, results: readonly CaseResult[]): string {
+  const pct = (n: number) => n.toFixed(2);
   const out: string[] = [];
   out.push(`${s.correct}/${s.total} correct   (median pass ${s.medianMs}ms)`);
+  // Precision and recall are reported apart because they are not equally
+  // important here and a combined score hides that. An ambient feature that
+  // interrupts must protect precision first; recall can be raised later.
+  out.push(
+    `  precision ${pct(s.precision)}   recall ${pct(s.recall)}   ` +
+      `pool recall ${pct(s.poolRecall)}   MRR ${pct(s.mrr)}`,
+  );
+  if (s.poolRecall > s.recall) {
+    out.push(
+      `  NOTE: seeding found a gold note in ${pct(s.poolRecall)} of cases but only ` +
+        `${pct(s.recall)} surfaced — the loss is downstream of retrieval.`,
+    );
+  }
   out.push(
     `  surfaced right: ${s.hits}   missed: ${s.misses}   ` +
       `false positives: ${s.falsePositives}   wrong note: ${s.wrongNotes}`,
@@ -231,9 +296,16 @@ export function formatSummary(s: Summary, results: readonly CaseResult[]): strin
     const detail = r.observed.candidate
       ? ` -> ${r.observed.tier}: ${r.observed.candidate}`
       : "";
+    // rank@N says whether the gold note was in the pool at all, and where.
+    const rank =
+      r.expect === "surface"
+        ? r.rank > 0
+          ? ` rank@${r.rank}/${r.observed.pool.length}`
+          : ` rank@-/${r.observed.pool.length}`
+        : "";
     out.push(
       `  ${mark} ${r.id.padEnd(20)} ${r.observed.stage.padEnd(20)}` +
-        ` score=${String(r.observed.score).padStart(3)}${r.observed.walked ? " +walk" : ""}${detail}`,
+        ` score=${String(r.observed.score).padStart(3)}${r.observed.walked ? " +walk" : ""}${rank}${detail}`,
     );
   }
   return out.join("\n");

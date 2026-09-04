@@ -161,7 +161,18 @@ rate limit, a classify, a subprocess and a judge that only a live session
 exercises. The gold set lives at `$VAULT/.wiki/evals/connection-gold.jsonl` and
 is **never committed** — its cases name real notes (`--init` scaffolds one).
 Read the miss histogram first: a miss at `no-candidates`, `rate-limited`,
-`off-topic` and `judged-not-relevant` are four different bugs.
+`off-topic` and `judged-not-relevant` are four different bugs. Then read
+**pool recall against recall** — the pass judges only the top candidate, so the
+gap between "a gold note was in the pool" and "a gold note surfaced" is the
+whole loss downstream of retrieval, and without it two runs can score
+identically for opposite reasons (they did).
+
+**Precision and recall are reported apart on purpose.** An ambient feature that
+interrupts must protect precision first, because low precision is alert fatigue
+and alert fatigue kills the feature; recall can be raised afterwards. A single
+"N/M correct" hides which one moved. And the eval is NOISY — the pass runs on
+the model's answer, which varies per run — so compare a change across repeated
+runs, and treat a stable number as reliable, not as correct.
 
 Full API notes, the probe method, and the migration checklist for when this API
 is officially documented live in the vault at
