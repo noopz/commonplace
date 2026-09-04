@@ -151,6 +151,17 @@ export interface Ports {
   status(): Status;
   /** Record an outcome on the status band and ask for a redraw. */
   note(outcome: string, extra?: Partial<Status>): void;
+  /**
+   * Record WHY the pass declined, whether or not the band moves.
+   *
+   * `note` only fires on outcomes worth showing the user, so the pass could
+   * decline for any of eight reasons and leave no trace anywhere — the band
+   * stays down, the transcript says nothing, and a feature that is working
+   * exactly as designed is indistinguishable from one that is broken. That
+   * cost this branch several rounds of guessing from a 25ms hook duration.
+   * Every early return calls this.
+   */
+  trace(stage: string, detail?: Record<string, unknown>): void;
 }
 
 export type PassInput = {
@@ -202,18 +213,29 @@ export async function runConnectionPass(
   let sessionId = "";
 
   try {
+    ports.trace("pass:enter");
+
     // -- Free guards, in ascending cost order -----------------------------
 
-    if (input.reason !== "answer" || input.aborted) return null;
+    if (input.reason !== "answer" || input.aborted) {
+      ports.trace("skip:not-an-answer", { reason: input.reason, aborted: input.aborted });
+      return null;
+    }
     const answer = String(input.answer ?? "");
-    if (answer.length < MIN_ANSWER_CHARS) return null;
+    if (answer.length < MIN_ANSWER_CHARS) {
+      ports.trace("skip:answer-too-short", { chars: answer.length, need: MIN_ANSWER_CHARS });
+      return null;
+    }
 
     // The cheapest discriminator of all, and it needs nothing but the
     // answer: too few significant tokens and no candidate could clear the
     // seed threshold anyway. Run it before the vault is even resolved, so a
     // thin turn never triggers the 7s path below.
     const tokens = tokenize(answer.slice(0, ANSWER_EXCERPT));
-    if (tokens.size < MIN_ANSWER_TOKENS) return null;
+    if (tokens.size < MIN_ANSWER_TOKENS) {
+      ports.trace("skip:too-few-tokens", { tokens: tokens.size, need: MIN_ANSWER_TOKENS });
+      return null;
+    }
 
     // Per-session state. The store is persistent ACROSS sessions, but
     // turnCount restarts at 1 in each one — so a raw stored turn number
@@ -252,7 +274,10 @@ export async function runConnectionPass(
     // ever shown.
     const turnCount = await ports.turnCount();
     const lastTurn = Number(state.lastTurn ?? -999);
-    if (turnCount - lastTurn < MIN_TURN_GAP) return null;
+    if (turnCount - lastTurn < MIN_TURN_GAP) {
+      ports.trace("skip:rate-limited", { turnCount, lastTurn, gap: MIN_TURN_GAP });
+      return null;
+    }
 
     // -- Resolve the vault once, then cache it forever ---------------------
     // The sandbox fs is confined to the session project and the vault
@@ -350,6 +375,7 @@ export async function runConnectionPass(
       // common case on any long technical answer, and showing
       // "last: no candidates" on most turns is exactly the furniture the
       // receipt design exists to avoid. Record the outcome without raising.
+      ports.trace("skip:no-candidates", { tokens: tokens.size, records: records.length });
       ports.note("no candidates", { visible: ports.status().visible });
       return null;
     }

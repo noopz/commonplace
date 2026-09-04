@@ -109,6 +109,7 @@ type Call = { name: keyof Ports; args: unknown[] };
 type Fake = {
   ports: Ports;
   calls: Call[];
+  traces: { stage: string; detail: Record<string, unknown> }[];
   store: Map<string, unknown>;
   /** Mutable knobs, read at call time. */
   session: string;
@@ -129,6 +130,7 @@ type Fake = {
 function makeFake(): Fake {
   const fake = {
     calls: [] as Call[],
+    traces: [] as { stage: string; detail: Record<string, unknown> }[],
     store: new Map<string, unknown>(),
     session: "session-one",
     turn: 1,
@@ -190,6 +192,12 @@ function makeFake(): Fake {
       return fake.clock;
     },
     status: () => fake.status,
+    trace: (stage, detail = {}) => {
+      // Deliberately NOT recorded in `calls`: trace is free bookkeeping, and
+      // the "touches no port at all" assertions are about SPEND. Kept in its
+      // own list so tests can assert the pass says why it declined.
+      fake.traces.push({ stage, detail });
+    },
     note: (outcome, extra = {}) => {
       rec("note", outcome, extra);
       fake.status = { ...fake.status, lastOutcome: outcome, visible: true, ...extra };
@@ -200,6 +208,7 @@ function makeFake(): Fake {
   fake.sessionRecord = () => fake.store.get(SESSION_KEY) as SessionState | undefined;
   fake.reset = () => {
     fake.calls.length = 0;
+    fake.traces.length = 0;
   };
   return fake;
 }
@@ -733,5 +742,42 @@ describe("privateNames", () => {
 
   test("drops records whose title and name are both missing", () => {
     assert.deepEqual(privateNames([{ scope: "private" }, { scope: "private", title: "" }]), []);
+  });
+});
+
+describe("every decline says why", () => {
+  // The property this exists to protect: a pass that declines silently is
+  // indistinguishable from a broken one. Diagnosing that cost this branch
+  // several rounds of guessing from nothing but a 25ms hook duration.
+
+  test("a non-answer turn traces its reason", async () => {
+    const fake = makeFake();
+    await runConnectionPass(fake.ports, { answer: ANSWER, reason: "aborted", aborted: true });
+    assert.deepEqual(fake.traces.map((t) => t.stage), ["pass:enter", "skip:not-an-answer"]);
+  });
+
+  test("a short answer traces the length it wanted", async () => {
+    const fake = makeFake();
+    await runConnectionPass(fake.ports, { answer: "too short", reason: "answer", aborted: false });
+    const skip = fake.traces.find((t) => t.stage === "skip:answer-too-short");
+    assert.ok(skip);
+    assert.equal(skip.detail.chars, "too short".length);
+  });
+
+  test("the rate limit records the turns it compared", async () => {
+    const fake = makeFake();
+    fake.store.set(SESSION_KEY, { id: "session-one", lastTurn: 10, failures: 0, seen: [] });
+    fake.turn = 11;
+    await runConnectionPass(fake.ports, { answer: ANSWER, reason: "answer", aborted: false });
+    const skip = fake.traces.find((t) => t.stage === "skip:rate-limited");
+    assert.ok(skip, "a rate-limited turn must not decline silently");
+    assert.equal(skip.detail.turnCount, 11);
+    assert.equal(skip.detail.lastTurn, 10);
+  });
+
+  test("the pass always traces that it ran, even when it declines instantly", async () => {
+    const fake = makeFake();
+    await runConnectionPass(fake.ports, { answer: "", reason: "answer", aborted: false });
+    assert.equal(fake.traces[0].stage, "pass:enter");
   });
 });

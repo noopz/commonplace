@@ -623,6 +623,20 @@ export const register = (on: any) => {
         complete: (req: any) => $.model.complete(req),
         now: () => $.clock.now(),
         status: () => status,
+        trace: (stage: string, detail: Record<string, unknown> = {}) => {
+          // Always logged, never shown. This is the record that answers "did
+          // it run, and what did it decide?" — the question the ephemeral
+          // status band structurally cannot answer.
+          if (logPath) {
+            $.process.run(["tee", "-a", logPath], {
+              stdin: `${JSON.stringify({
+                at: new Date().toISOString(),
+                stage,
+                ...detail,
+              })}\n`,
+            }).catch(() => {});
+          }
+        },
         note: (outcome: string, extra: Partial<Status> = {}) => {
           // Raising the band is the default: note() is only called when the
           // vault actually did something. The session-reset caller opts out.
