@@ -51,6 +51,20 @@ export const NOTE_EXCERPT = 2200;
 /** The judge reads the note body; fewer chars than this is not a note. */
 export const MIN_NOTE_CHARS = 80;
 
+/**
+ * Lexical top score at or above which the graph walk is not worth running.
+ *
+ * `scoreRecord` pays 4 per matched title token, 3 per abstraction token and 1
+ * per cue anchor, so 12 is roughly three title tokens — evidence that the
+ * answer is discussing that note by name, not brushing past its vocabulary.
+ *
+ * Calibrated against MIN_SEED_SCORE = 6, which on a vault of a few hundred
+ * records is cleared by almost anything: five live probes on topics the vault
+ * has no note about (sourdough, derailleurs) each returned a full four
+ * candidates. Emptiness is not a signal at that size; strength is.
+ */
+export const LEX_STRONG_SCORE = 12;
+
 /** Rejected/surfaced notes remembered per session, most recent last. */
 export const SEEN_LIMIT = 40;
 
@@ -400,12 +414,15 @@ export async function runConnectionPass(
     // -- Tier 2a: free lexical seed. A jumping-off point, not an answer. ---
 
     const lexical = rankCandidates(records, tokens, 4);
-    // Traced unconditionally, including the zero case. A pass that seeds
-    // lexically and goes straight on to the judge otherwise leaves NO record
-    // of which tier produced the candidate — the log reads identically to the
-    // pre-graph code, so "did the new tier ship" is unanswerable from it.
+    const lexTop = lexical[0]?.score ?? 0;
+    // Traced unconditionally, including the zero case, and WITH the score.
+    // A pass that seeds lexically and goes straight on to the judge otherwise
+    // leaves no record of which tier produced the candidate or how strong the
+    // evidence was — the log reads identically to the pre-graph code, so "did
+    // the new tier ship" and "is the threshold right" are both unanswerable.
     ports.trace("seed:lexical", {
       candidates: lexical.length,
+      score: lexTop,
       top: lexical[0]?.path ?? "",
     });
 
@@ -417,17 +434,22 @@ export async function runConnectionPass(
     // CLAUDE.md names as the whole point and the lexical tier structurally
     // cannot serve.
     //
-    // Gated on the lexical tier being empty, not because the graph is worse
-    // but because it would change nothing: `mergeSeeds` orders lexical first
-    // (the answer literally discusses those notes), only the top candidate is
-    // ever read, and the walk costs ~300ms of subprocess. When the free tier
-    // has an opinion, that is the one acted on either way.
+    // Gated on the STRENGTH of the free tier, not on it being empty. It was
+    // gated on emptiness for exactly one version, and that made this dead
+    // code: on a vault of a few hundred records `rankCandidates` returns its
+    // full four candidates for any technical answer whatsoever — verified live
+    // against topics the vault holds nothing about. See LEX_STRONG_SCORE.
+    //
+    // A strong lexical hit still skips the walk, and rightly: the answer is
+    // discussing that note by name, only the top candidate is ever read, and
+    // the walk costs ~400ms of subprocess it could not improve on.
     //
     // Failure here is not the circuit breaker's business: an empty pool and a
     // crashed walk are the same outcome — no graph opinion — and neither is
     // worth pausing an ambient feature over.
     let graph: { path: string; label: string }[] = [];
-    if (lexical.length === 0 || lexical.every((c) => seen.includes(c.path))) {
+    const unseen = lexical.filter((c) => !seen.includes(c.path));
+    if (unseen.length === 0 || lexTop < LEX_STRONG_SCORE) {
       try {
         const out = await ports.runCommand(connectArgv(answer.slice(0, ANSWER_EXCERPT)));
         graph = parseConnectOutput(out);
@@ -436,7 +458,7 @@ export async function runConnectionPass(
         ports.trace("seed:graph-failed", { error: String(err).slice(0, 90) });
       }
     } else {
-      ports.trace("seed:graph-skipped", { lexical: lexical.length });
+      ports.trace("seed:graph-skipped", { score: lexTop, need: LEX_STRONG_SCORE });
     }
 
     // Fail-closed privacy join. `connect` ranks the whole vault with no scope
@@ -448,9 +470,18 @@ export async function runConnectionPass(
       if (p) surfaceableByPath.set(p, isSurfaceable(rec));
     }
 
+    // Graph first WHEN IT RAN, because the only reason it ran is that the
+    // lexical evidence was thin — preferring that thin hit anyway would waste
+    // the walk. A strong lexical hit never reaches here with a graph list.
+    const tiers = graph.length
+      ? [
+          { tier: "graph" as const, candidates: graph },
+          { tier: "lexical" as const, candidates: lexical },
+        ]
+      : [{ tier: "lexical" as const, candidates: lexical }];
+
     const candidates = mergeSeeds(
-      lexical,
-      graph,
+      tiers,
       (p) => surfaceableByPath.get(p) === true,
       seen,
       4,

@@ -70,19 +70,25 @@ test("parseConnectOutput shrugs at anything unexpected", () => {
   assert.deepEqual(mixed.map((c) => c.path), ["a/C.md"]);
 });
 
-test("mergeSeeds puts the lexical tier first and dedupes", () => {
-  const merged = mergeSeeds(
-    [{ path: "a/Alpha.md", label: "Alpha" }],
-    [
+test("mergeSeeds keeps the caller's tier order and dedupes across tiers", () => {
+  const lexical = { tier: "lexical" as const, candidates: [{ path: "a/Alpha.md", label: "Alpha" }] };
+  const graph = {
+    tier: "graph" as const,
+    candidates: [
       { path: "a/Alpha.md", label: "Alpha" },
       { path: "g/Gamma.md", label: "Gamma" },
     ],
-    () => true,
-    [],
-    4,
-  );
-  assert.deepEqual(merged, [
+  };
+
+  assert.deepEqual(mergeSeeds([lexical, graph], () => true, [], 4), [
     { path: "a/Alpha.md", label: "Alpha", tier: "lexical" },
+    { path: "g/Gamma.md", label: "Gamma", tier: "graph" },
+  ]);
+
+  // Graph-first is the order the pipeline uses when the walk ran at all: the
+  // shared note is then credited to the graph, and leads.
+  assert.deepEqual(mergeSeeds([graph, lexical], () => true, [], 4), [
+    { path: "a/Alpha.md", label: "Alpha", tier: "graph" },
     { path: "g/Gamma.md", label: "Gamma", tier: "graph" },
   ]);
 });
@@ -91,11 +97,15 @@ test("mergeSeeds is fail-closed on anything it cannot vouch for", () => {
   // `connect` ranks the whole vault with no scope filter, so a path with no
   // surfaceable record behind it must be dropped, not surfaced.
   const merged = mergeSeeds(
-    [],
     [
-      { path: "maps/Some Map.md", label: "Some Map" },
-      { path: "d/Delta Ledger.md", label: "Delta Ledger" },
-      { path: "g/Gamma.md", label: "Gamma" },
+      {
+        tier: "graph",
+        candidates: [
+          { path: "maps/Some Map.md", label: "Some Map" },
+          { path: "d/Delta Ledger.md", label: "Delta Ledger" },
+          { path: "g/Gamma.md", label: "Gamma" },
+        ],
+      },
     ],
     (p) => p === "g/Gamma.md",
     [],
@@ -106,10 +116,15 @@ test("mergeSeeds is fail-closed on anything it cannot vouch for", () => {
 
 test("mergeSeeds drops notes already seen this session and honours the limit", () => {
   const merged = mergeSeeds(
-    [{ path: "a/Alpha.md", label: "Alpha" }],
     [
-      { path: "g/Gamma.md", label: "Gamma" },
-      { path: "b/Beta.md", label: "Beta" },
+      { tier: "lexical", candidates: [{ path: "a/Alpha.md", label: "Alpha" }] },
+      {
+        tier: "graph",
+        candidates: [
+          { path: "g/Gamma.md", label: "Gamma" },
+          { path: "b/Beta.md", label: "Beta" },
+        ],
+      },
     ],
     () => true,
     ["a/Alpha.md"],

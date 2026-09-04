@@ -53,7 +53,7 @@ rather than noting once.
 **`turn.complete` ambient connection surfacing**.
 At the end of a turn a cheap classify decides whether the answer is technical
 substance at all; if it is, the pass seeds lexically against the JSONL indexes
-and, **only when that free tier comes up empty**, runs `commonplace connect` for
+and, **when that free tier's best hit is weak**, runs `commonplace connect` for
 a PPR pool over the content graph. Either way it then reads the candidate note
 and asks a model whether the connection is real, rendering at most one line
 beneath the answer. This replaces asking the model, in prompt text, to remember
@@ -64,7 +64,12 @@ with the answer — the case the "No RAG" section names and lexical seeding
 structurally cannot serve. It buys recall, not precision: `connect` always
 returns k candidates with no "no opinion" signal, so the judge (not a score
 threshold) remains the relevance authority, and the rate limit bounds how often
-it is asked. `connect` output carries no scope filter and includes MOC paths the
+it is asked. The walk is gated on lexical STRENGTH, not on the lexical tier
+being empty — gated on emptiness it was dead code, because on a few-hundred-
+record vault `rankCandidates` returns its full four candidates for any answer
+at all (a sourdough-fermentation answer scored 7 against notes about AI agent
+tooling). That threshold decides whether to widen the search, never whether a
+note is relevant, which is the distinction the "No RAG" rule actually draws. `connect` output carries no scope filter and includes MOC paths the
 pass never indexes, so `mergeSeeds` is **fail-closed** — a path with no
 surfaceable index record behind it is dropped rather than surfaced.
 
@@ -129,12 +134,14 @@ Hard constraints of this API, verified rather than assumed:
   helpers normally.
 - `claude plugin validate <dir>` checks all of the above without running it, and
   prints the module's exact capability surface. Run it after every edit.
-- **`turn.complete` and `ui.render` do not fire under `claude -p`** (no terminal
-  surface — `$.session.surface()` answers `null` there). Both fire normally in an
-  interactive session: verified as `turn.complete settled in 25.1ms` in a
-  `--debug-file` log. `tool.call` hooks fire under `-p` too, which is why the
-  enforcement guards can be tested non-interactively and the connection pass
-  cannot — another reason its logic sits behind `Ports` in `lib/`.
+- **`turn.complete` DOES fire under `claude -p`.** This section said the
+  opposite for several versions, on the reasoning that `-p` has no terminal
+  surface. `ui.render` genuinely does not fire there, and conflating the two
+  cost a lot of guessing. A `-p` run is now the fastest way to exercise the
+  whole connection pass: each one is a fresh session, so the rate limit rebinds
+  and every run gets a pass. Watch `<vault>/.wiki/hook-log.jsonl`. `tool.call`
+  hooks fire under `-p` too, so every hook here except `ui.render` is testable
+  non-interactively.
 - **Diagnose with `claude --plugin-dir . --debug-file <path>`.** It logs every
   hook that loads, fires, and how long it settled, and says why a render tree
   failed validation. It is the only way to see any of that.

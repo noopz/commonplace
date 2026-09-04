@@ -21,6 +21,7 @@ import {
   privateNames,
   MAX_FAILURES,
   MIN_TURN_GAP,
+  LEX_STRONG_SCORE,
   INDEX_TTL_MS,
   SESSION_KEY,
   VAULT_KEY_PREFIX,
@@ -76,6 +77,19 @@ const UNRELATED_RECORD = {
 };
 
 const GAMMA_PATH = UNRELATED_RECORD.path;
+
+/**
+ * Matches only through its abstraction, never its title: three abstraction
+ * tokens = 9, which clears MIN_SEED_SCORE (6) but not LEX_STRONG_SCORE (12).
+ * This is the shape that should buy a graph walk rather than end the pass.
+ */
+const WEAK_RECORD = {
+  title: "Zeta Ledger",
+  path: "concepts/zeta/Zeta Ledger.md",
+  abstraction: "collapsing redundant edges",
+  tags: ["zeta"],
+  authority: 0.2,
+};
 
 /** A private-domain note: never surfaceable, however the graph ranks it. */
 const PRIVATE_PATH = "concepts/delta/Delta Ledger.md";
@@ -606,14 +620,37 @@ describe("runConnectionPass", () => {
     );
   });
 
-  test("the graph tier is skipped when the free tier already has a candidate", async () => {
-    // ~300ms of subprocess that could not change the outcome: `mergeSeeds`
-    // orders lexical first and only the top candidate is ever read.
+  test("a STRONG lexical hit skips the walk", async () => {
+    // ALPHA_RECORD matches on title and abstraction, well past
+    // LEX_STRONG_SCORE. ~400ms of subprocess that could not change the
+    // outcome: only the top candidate is ever read.
     await runConnectionPass(fake.ports, answerInput());
+    const top = fake.traces.find((t) => t.stage === "seed:lexical");
+    assert.ok(Number(top?.detail.score) >= LEX_STRONG_SCORE, "fixture must be a strong hit");
     assert.equal(
       fake.calls.filter((c) => c.name === "runCommand" && String(c.args[0]).startsWith("connect")).length,
       0,
     );
+  });
+
+  test("a WEAK lexical hit buys a walk, and the graph candidate leads", async () => {
+    // The bug this replaced: the walk was gated on the lexical tier being
+    // EMPTY, which on a real vault never happens — MIN_SEED_SCORE is easy to
+    // clear once there are a few hundred records, so the tier was dead code.
+    fake.indexRecords = [WEAK_RECORD, UNRELATED_RECORD];
+    fake.connectResult = connectJson([{ path: GAMMA_PATH, title: "Gamma Term" }]);
+
+    const out = await runConnectionPass(fake.ports, answerInput());
+    const seedTrace = fake.traces.find((t) => t.stage === "seed:lexical");
+    assert.ok(Number(seedTrace?.detail.score) > 0, "the lexical tier did find something");
+    assert.ok(Number(seedTrace?.detail.score) < LEX_STRONG_SCORE, "but not strongly");
+    assert.ok(
+      fake.traces.some((t) => t.stage === "seed:graph"),
+      "a thin lexical hit must not end the pass",
+    );
+    // Preferring the thin lexical hit anyway would waste the walk.
+    assert.equal(fake.traces.find((t) => t.stage === "judge:candidate")?.detail.tier, "graph");
+    assert.match(out!.text, /Gamma Term/);
   });
 
   test("a graph candidate with no surfaceable index record is dropped", async () => {
