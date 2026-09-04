@@ -104,6 +104,39 @@ let status: Status = {
   visible: false,
 };
 
+
+/**
+ * Resolve the vault for a project dir, memoised.
+ *
+ * MUST be lazy, not just eager. `session.start` populating the map at session
+ * start is not enough: a module reload (every edit, under `--plugin-dir`)
+ * re-instantiates module scope but does NOT re-fire `session.start`, so the
+ * map comes back empty mid-session and every hook reading it silently does
+ * nothing — no outcome log, no context block, an inert leak guard, no spawn
+ * steering. That is exactly the failure shape this branch keeps producing:
+ * working code that stops doing anything without ever reporting an error.
+ *
+ * Taking `$` as a parameter is legal — the scanner follows it into a function
+ * declared in THIS file, just never across an import into `lib/`.
+ *
+ * A miss is not cached. At 46ms a re-resolve per turn is cheap, and caching
+ * the empty answer would hide a `commonplace init` until the next restart.
+ */
+const ensureVaultPath = async ($: any, projectDir: string): Promise<string> => {
+  const known = vaultPaths.get(projectDir);
+  if (known) return known;
+  try {
+    const res = await $.process.run([
+      "node", `${$.plugin.root}/bin/commonplace`, "vault-path",
+    ]);
+    const resolved = String(res?.stdout ?? "").trim();
+    if (resolved) vaultPaths.set(projectDir, resolved);
+    return resolved;
+  } catch {
+    return "";
+  }
+};
+
 // ---------------------------------------------------------------------------
 // Registration
 // ---------------------------------------------------------------------------
@@ -127,13 +160,10 @@ export const register = (on: any) => {
     // this was unthinkable and every hook had to lazily cache the answer; at
     // $.process.run prices it is ~46ms of session setup, so the later hooks
     // can simply read it.
+    // Warm the cache before turn one so the first turn does not pay for it.
+    // Correctness does not depend on this — every reader resolves lazily.
     try {
-      const projectDir = await $.session.cwd();
-      if (!vaultPaths.has(projectDir)) {
-        const res = await $.process.run(["node", `${$.plugin.root}/bin/commonplace`, "vault-path"]);
-        const p = String(res?.stdout ?? "").trim();
-        if (p) vaultPaths.set(projectDir, p);
-      }
+      await ensureVaultPath($, await $.session.cwd());
     } catch {
       /* no vault configured, or the CLI is unavailable; hooks degrade */
     }
@@ -187,7 +217,7 @@ export const register = (on: any) => {
         if (!target || !text) return next(e);
 
         const projectDir = await $.session.cwd();
-        const vaultPath = vaultPaths.get(projectDir) ?? "";
+        const vaultPath = await ensureVaultPath($, projectDir);
         // Writing inside the vault is the whole point of the vault. The
         // trailing separator matters: without it a sibling vault directory
         // (`/Users/x/Vault2`) is exempted by a vault at `/Users/x/Vault`.
@@ -230,12 +260,7 @@ export const register = (on: any) => {
       // into helpers because the scanner refuses `$` crossing an import — it
       // may be passed to a function in THIS file, but not into `lib/`.
       const projectDir = await $.session.cwd();
-      let vaultPath = vaultPaths.get(projectDir) ?? "";
-      if (!vaultPath) {
-        const res = await $.process.run(["node", `${$.plugin.root}/bin/commonplace`, "vault-path"]);
-        vaultPath = String(res?.stdout ?? "").trim();
-        if (vaultPath) vaultPaths.set(projectDir, vaultPath);
-      }
+      const vaultPath = await ensureVaultPath($, projectDir);
       if (!vaultPath) {
         return {
           deny:
@@ -322,7 +347,7 @@ export const register = (on: any) => {
       if (!prompt) return next(e);
 
       const projectDir = await $.session.cwd();
-      const vaultPath = vaultPaths.get(projectDir) ?? "";
+      const vaultPath = await ensureVaultPath($, projectDir);
       // No vault on this machine means nothing to steer toward.
       if (!vaultPath) return next(e);
       if (!looksVaultShaped(prompt, vaultPath)) return next(e);
@@ -400,7 +425,7 @@ export const register = (on: any) => {
       if (!skill.includes("wiki-") && !skill.includes("autoimprove")) return built;
 
       const projectDir = await $.session.cwd();
-      const vaultPath = vaultPaths.get(projectDir) ?? "";
+      const vaultPath = await ensureVaultPath($, projectDir);
       if (!vaultPath) return built;
 
       const counts =
@@ -438,7 +463,7 @@ export const register = (on: any) => {
       // Bash-tool resolve cost 7.3s on the critical path before the first
       // model turn; at process.run prices there is nothing to amortise.
       const projectDir = await $.session.cwd();
-      const vaultPath = vaultPaths.get(projectDir) ?? "";
+      const vaultPath = await ensureVaultPath($, projectDir);
       if (!vaultPath) return built;
 
       const inVault = projectDir.startsWith(`${vaultPath}/`) || projectDir === vaultPath;
@@ -506,6 +531,17 @@ export const register = (on: any) => {
       status = { ...status, visible: false };
       $.ui.invalidate("ui.render");
     }
+    // Clear the pinned status line unconditionally, not just when we think we
+    // set one. It is ENGINE-side state: it survives a module reload and a new
+    // session, so module state is not a reliable record of whether one is up.
+    // A stale line from a previous build sat pinned above the prompt for
+    // several turns precisely because nothing cleared what module scope had
+    // forgotten about.
+    try {
+      await $.ui.status(undefined);
+    } catch {
+      /* nothing pinned, or no surface to pin to */
+    }
     return next(e);
   });
 
@@ -562,7 +598,7 @@ export const register = (on: any) => {
     // Empty when no vault is configured, which disables the log rather than
     // guessing a path.
     const projectDir = await $.session.cwd();
-    const vp = vaultPaths.get(projectDir) ?? "";
+    const vp = await ensureVaultPath($, projectDir);
     const logPath = vp ? `${vp}/.wiki/hook-log.jsonl` : "";
 
     const surfaced = await runConnectionPass(

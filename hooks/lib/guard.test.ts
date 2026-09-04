@@ -450,3 +450,35 @@ test("checkPrivateLeak tolerates junk in the title list", () => {
   assert.equal(checkPrivateLeak("nothing here", priv), null);
   assert.ok(checkPrivateLeak("alpha method", priv));
 });
+
+test("a script that only MENTIONS a vault path is not a parse", () => {
+  // The guard denied its own author: an edit script writing a TypeScript file
+  // whose source contains the literal `.wiki/hook-log.jsonl` matched both
+  // isParserStage (interpreter + heredoc) and mentionsVaultJson, and was
+  // refused. Nothing decoded anything. A global deny that blocks editing the
+  // plugin's own source is worse than one that misses a case.
+  const editScript =
+    "python3 - <<'PY'\n" +
+    "p='hooks/register.ts'\n" +
+    "s=open(p).read()\n" +
+    "s=s.replace('X', '`${vp}/.wiki/hook-log.jsonl`')\n" +
+    "open(p,'w').write(s)\n" +
+    "PY";
+  assert.equal(checkBashCommand(editScript), null);
+});
+
+test("an interpreter stage that really decodes vault JSON is still denied", () => {
+  for (const c of [
+    `python3 -c "import json; json.load(open('.wiki/config.json'))"`,
+    "python3 -m json.tool .wiki/config.json",
+    `node -e "JSON.parse(require('fs').readFileSync('.wiki/domains.json'))"`,
+    "python3 - <<'PY'\nimport json\njson.load(open('.wiki/config.json'))\nPY",
+  ]) {
+    assert.ok(checkBashCommand(c), `should still deny: ${c}`);
+  }
+});
+
+test("jq needs no proof of decoding — it is all it does", () => {
+  assert.ok(checkBashCommand("jq '.domains' .wiki/domains.json"));
+  assert.ok(checkBashCommand("cat concept-index.jsonl | jq -c ."));
+});

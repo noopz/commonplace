@@ -176,6 +176,38 @@ export function firstCommandWord(stage: string): string {
 // ---------------------------------------------------------------------------
 
 /**
+ * Whether a stage actually decodes JSON, as opposed to merely mentioning a
+ * vault file.
+ *
+ * This exists because the guard denied its own author. An edit script —
+ * `python3 - <<PY` writing a TypeScript file whose source happens to contain
+ * the literal `.wiki/hook-log.jsonl` — matched `isParserStage` (interpreter +
+ * heredoc) and `mentionsVaultJson` (the string in the file being written), and
+ * was refused. Nothing was parsing anything.
+ *
+ * The rule it enforces is "never parse vault JSON with a one-liner", so an
+ * interpreter stage must show a decode to be denied. `jq`/`yq` need no such
+ * proof: decoding JSON is all they do.
+ */
+export function decodesJson(stage: string): boolean {
+  const s = String(stage ?? "");
+  return (
+    /\bimport\s+json\b/.test(s) ||
+    /\bjson\.loads?\b/.test(s) ||
+    /\bjson\.tool\b/.test(s) ||
+    /\bJSON\.parse\b/.test(s) ||
+    /\brequire\(\s*['"][^'"]*\.json['"]\s*\)/.test(s) ||
+    /\bJSON\.stringify\b/.test(s)
+  );
+}
+
+/** A `jq`-family stage: decoding JSON is its entire purpose. */
+function isJsonNativeStage(stage: string): boolean {
+  const word = firstCommandWord(String(stage ?? "").trim());
+  return word === "jq" || word === "gojq" || word === "yq";
+}
+
+/**
  * A stage that parses its input or a named file as an ad-hoc program.
  *
  * `jq`/`yq` always count. An interpreter counts only with an eval flag
@@ -295,6 +327,15 @@ export function checkBashCommand(command: string): { deny: string } | null {
     const pipelineText = stages.join(" | ");
     const viaCli = stages.some(isCommonplaceJsonStage);
     if (!mentionsVaultJson(pipelineText) && !viaCli) continue;
+
+    // An interpreter stage must actually decode JSON. Without this the guard
+    // fires on any script that merely CONTAINS a vault path — editing this
+    // very file, for instance. jq-family stages are exempt: decoding is all
+    // they do, so the mention is proof enough.
+    const proven = stages.some(
+      (st) => isJsonNativeStage(st) || (isParserStage(st) && decodesJson(st)),
+    );
+    if (!proven) continue;
 
     return {
       deny:
