@@ -190,7 +190,6 @@ const baseStatus = {
   surfaced: 0,
   lastOutcome: "",
   lastError: "",
-  partialIndex: false,
   paused: false,
 };
 
@@ -204,7 +203,7 @@ test("statusLine draws nothing while hidden, whatever the state", () => {
   for (const s of [
     { ...baseStatus, visible: false, phase: "ok" as const, sources: 5, concepts: 5 },
     { ...baseStatus, visible: false, phase: "warn" as const, paused: true, lastError: "x" },
-    { ...baseStatus, visible: false, phase: "warn" as const, partialIndex: true },
+    { ...baseStatus, visible: false, phase: "warn" as const, paused: true },
   ]) {
     assert.equal(statusLine(s), null);
   }
@@ -233,7 +232,6 @@ test("statusLine surfaces a paused breaker above everything else", () => {
     ...baseStatus,
     phase: "warn",
     paused: true,
-    partialIndex: true,
     lastError: "vault path unresolved",
   });
   assert.ok(line);
@@ -243,12 +241,6 @@ test("statusLine surfaces a paused breaker above everything else", () => {
   assert.match(line.text, /vault path unresolved/);
 });
 
-test("statusLine reports a partial index when not paused", () => {
-  const line = statusLine({ ...baseStatus, phase: "warn", partialIndex: true });
-  assert.ok(line);
-  assert.equal(line.color, "yellow");
-  assert.match(line.text, /outgrew the 2000-line read cap/);
-});
 
 test("statusLine omits the last-outcome clause when there is none", () => {
   const line = statusLine({ ...baseStatus, phase: "ok", sources: 1, concepts: 1 });
@@ -256,16 +248,6 @@ test("statusLine omits the last-outcome clause when there is none", () => {
   assert.ok(!line.text.includes("last:"));
 });
 
-test("statusLine always returns a single line", () => {
-  for (const s of [
-    { ...baseStatus, phase: "ok" as const, lastOutcome: "surfaced a connection" },
-    { ...baseStatus, phase: "warn" as const, paused: true, lastError: "x" },
-    { ...baseStatus, phase: "warn" as const, partialIndex: true },
-  ]) {
-    const line = statusLine(s);
-    assert.ok(line && !line.text.includes("\n"));
-  }
-});
 
 // ---------------------------------------------------------------------------
 // Regressions from the v1.55.1 review

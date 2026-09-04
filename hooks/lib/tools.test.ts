@@ -123,18 +123,36 @@ test("searchVault caps the limit between 1 and 25", () => {
   assert.ok(searchVault(RECORDS, "calibration", NaN).length > 0);
 });
 
+test("formatSearchResult answers with a STRING, not an object", () => {
+  // Core validates a registered tool's answer against the MCP content shape
+  // (string | array | undefined). Returning an object made every vault_search
+  // call fail with "a result that does not match its output shape" — which is
+  // why these tools never worked once between being registered and v1.58.0.
+  const out = formatSearchResult(searchVault(RECORDS, "calibration drift"), "calibration drift");
+  assert.equal(typeof out, "string");
+  assert.equal(typeof formatSearchResult([], "nothing"), "string");
+});
+
 test("formatSearchResult tells the caller pointers are not findings", () => {
   const hits = searchVault(RECORDS, "calibration drift");
   const out = formatSearchResult(hits, "calibration drift");
-  assert.match(String(out.note), /not relevance/i);
-  assert.match(String(out.note), /vault_note/);
+  assert.match(out, /not relevance/i);
+  assert.match(out, /vault_note/);
+  // The pointers themselves survive the formatting.
+  assert.match(out, /Alpha Calibration Drift/);
+  assert.match(out, /02 - Research\/alpha\/Alpha Calibration Drift\.md/);
 });
 
 test("an empty result says a lexical miss is not evidence of absence", () => {
   const out = formatSearchResult([], "nothing matches this");
-  assert.deepEqual(out.hits, []);
-  assert.match(String(out.note), /not evidence/i);
-  assert.match(String(out.note), /wiki-query/);
+  assert.match(out, /not evidence/i);
+  assert.match(out, /wiki-query/);
+});
+
+test("a private hit carries its caution into the rendered text", () => {
+  // The caution is only load-bearing if it survives into what the model reads.
+  const out = formatSearchResult(searchVault(RECORDS, "calibration"), "calibration");
+  assert.match(out, /CAUTION: private/);
 });
 
 test("resolveNotePath accepts a path, a title, and a .md-less path", () => {

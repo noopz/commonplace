@@ -64,6 +64,17 @@ import {
 const INDEX_TTL_MS = 120_000;
 
 /**
+ * Resolved vault path per project dir, for the life of the resident worker.
+ *
+ * This used to live in `$.store` with a negative-cache timestamp, because
+ * resolving cost a 7.3s Bash-tool round trip that nobody wanted to repeat.
+ * `$.process.run` does the same resolve in ~46ms, so the elaborate caching is
+ * gone; a plain module-scope map is enough. Keyed by project dir because the
+ * registry supports several vaults and cwd can change within a session.
+ */
+const vaultPaths = new Map<string, string>();
+
+/**
  * Parsed indexes, cached in module scope for the life of the resident worker.
  * Not `$.store`: derived data, cheap to rebuild and expensive to serialise,
  * and it must not outlive a vault switch.
@@ -82,7 +93,6 @@ let status: Status = {
   surfaced: 0,
   lastOutcome: "",
   lastError: "",
-  partialIndex: false,
   paused: false,
   visible: false,
 };
@@ -105,6 +115,20 @@ export const register = (on: any) => {
       await $.tool.register(VAULT_NOTE_SPEC);
     } catch {
       /* registration is best-effort; the rest of the plugin still works */
+    }
+    // Resolve the vault here, once, before the first turn. At Bash-tool prices
+    // this was unthinkable and every hook had to lazily cache the answer; at
+    // $.process.run prices it is ~46ms of session setup, so the later hooks
+    // can simply read it.
+    try {
+      const projectDir = await $.session.cwd();
+      if (!vaultPaths.has(projectDir)) {
+        const res = await $.process.run(["node", `${$.plugin.root}/bin/commonplace`, "vault-path"]);
+        const p = String(res?.stdout ?? "").trim();
+        if (p) vaultPaths.set(projectDir, p);
+      }
+    } catch {
+      /* no vault configured, or the CLI is unavailable; hooks degrade */
     }
     return next(e);
   });
@@ -156,9 +180,7 @@ export const register = (on: any) => {
         if (!target || !text) return next(e);
 
         const projectDir = await $.session.cwd();
-        const vaultPath = String(
-          (await $.store.get(`connect:vaultPath:${projectDir}`)) ?? "",
-        );
+        const vaultPath = vaultPaths.get(projectDir) ?? "";
         // Writing inside the vault is the whole point of the vault. The
         // trailing separator matters: without it a sibling vault directory
         // (`/Users/x/Vault2`) is exempted by a vault at `/Users/x/Vault`.
@@ -175,13 +197,8 @@ export const register = (on: any) => {
         const records = await ensureRecords(
           vaultPath,
           async (path: string) => {
-            const res = await $.tool.call({ tool: "Read", file_path: path });
-            const file = res?.result?.file ?? {};
-            return {
-              content: String(file.content ?? ""),
-              numLines: file.numLines,
-              totalLines: file.totalLines,
-            };
+            const r = await $.process.run(["cat", path]);
+            return r.exitCode === 0 ? String(r.stdout ?? "") : "";
           },
           () => $.clock.now(),
         );
@@ -203,18 +220,14 @@ export const register = (on: any) => {
 
     try {
       // Vault resolution and index loading are inlined rather than factored
-      // into helpers because the scanner refuses `$` being passed as an
-      // argument — it may only appear as `$.noun.verb(...)` at a call site.
+      // into helpers because the scanner refuses `$` crossing an import — it
+      // may be passed to a function in THIS file, but not into `lib/`.
       const projectDir = await $.session.cwd();
-      const vaultKey = `connect:vaultPath:${projectDir}`;
-      let vaultPath = String((await $.store.get(vaultKey)) ?? "");
+      let vaultPath = vaultPaths.get(projectDir) ?? "";
       if (!vaultPath) {
-        const res = await $.tool.call({
-          tool: "Bash",
-          command: "commonplace vault-path",
-        });
-        vaultPath = String(res?.result?.stdout ?? "").trim();
-        if (vaultPath) await $.store.set(vaultKey, vaultPath);
+        const res = await $.process.run(["node", `${$.plugin.root}/bin/commonplace`, "vault-path"]);
+        vaultPath = String(res?.stdout ?? "").trim();
+        if (vaultPath) vaultPaths.set(projectDir, vaultPath);
       }
       if (!vaultPath) {
         return {
@@ -228,17 +241,19 @@ export const register = (on: any) => {
         indexCache.vaultPath !== vaultPath ||
         $.clock.now() - indexCache.at > INDEX_TTL_MS
       ) {
-        const conceptRes = await $.tool.call({
-          tool: "Read",
-          file_path: `${vaultPath}/.wiki/concept-index.jsonl`,
-        });
-        const sourceRes = await $.tool.call({
-          tool: "Read",
-          file_path: `${vaultPath}/.wiki/source-index.jsonl`,
-        });
+        // `cat`, not the Read tool: Read caps a result near 48KB and returned
+        // 114 of 347 concept records on this vault, so vault_search was
+        // ranking against a third of the index and reporting no matches for
+        // notes that exist. `cat` returns the whole file in ~2ms.
+        const conceptRes = await $.process.run([
+          "cat", `${vaultPath}/.wiki/concept-index.jsonl`,
+        ]);
+        const sourceRes = await $.process.run([
+          "cat", `${vaultPath}/.wiki/source-index.jsonl`,
+        ]);
         const parsed = [
-          ...parseJsonl(String(conceptRes?.result?.file?.content ?? "")),
-          ...parseJsonl(String(sourceRes?.result?.file?.content ?? "")),
+          ...parseJsonl(String(conceptRes?.stdout ?? "")),
+          ...parseJsonl(String(sourceRes?.stdout ?? "")),
         ];
         if (parsed.length > 0) {
           indexCache = { vaultPath, at: $.clock.now(), records: parsed };
@@ -268,16 +283,10 @@ export const register = (on: any) => {
             "vault_search rather than guessing one.",
         };
       }
-      const res = await $.tool.call({
-        tool: "Read",
-        file_path: `${vaultPath}/${path}`,
-      });
-      return {
-        result: {
-          path,
-          content: String(res?.result?.file?.content ?? ""),
-        },
-      };
+      const res = await $.process.run(["cat", `${vaultPath}/${path}`]);
+      // A string, not an object: core validates a registered tool's answer
+      // against the MCP content shape and rejects anything else outright.
+      return { result: `${path}\n\n${String(res?.stdout ?? "")}` };
     } catch (err) {
       return { deny: `commonplace vault tool failed: ${String(err).slice(0, 200)}` };
     }
@@ -339,9 +348,7 @@ export const register = (on: any) => {
       if (!skill.includes("wiki-") && !skill.includes("autoimprove")) return built;
 
       const projectDir = await $.session.cwd();
-      const vaultPath = String(
-        (await $.store.get(`connect:vaultPath:${projectDir}`)) ?? "",
-      );
+      const vaultPath = vaultPaths.get(projectDir) ?? "";
       if (!vaultPath) return built;
 
       const counts =
@@ -374,46 +381,28 @@ export const register = (on: any) => {
   on("prompt.context", async ($: any, e: any, next: any) => {
     const built = await next(e);
     try {
+      // `session.start` already resolved this, once, in ~46ms. The elaborate
+      // negative cache that used to live here existed only because the old
+      // Bash-tool resolve cost 7.3s on the critical path before the first
+      // model turn; at process.run prices there is nothing to amortise.
       const projectDir = await $.session.cwd();
-      const vaultKey = `connect:vaultPath:${projectDir}`;
-      let vaultPath = String((await $.store.get(vaultKey)) ?? "");
-      if (!vaultPath) {
-        // NEGATIVE CACHE. This hook runs before the first model turn, and
-        // resolving the vault costs a 7.3s subprocess. Without remembering a
-        // failure, a machine with no vault configured pays that on the first
-        // prompt of EVERY conversation, forever — the worst-placed 7 seconds
-        // in the product. An hour is long enough to stop being felt and short
-        // enough that `commonplace init` takes effect the same working session.
-        const missKey = `connect:noVault:${projectDir}`;
-        const missAt = Number((await $.store.get(missKey)) ?? 0);
-        if (missAt && $.clock.now() - missAt < 3_600_000) return built;
-
-        const res = await $.tool.call({
-          tool: "Bash",
-          command: "commonplace vault-path",
-        });
-        vaultPath = String(res?.result?.stdout ?? "").trim();
-        if (vaultPath) await $.store.set(vaultKey, vaultPath);
-        else await $.store.set(missKey, $.clock.now());
-      }
+      const vaultPath = vaultPaths.get(projectDir) ?? "";
       if (!vaultPath) return built;
 
       const inVault = projectDir.startsWith(`${vaultPath}/`) || projectDir === vaultPath;
 
       // Counts are only rendered for the in-vault block, so outside the vault
-      // this skips three whole-index reads whose result was discarded.
+      // this skips three index reads whose result was discarded.
       //
-      // `totalLines` rather than counting parsed records: Read caps at 2000
-      // lines, so a 3000-concept vault used to report "2000 concepts" — a
-      // wrong number stated confidently, which is worse than no number.
+      // `wc -l` rather than reading and parsing: the count is all that is
+      // wanted, and it is exact. Reading the file through the Read tool gave a
+      // count capped near 48KB — a 347-concept index reported as 114, a wrong
+      // number stated confidently, which is worse than no number.
       const readCount = async (name: string) => {
-        const res = await $.tool.call({
-          tool: "Read",
-          file_path: `${vaultPath}/.wiki/${name}`,
-        });
-        const file = res?.result?.file ?? {};
-        const total = Number(file.totalLines ?? 0);
-        return total || parseJsonl(String(file.content ?? "")).length;
+        const res = await $.process.run([
+          "wc", "-l", `${vaultPath}/.wiki/${name}`,
+        ]);
+        return Number(String(res?.stdout ?? "").trim().split(/\s+/)[0] ?? 0) || 0;
       };
       const sources = inVault ? await readCount("source-index.jsonl") : 0;
       const concepts = inVault ? await readCount("concept-index.jsonl") : 0;
@@ -423,11 +412,10 @@ export const register = (on: any) => {
       // apply until rules exist, and nothing else surfaces that.
       let untunedGenres: string[] = [];
       if (inVault) try {
-        const convRes = await $.tool.call({
-          tool: "Read",
-          file_path: `${vaultPath}/.wiki/conventions.json`,
-        });
-        const conv = JSON.parse(String(convRes?.result?.file?.content ?? "{}"));
+        const convRes = await $.process.run([
+          "cat", `${vaultPath}/.wiki/conventions.json`,
+        ]);
+        const conv = JSON.parse(String(convRes?.stdout ?? "") || "{}");
         untunedGenres = (conv.genres ?? [])
           .filter((g: any) => !g?.rules || Object.keys(g.rules).length === 0)
           .map((g: any) => String(g?.name ?? ""))
@@ -525,20 +513,15 @@ export const register = (on: any) => {
         cwd: () => $.session.cwd(),
         getState: (key: string) => $.store.get(key),
         setState: (key: string, value: unknown) => $.store.set(key, value),
-        readFile: async (path: string) => {
-          // The Read tool answers `{result: {file: {content, numLines,
-          // totalLines}}}`; the port's contract is the inner object.
-          const res = await $.tool.call({ tool: "Read", file_path: path });
-          const file = res?.result?.file ?? {};
-          return {
-            content: String(file.content ?? ""),
-            numLines: file.numLines,
-            totalLines: file.totalLines,
-          };
+        readText: async (path: string) => {
+          const r = await $.process.run(["cat", path]);
+          return r.exitCode === 0 ? String(r.stdout ?? "") : "";
         },
-        runCommand: async (command: string) => {
-          const res = await $.tool.call({ tool: "Bash", command });
-          return String(res?.result?.stdout ?? "").trim();
+        runCommand: async (argv: readonly string[]) => {
+          const r = await $.process.run([
+            "node", `${$.plugin.root}/bin/commonplace`, ...argv,
+          ]);
+          return r.exitCode === 0 ? String(r.stdout ?? "").trim() : "";
         },
         classify: (text: string, labels: readonly string[]) =>
           $.model.classify(text, labels),

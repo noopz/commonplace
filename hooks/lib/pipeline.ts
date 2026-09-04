@@ -86,12 +86,12 @@ export const JUDGE_SYSTEM =
 // Types
 // ---------------------------------------------------------------------------
 
-/** What a file read yields. `numLines < totalLines` means the read was capped. */
-export type ReadResult = {
-  content: string;
-  numLines?: number;
-  totalLines?: number;
-};
+/*
+ * `ReadResult` used to live here, carrying `numLines`/`totalLines` so a capped
+ * read could be detected. Reads now go through `$.process.run(["cat", path])`,
+ * which returns the file whole, so there is nothing to cap and nothing to
+ * detect. See the `readText` port.
+ */
 
 export type CompletionRequest = {
   model: string;
@@ -123,10 +123,24 @@ export interface Ports {
   getState(key: string): Promise<unknown>;
   /** `$.store.set` */
   setState(key: string, value: unknown): Promise<void>;
-  /** `$.tool.call({tool: "Read"})`, unwrapped to the file fields. */
-  readFile(path: string): Promise<ReadResult>;
-  /** `$.tool.call({tool: "Bash"})`, unwrapped to trimmed stdout. */
-  runCommand(command: string): Promise<string>;
+  /**
+   * A file's full text.
+   *
+   * Backed by `$.process.run(["cat", path])`, NOT the Read tool. Read caps a
+   * result at roughly 48KB — measured, not documented: it returned 114 of 347
+   * concept records — so this pass silently seeded against a third of the
+   * vault and ignored the rest. `cat` returns the whole 149KB file in ~2ms.
+   * Returns "" on any failure.
+   */
+  readText(path: string): Promise<string>;
+  /**
+   * Run the plugin CLI by argv and return trimmed stdout.
+   *
+   * `$.process.run` is a direct host exec: ~46ms, against 7.3s for the same
+   * command through the Bash tool. That measurement is why this module was
+   * built to avoid the CLI entirely; it no longer applies.
+   */
+  runCommand(argv: readonly string[]): Promise<string>;
   /** `$.model.classify` */
   classify(text: string, labels: readonly string[]): Promise<string>;
   /** `$.model.complete` */
@@ -252,7 +266,7 @@ export async function runConnectionPass(
     const vaultKey = `${VAULT_KEY_PREFIX}${projectDir}`;
     let vaultPath = String((await ports.getState(vaultKey)) ?? "");
     if (!vaultPath) {
-      vaultPath = String((await ports.runCommand("commonplace vault-path")) ?? "").trim();
+      vaultPath = String((await ports.runCommand(["vault-path"])) ?? "").trim();
       if (!vaultPath) {
         ports.note("no vault resolved", {
           phase: "warn",
@@ -276,36 +290,27 @@ export async function runConnectionPass(
       indexCache.vaultPath !== vaultPath ||
       ports.now() - indexCache.at > INDEX_TTL_MS
     ) {
-      const conceptFile = await ports.readFile(`${vaultPath}/.wiki/concept-index.jsonl`);
-      const sourceFile = await ports.readFile(`${vaultPath}/.wiki/source-index.jsonl`);
+      const conceptText = await ports.readText(`${vaultPath}/.wiki/concept-index.jsonl`);
+      const sourceText = await ports.readText(`${vaultPath}/.wiki/source-index.jsonl`);
 
-      // SCALING CEILING — the whole-index read has a hard limit.
+      // NO SCALING CEILING HERE ANY MORE.
       //
-      // Read caps at 2000 LINES, and the indexes are one line per note, so
-      // this wall arrives at ~2000 concepts and ~2000 sources. Long records
-      // are NOT a problem: Read returns them whole (verified against a
-      // 2737-char record), so `parseJsonl` never sees a torn line from the
-      // reader — only from a genuinely partial write.
+      // This block used to read the indexes with the Read tool and warn about
+      // a "partial index", on the documented belief that Read caps at 2000
+      // lines — so the wall was thought to be ~2000 notes away. Both halves
+      // were wrong. The cap is a size budget of roughly 48KB, and it had
+      // ALREADY been crossed: Read returned 114 of 347 concept records, so
+      // this pass was seeding against a third of the vault and silently
+      // ignoring the rest.
       //
-      // When a vault does cross the cap, the fix is not a bigger read: it is
-      // to stop reading the whole index at all and switch this block to a
-      // Grep against the indexes, using the turn's top tokens as the pattern,
-      // pulling back only matching records. That scales indefinitely and
-      // stays inside the doctrine — grepping an index to FIND candidates is
-      // exactly what `commonplace seed` does; the judgment still comes from
-      // reading the note below.
-      //
-      // Until then, a partial index is degraded but honest: we only ever
-      // needed candidates, not completeness. Say so rather than go quiet.
-      if (
-        Number(conceptFile?.numLines ?? 0) < Number(conceptFile?.totalLines ?? 0) ||
-        Number(sourceFile?.numLines ?? 0) < Number(sourceFile?.totalLines ?? 0)
-      ) {
-        ports.note("partial index", { partialIndex: true, phase: "warn" });
-      }
-
-      const conceptRecs = parseJsonl(String(conceptFile?.content ?? ""));
-      const sourceRecs = parseJsonl(String(sourceFile?.content ?? ""));
+      // `cat` through $.process.run returns the whole 149KB file in ~2ms, so
+      // there is no cap to detect and no degraded mode to announce. If a vault
+      // ever grows past what is sensible to parse per turn, the fix is
+      // `$.process.run(["grep", ...])` — NOT the Read/Grep tool, which this
+      // build does not expose to hooks at all ("no tool named Grep in this
+      // session", verified).
+      const conceptRecs = parseJsonl(conceptText);
+      const sourceRecs = parseJsonl(sourceText);
       const parsed = [...conceptRecs, ...sourceRecs];
       if (parsed.length === 0) {
         ports.note("index unreadable", {
@@ -326,7 +331,7 @@ export async function runConnectionPass(
       indexCache = { vaultPath, at: ports.now(), records: parsed };
       const s = ports.status();
       ports.note(s.lastOutcome || "indexed", {
-        phase: s.partialIndex ? "warn" : "ok",
+        phase: "ok",
         concepts: conceptRecs.length,
         sources: sourceRecs.length,
       });
@@ -371,8 +376,8 @@ export async function runConnectionPass(
     // -- Tier 3: READ the note. This is the step that makes it not-RAG. ----
 
     const best = candidates[0];
-    const noteFile = await ports.readFile(`${vaultPath}/${best.path}`);
-    const noteText = stripFrontmatter(String(noteFile?.content ?? "")).slice(
+    const noteRaw = await ports.readText(`${vaultPath}/${best.path}`);
+    const noteText = stripFrontmatter(noteRaw).slice(
       0,
       NOTE_EXCERPT,
     );
@@ -485,7 +490,7 @@ export function cachedRecords(vaultPath: string): Record<string, unknown>[] {
  */
 export async function ensureRecords(
   vaultPath: string,
-  readFile: (path: string) => Promise<ReadResult>,
+  readText: (path: string) => Promise<string>,
   now: () => number,
 ): Promise<Record<string, unknown>[]> {
   if (!vaultPath) return [];
@@ -493,11 +498,9 @@ export async function ensureRecords(
     return indexCache.records;
   }
   try {
-    const conceptFile = await readFile(`${vaultPath}/.wiki/concept-index.jsonl`);
-    const sourceFile = await readFile(`${vaultPath}/.wiki/source-index.jsonl`);
     const parsed = [
-      ...parseJsonl(String(conceptFile?.content ?? "")),
-      ...parseJsonl(String(sourceFile?.content ?? "")),
+      ...parseJsonl(await readText(`${vaultPath}/.wiki/concept-index.jsonl`)),
+      ...parseJsonl(await readText(`${vaultPath}/.wiki/source-index.jsonl`)),
     ];
     if (parsed.length === 0) return [];
     indexCache = { vaultPath, at: now(), records: parsed };

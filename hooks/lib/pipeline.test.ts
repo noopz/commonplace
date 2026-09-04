@@ -25,7 +25,6 @@ import {
   SESSION_KEY,
   VAULT_KEY_PREFIX,
   type Ports,
-  type ReadResult,
   type SessionState,
 } from "./pipeline.js";
 import type { Status } from "./status.js";
@@ -96,7 +95,6 @@ function initialStatus(): Status {
     surfaced: 0,
     lastOutcome: "",
     lastError: "",
-    partialIndex: false,
     paused: false,
     visible: false,
   };
@@ -169,21 +167,15 @@ function makeFake(): Fake {
       rec("setState", key, value);
       fake.store.set(key, value);
     },
-    readFile: async (path): Promise<ReadResult> => {
-      rec("readFile", path);
-      if (path.endsWith("/.wiki/concept-index.jsonl")) {
-        const c = jsonl(fake.indexRecords);
-        const n = fake.indexRecords.length;
-        return { content: c, numLines: n, totalLines: n };
-      }
-      if (path.endsWith("/.wiki/source-index.jsonl")) {
-        return { content: "", numLines: 0, totalLines: 0 };
-      }
-      return { content: fake.noteBody, numLines: 5, totalLines: 5 };
+    readText: async (path): Promise<string> => {
+      rec("readText", path);
+      if (path.endsWith("/.wiki/concept-index.jsonl")) return jsonl(fake.indexRecords);
+      if (path.endsWith("/.wiki/source-index.jsonl")) return "";
+      return fake.noteBody;
     },
-    runCommand: async (cmd) => {
-      rec("runCommand", cmd);
-      return cmd === "commonplace vault-path" ? VAULT : "";
+    runCommand: async (argv) => {
+      rec("runCommand", argv.join(" "));
+      return argv.join(" ") === "vault-path" ? VAULT : "";
     },
     classify: async (text, labels) => {
       rec("classify", text, labels);
@@ -215,7 +207,7 @@ function makeFake(): Fake {
 const answerInput = (answer = ANSWER) => ({ answer, reason: "answer", aborted: false });
 
 /** Names of ports that spend money or time — the ones the guards protect. */
-const EXPENSIVE: (keyof Ports)[] = ["runCommand", "readFile", "classify", "complete"];
+const EXPENSIVE: (keyof Ports)[] = ["runCommand", "readText", "classify", "complete"];
 
 function assertNoExpensiveCalls(fake: Fake, msg?: string) {
   for (const name of EXPENSIVE) {
@@ -271,11 +263,11 @@ describe("runConnectionPass", () => {
       .filter((c) => EXPENSIVE.includes(c.name))
       .map((c) => `${c.name}:${String(c.args[0]).split("/").pop()}`);
     assert.deepEqual(spend, [
-      "runCommand:commonplace vault-path",
-      "readFile:concept-index.jsonl",
-      "readFile:source-index.jsonl",
+      "runCommand:vault-path",
+      "readText:concept-index.jsonl",
+      "readText:source-index.jsonl",
       `classify:${ANSWER.slice(0, 800).split("/").pop()}`,
-      "readFile:Alpha Lattice.md",
+      "readText:Alpha Lattice.md",
       "complete:[object Object]",
     ]);
 
@@ -416,7 +408,7 @@ describe("runConnectionPass", () => {
       return "   ";
     };
     assert.equal(await runConnectionPass(fake.ports, answerInput()), null);
-    assert.equal(fake.count("readFile"), 0);
+    assert.equal(fake.count("readText"), 0);
     assert.deepEqual(fake.sessionRecord(), {
       id: "session-one",
       lastTurn: -999,
@@ -432,7 +424,7 @@ describe("runConnectionPass", () => {
       fake.turn = i;
       fake.reset();
       await runConnectionPass(fake.ports, answerInput());
-      assert.equal(fake.count("readFile"), 2, "re-read each turn: nothing was cached");
+      assert.equal(fake.count("readText"), 2, "re-read each turn: nothing was cached");
       assert.equal(fake.sessionRecord()?.failures, i);
     }
     assert.equal(fake.status.paused, true);
@@ -481,8 +473,8 @@ describe("runConnectionPass", () => {
     assert.equal(await runConnectionPass(fake.ports, answerInput()), null);
     assert.equal(fake.count("classify"), 1);
     assert.equal(fake.count("complete"), 0, "judge never runs after a classify rejection");
-    // Note read is the third readFile; only the two index reads should exist.
-    assert.equal(fake.count("readFile"), 2);
+    // Note read is the third readText; only the two index reads should exist.
+    assert.equal(fake.count("readText"), 2);
     assert.deepEqual(fake.sessionRecord(), {
       id: "session-one",
       lastTurn: 1,
@@ -526,7 +518,7 @@ describe("runConnectionPass", () => {
     assert.equal(fake.count("classify"), 0, "no candidates left: no classify");
     assert.equal(fake.count("complete"), 0);
     assert.equal(
-      fake.calls.filter((c) => c.name === "readFile" && String(c.args[0]).endsWith(".md")).length,
+      fake.calls.filter((c) => c.name === "readText" && String(c.args[0]).endsWith(".md")).length,
       0,
       "the note itself is not re-read",
     );
@@ -548,7 +540,7 @@ describe("runConnectionPass", () => {
     assert.equal(await runConnectionPass(fake.ports, answerInput()), null);
     assert.equal(fake.count("classify"), 0);
     assert.equal(fake.count("complete"), 0);
-    assert.equal(fake.count("readFile"), 2, "only the two index reads");
+    assert.equal(fake.count("readText"), 2, "only the two index reads");
     assert.equal(fake.count("setState"), 1, "only the vault path was persisted");
     assert.equal(fake.calls.find((c) => c.name === "setState")?.args[0], `${VAULT_KEY_PREFIX}${PROJECT}`);
     assert.equal(fake.status.lastOutcome, "no candidates");
@@ -570,7 +562,7 @@ describe("runConnectionPass", () => {
       "cwd",
       "getState",
       "setState",
-      "readFile",
+      "readText",
       "runCommand",
       "classify",
       "complete",
@@ -620,7 +612,7 @@ describe("runConnectionPass", () => {
   test("the index cache is not re-read within its TTL", async () => {
     fake.turn = 1;
     await runConnectionPass(fake.ports, answerInput());
-    assert.equal(fake.count("readFile"), 3, "two index reads + the note");
+    assert.equal(fake.count("readText"), 3, "two index reads + the note");
     assert.equal(fake.status.concepts, 2);
 
     fake.clock += INDEX_TTL_MS - 1;
@@ -630,7 +622,7 @@ describe("runConnectionPass", () => {
     fake.reset();
     await runConnectionPass(fake.ports, answerInput());
     const indexReads = fake.calls.filter(
-      (c) => c.name === "readFile" && String(c.args[0]).includes("/.wiki/"),
+      (c) => c.name === "readText" && String(c.args[0]).includes("/.wiki/"),
     );
     assert.equal(indexReads.length, 0, "inside TTL: served from the module cache");
     assert.equal(fake.count("complete"), 1, "the cached records still yield a candidate");
@@ -641,7 +633,7 @@ describe("runConnectionPass", () => {
     fake.reset();
     await runConnectionPass(fake.ports, answerInput());
     const rereads = fake.calls.filter(
-      (c) => c.name === "readFile" && String(c.args[0]).includes("/.wiki/"),
+      (c) => c.name === "readText" && String(c.args[0]).includes("/.wiki/"),
     );
     assert.equal(rereads.length, 2, "past TTL: both indexes re-read");
   });
@@ -657,24 +649,13 @@ describe("runConnectionPass", () => {
     fake.reset();
     await runConnectionPass(fake.ports, answerInput());
     const reads = fake.calls
-      .filter((c) => c.name === "readFile")
+      .filter((c) => c.name === "readText")
       .map((c) => String(c.args[0]));
     assert.ok(reads.includes("/fake/vault-gamma/.wiki/concept-index.jsonl"));
     assert.ok(reads.includes("/fake/vault-gamma/.wiki/source-index.jsonl"));
   });
 
-  test("a capped index read raises the partial-index warning but still proceeds", async () => {
-    const orig = fake.ports.readFile;
-    fake.ports.readFile = async (path) => {
-      const r = await orig(path);
-      return path.endsWith("concept-index.jsonl") ? { ...r, totalLines: 5000 } : r;
-    };
-    const out = await runConnectionPass(fake.ports, answerInput());
-    assert.ok(out);
-    assert.equal(fake.status.partialIndex, true);
-    assert.ok(fake.calls.some((c) => c.name === "note" && c.args[0] === "partial index"));
   });
-});
 
 // ---------------------------------------------------------------------------
 // ensureRecords / privateNames — the deterministic loader behind the leak guard
@@ -687,9 +668,9 @@ describe("ensureRecords", () => {
   const SOURCES = '{"title":"Acme Report","path":"s/Acme Report.md","scope":"public"}\n';
 
   function reader(log: string[], concepts = CONCEPTS, sources = SOURCES) {
-    return async (path: string): Promise<ReadResult> => {
+    return async (path: string): Promise<string> => {
       log.push(path);
-      return { content: path.includes("concept") ? concepts : sources };
+      return path.includes("concept") ? concepts : sources;
     };
   }
 

@@ -12,7 +12,6 @@ export type Status = {
   surfaced: number;
   lastOutcome: string;
   lastError: string;
-  partialIndex: boolean;
   paused: boolean;
   /**
    * Whether the band is currently drawn. It is a receipt for work just done,
@@ -26,8 +25,8 @@ export type Status = {
  * The one line drawn above the prompt, or null to draw nothing.
  *
  * Ordered by what the user needs to act on: a stopped feature first, then a
- * degraded one, then a plain heartbeat. Returns null before the first run so
- * an unconfigured vault never puts a band on someone's screen.
+ * plain heartbeat. Returns null before the first run so an unconfigured vault
+ * never puts a band on someone's screen.
  */
 export function statusLine(
   s: Status,
@@ -45,15 +44,13 @@ export function statusLine(
     };
   }
 
-  if (s.partialIndex) {
-    return {
-      text:
-        "⚠ commonplace: vault index outgrew the 2000-line read cap — " +
-        "surfacing sees only part of it",
-      color: "yellow",
-      dim: false,
-    };
-  }
+  /*
+   * A `partialIndex` warning stood here — "vault index outgrew the 2000-line
+   * read cap". It was wrong in both directions: the Read tool's cap is a size
+   * budget near 48KB, not 2000 lines, and it had already been crossed
+   * silently. Index reads now go through `$.process.run(["cat", …])`, which
+   * returns the file whole, so there is no partial state left to warn about.
+   */
 
   if (s.phase === "idle") return null;
 

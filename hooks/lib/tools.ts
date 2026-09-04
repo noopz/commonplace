@@ -143,32 +143,39 @@ export function searchVault(
 /**
  * The payload `vault_search` answers with.
  *
+ * Returns a STRING, not an object. Core validates a registered tool's answer
+ * against the MCP content shape — `string | array | undefined` — and rejects
+ * anything else with "a result that does not match its output shape". These
+ * tools returned an object from the day they were registered, so every call
+ * failed and the feature has never once worked. Keep this a string.
+ *
  * The reminder is not decoration: this tool's whole failure mode is a caller
  * treating pointers as findings, so the answer says so in the answer itself
  * rather than relying on the description having been read.
  */
-export function formatSearchResult(
-  hits: SearchHit[],
-  query: string,
-): Record<string, unknown> {
+export function formatSearchResult(hits: SearchHit[], query: string): string {
   if (hits.length === 0) {
-    return {
-      query,
-      hits: [],
-      note:
-        "No notes matched those terms. That is not evidence the vault has " +
-        "nothing relevant — matching is lexical, so a note can be highly " +
-        "relevant with no shared wording. Try distinctive synonyms, or the " +
-        "wiki-query skill, which searches iteratively and traverses the graph.",
-    };
+    return (
+      `No vault notes matched "${query}".\n\n` +
+      "That is not evidence the vault has nothing relevant — matching is " +
+      "lexical, so a note can be highly relevant with no shared wording. Try " +
+      "distinctive synonyms, or the wiki-query skill, which searches " +
+      "iteratively and traverses the graph."
+    );
   }
-  return {
-    query,
-    hits,
-    note:
-      "Pointers only — no note bodies. A lexical match is not relevance. " +
-      "Read the promising ones with vault_note before concluding anything.",
-  };
+  const lines = hits.map((h) => {
+    const bits = [`- ${h.title}`, `  path: ${h.path}`];
+    if (h.domain) bits.push(`  domain: ${h.domain}`);
+    if (h.abstraction) bits.push(`  abstraction: ${h.abstraction}`);
+    if (h.matched.length > 0) bits.push(`  matched: ${h.matched.join(", ")}`);
+    if (h.caution) bits.push(`  CAUTION: ${h.caution}`);
+    return bits.join("\n");
+  });
+  return (
+    `${hits.length} pointer(s) for "${query}":\n\n${lines.join("\n\n")}\n\n` +
+    "Pointers only — no note bodies. A lexical match is not relevance. Read " +
+    "the promising ones with vault_note before concluding anything."
+  );
 }
 
 /**
