@@ -22,6 +22,22 @@ const { values } = parseArgs({
   },
 });
 
+// Double-fire guard. `hooks/hooks.json` wires BOTH the shell PostToolUse hook
+// and the in-process module, deliberately, so a broken module degrades to this
+// rather than to nothing. When the module is loaded it runs this same script
+// itself (via $.process.run) and merges the result into the tool's own
+// `context`, so without this guard a vault write would run the whole pipeline
+// twice — including two concurrent index rebuilds, the race v1.57.1 removed.
+//
+// COMMONPLACE_HOOK_CHILD marks the module's own invocation so it is not
+// guarded against itself.
+if (
+  process.env.CLAUDE_CODE_ENABLE_FUNCTION_HOOKS === "1" &&
+  process.env.COMMONPLACE_HOOK_CHILD !== "1"
+) {
+  process.exit(0);
+}
+
 // Read stdin for tool input JSON
 let filePath: string | undefined;
 try {
@@ -61,7 +77,16 @@ try {
   input = chunks.join("");
   if (input.trim()) {
     const data = JSON.parse(input);
-    filePath = data.file_path || data.filePath;
+    // A PostToolUse hook payload nests the tool's arguments under
+    // `tool_input`; only a direct invocation passes a flat `file_path`. This
+    // read the flat shape ONLY, so as a PostToolUse hook it found no path and
+    // exited silently every time — validate, index, scope-check and the
+    // impact/cross-domain chain never ran on a vault write. Accept both.
+    filePath =
+      data.tool_input?.file_path ||
+      data.tool_input?.filePath ||
+      data.file_path ||
+      data.filePath;
   }
 } catch {
   // No valid stdin, exit silently

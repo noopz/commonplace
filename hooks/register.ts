@@ -192,6 +192,64 @@ export const register = (on: any) => {
   });
 
   /**
+   * Run the post-write pipeline in the tool's own call, and hand its notes
+   * back as the tool result's `context`.
+   *
+   * This replaces the `PostToolUse` shell wiring. Three things it fixes:
+   *
+   *   1. SERIAL BY CONSTRUCTION. Claude Code runs matching shell hooks in
+   *      PARALLEL, which is how two `index.ts --incremental` processes ended up
+   *      writing the same .wiki/*.jsonl files at once (v1.57.1). A hook that
+   *      awaits `next(e)` and then runs the script cannot race itself.
+   *   2. ONE payload shape. The script is invoked directly, so there is no
+   *      `tool_input` nesting to get wrong — the bug that made `post-write` a
+   *      silent no-op on every vault write.
+   *   3. `context` is exactly the PostToolUse `additionalContext` channel:
+   *      "what the model reads after the tool's result and the user never
+   *      sees". No transcript noise.
+   *
+   * A one-of matcher keeps this off every other tool. Our own docs said the
+   * matcher could not express two tool names; it can.
+   */
+  on("tool.call", { tool: ["Write", "Edit"] }, async ($: any, e: any, next: any) => {
+    const built = await next(e);
+    try {
+      // Nothing to add to a refused or failed write.
+      if (!built || built.deny || built.isError) return built;
+
+      const target = String(e?.file_path ?? "");
+      if (!target) return built;
+
+      const projectDir = await $.session.cwd();
+      const vaultPath = await ensureVaultPath($, projectDir);
+      if (!vaultPath || !target.startsWith(`${vaultPath}/`)) return built;
+
+      const res = await $.process.run(
+        ["node", `${$.plugin.root}/bin/commonplace`, "post-write"],
+        {
+          stdin: JSON.stringify({ file_path: target }),
+          // The pipeline reindexes and may run impact + cross-domain, which
+          // the 30s default is not always enough for on a large vault.
+          timeoutMs: 120_000,
+          env: { COMMONPLACE_HOOK_CHILD: "1" },
+        },
+      );
+
+      const out = String(res?.stdout ?? "").trim();
+      if (!out) return built;
+      const notes = String(
+        JSON.parse(out)?.hookSpecificOutput?.additionalContext ?? "",
+      );
+      if (!notes) return built;
+
+      return { ...built, context: [...(built.context ?? []), notes] };
+    } catch {
+      /* the write already succeeded; its follow-up must never undo that */
+    }
+    return built;
+  });
+
+  /**
    * Two responsibilities, one registration: refuse to write private vault
    * material into a repository, and answer the vault tools.
    *
