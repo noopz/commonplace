@@ -1,6 +1,6 @@
 {
   "name": "commonplace",
-  "version": "1.63.0",
+  "version": "1.64.0",
   "private": true,
   "type": "module",
   "bin": {
@@ -16,6 +16,7 @@
     "vault-score": "tsx scripts/vault-score.ts",
     "prune": "tsx scripts/prune.ts",
     "eval:retrieval": "tsx evals/retrieval/run.ts",
+    "eval:connection": "tsx evals/connection/run.ts",
     "eval:connect": "tsx evals/connect/run.ts"
   },
   "dependencies": {

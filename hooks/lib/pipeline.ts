@@ -65,6 +65,20 @@ export const MIN_NOTE_CHARS = 80;
  */
 export const LEX_STRONG_SCORE = 12;
 
+/**
+ * Lexical score at which a turn may preempt the ordinary rate limit.
+ *
+ * Deliberately well above LEX_STRONG_SCORE (12): preempting is for the turn
+ * that is obviously about a note, not merely probably. Live scores for
+ * calibration — a sourdough answer scored 7 against unrelated notes, an
+ * on-topic retrieval answer 12, an answer discussing the vault's own
+ * function-hooks handbook note 23.
+ */
+export const PREEMPT_SCORE = 20;
+
+/** Minimum gap for a preempting turn. Never 1: not twice in a row, ever. */
+export const PREEMPT_TURN_GAP = 2;
+
 /** Rejected/surfaced notes remembered per session, most recent last. */
 export const SEEN_LIMIT = 40;
 
@@ -284,16 +298,15 @@ export async function runConnectionPass(
       return null;
     }
 
-    // Rate limit: ambient means occasional. Never twice in a row. This
-    // governs ATTEMPTS, not surfaces — every branch below that spends a model
-    // call banks the turn number, so spend is bounded even when nothing is
-    // ever shown.
+    // The rate limit USED TO BE HERE, and that was the bug. It could only ask
+    // "how long since the last attempt?", so it spent the budget on whichever
+    // turn arrived first rather than on the turn worth spending it on. Live
+    // proof: a throwaway question consumed the slot, and four turns later a
+    // question the vault genuinely covered was skipped without the pass ever
+    // looking at it. It now runs AFTER the free lexical seed, which is the
+    // first point at which the signal strength is known — see below.
     const turnCount = await ports.turnCount();
     const lastTurn = Number(state.lastTurn ?? -999);
-    if (turnCount - lastTurn < MIN_TURN_GAP) {
-      ports.trace("skip:rate-limited", { turnCount, lastTurn, gap: MIN_TURN_GAP });
-      return null;
-    }
 
     // -- Resolve the vault once, then cache it forever ---------------------
     // The sandbox fs is confined to the session project and the vault
@@ -379,22 +392,73 @@ export async function runConnectionPass(
     }
     const records = indexCache.records;
 
-    // -- Tier 1: is this turn even about vault material? -------------------
-    // One cheap classify on the small fast model, framing the answer as data.
+    // -- Tier 1: free lexical seed. Costs nothing, and it is the SIGNAL -----
     //
-    // THIS USED TO RUN AFTER THE LEXICAL SEED, as a second gate on turns that
-    // had already matched a note. It moved in front because the graph tier
-    // below exists precisely to reach notes the lexical seed cannot see, and
-    // a lexical miss can no longer be allowed to end the pass. Something has
-    // to decide whether a turn is worth spending on, and "is this technical
-    // substance" is a better question than "did a string match".
-    //
-    // The cost of the move is one classify on every turn that clears the rate
-    // limit, rather than only on turns with a lexical hit. That is bounded by
-    // MIN_TURN_GAP and paid on the small fast model, after the answer is
-    // already on screen.
+    // In-memory scoring over the already-parsed index: no model call, no
+    // subprocess, no I/O. That is what makes it safe to run before the rate
+    // limit rather than after it, and running it first is what lets the rate
+    // limit tell a promising turn from an ordinary one.
 
     const seen = (state.seen ?? []) as string[];
+
+    const lexical = rankCandidates(records, tokens, 4);
+    const lexTop = lexical[0]?.score ?? 0;
+    const unseen = lexical.filter((c) => !seen.includes(c.path));
+    const unseenTop = unseen[0]?.score ?? 0;
+    // Traced unconditionally, including the zero case, and WITH the score.
+    // A pass that seeds lexically and goes straight on to the judge otherwise
+    // leaves no record of which tier produced the candidate or how strong the
+    // evidence was — the log reads identically to the pre-graph code, so "did
+    // the new tier ship" and "is the threshold right" are both unanswerable.
+    ports.trace("seed:lexical", {
+      candidates: lexical.length,
+      score: lexTop,
+      unseenScore: unseenTop,
+      top: lexical[0]?.path ?? "",
+    });
+
+    // -- Rate limit, now that the signal strength is known ----------------
+    //
+    // Ambient means occasional, and it still does: MIN_TURN_GAP is unchanged
+    // for an ordinary turn. What changes is that a turn whose free seed is
+    // EXCEPTIONALLY strong — the answer is discussing a note by name, not
+    // brushing past its vocabulary — may preempt down to PREEMPT_TURN_GAP.
+    //
+    // The bug this fixes, observed live: the limiter ran before the seed, so
+    // it could only ask "how long since the last attempt?" and answered
+    // first-come-first-served. A throwaway question spent the budget, and the
+    // one question that session which the vault genuinely covered was skipped
+    // without the pass ever looking at it. Ordering by arrival is the wrong
+    // order when the whole feature is about picking a moment.
+    //
+    // PREEMPT_TURN_GAP is 2, never 1: "not twice in a row" is a separate
+    // promise from "occasional", and a preempting turn still keeps it.
+    //
+    // Only UNSEEN candidates count. A strong hit on a note already judged
+    // this session is not new evidence, and letting it preempt would let one
+    // sticky note dominate a session.
+    const preempt = unseenTop >= PREEMPT_SCORE;
+    const requiredGap = preempt ? PREEMPT_TURN_GAP : MIN_TURN_GAP;
+    if (turnCount - lastTurn < requiredGap) {
+      ports.trace("skip:rate-limited", {
+        turnCount,
+        lastTurn,
+        gap: requiredGap,
+        score: unseenTop,
+        preempt,
+      });
+      return null;
+    }
+    if (preempt && turnCount - lastTurn < MIN_TURN_GAP) {
+      ports.trace("rate:preempted", { score: unseenTop, need: PREEMPT_SCORE });
+    }
+
+    // -- Is this turn even about vault material? --------------------------
+    // One cheap classify on the small fast model, framing the answer as data.
+    // Runs after the rate limit so a skipped turn costs no model call at all,
+    // and after the seed so that a lexical miss cannot end the pass — the
+    // graph tier below exists precisely to reach what the seed cannot see.
+
     const topical = await ports.classify(answer.slice(0, 800), CLASSIFY_LABELS);
     if (topical !== "technical-substance") {
       // Bank the turn: this branch already SPENT a classify call, and the
@@ -411,22 +475,7 @@ export async function runConnectionPass(
       return null;
     }
 
-    // -- Tier 2a: free lexical seed. A jumping-off point, not an answer. ---
-
-    const lexical = rankCandidates(records, tokens, 4);
-    const lexTop = lexical[0]?.score ?? 0;
-    // Traced unconditionally, including the zero case, and WITH the score.
-    // A pass that seeds lexically and goes straight on to the judge otherwise
-    // leaves no record of which tier produced the candidate or how strong the
-    // evidence was — the log reads identically to the pre-graph code, so "did
-    // the new tier ship" and "is the threshold right" are both unanswerable.
-    ports.trace("seed:lexical", {
-      candidates: lexical.length,
-      score: lexTop,
-      top: lexical[0]?.path ?? "",
-    });
-
-    // -- Tier 2b: graph seed, only when the free tier came up empty --------
+    // -- Tier 2: graph seed, when the free tier's evidence is thin ---------
     //
     // `commonplace connect` runs a Personalized PageRank walk over the
     // content graph and ranks by norm(PPR) + lambda * norm(lexical), so it
@@ -448,7 +497,6 @@ export async function runConnectionPass(
     // crashed walk are the same outcome — no graph opinion — and neither is
     // worth pausing an ambient feature over.
     let graph: { path: string; label: string }[] = [];
-    const unseen = lexical.filter((c) => !seen.includes(c.path));
     if (unseen.length === 0 || lexTop < LEX_STRONG_SCORE) {
       try {
         const out = await ports.runCommand(connectArgv(answer.slice(0, ANSWER_EXCERPT)));

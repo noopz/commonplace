@@ -59,6 +59,12 @@ and asks a model whether the connection is real, rendering at most one line
 beneath the answer. This replaces asking the model, in prompt text, to remember
 to look for connections.
 
+The rate limit is **signal-aware**: the free lexical seed runs before it, so an
+exceptionally strong hit (`PREEMPT_SCORE`) may preempt down to two turns while
+an ordinary turn still waits four. Gating on arrival order alone was measurably
+wrong — a throwaway question spent the budget and the one turn that session the
+vault genuinely covered was skipped without the pass ever looking at it.
+
 The graph tier is what lets the pass reach a note sharing **no literal string**
 with the answer — the case the "No RAG" section names and lexical seeding
 structurally cannot serve. It buys recall, not precision: `connect` always
@@ -148,6 +154,14 @@ Hard constraints of this API, verified rather than assumed:
 - **A module reload does not re-fire `session.start`.** Module scope is
   re-instantiated, so anything cached there is silently empty mid-session. Cache
   lazily, never only eagerly.
+
+**Measure it with `commonplace eval:connection`.** It drives real `claude -p`
+sessions and scores the trace log, because the pass is a chain of guards, a
+rate limit, a classify, a subprocess and a judge that only a live session
+exercises. The gold set lives at `$VAULT/.wiki/evals/connection-gold.jsonl` and
+is **never committed** — its cases name real notes (`--init` scaffolds one).
+Read the miss histogram first: a miss at `no-candidates`, `rate-limited`,
+`off-topic` and `judged-not-relevant` are four different bugs.
 
 Full API notes, the probe method, and the migration checklist for when this API
 is officially documented live in the vault at

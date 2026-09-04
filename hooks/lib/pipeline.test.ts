@@ -22,6 +22,8 @@ import {
   MAX_FAILURES,
   MIN_TURN_GAP,
   LEX_STRONG_SCORE,
+  PREEMPT_SCORE,
+  PREEMPT_TURN_GAP,
   INDEX_TTL_MS,
   SESSION_KEY,
   VAULT_KEY_PREFIX,
@@ -74,6 +76,18 @@ const UNRELATED_RECORD = {
   abstraction: "an unrelated placeholder concept about quarterly ledgers",
   tags: ["gamma"],
   authority: 0.1,
+};
+
+/**
+ * Scores past PREEMPT_SCORE: three title tokens (12) plus abstraction hits.
+ * The shape of an answer that is discussing a note by name.
+ */
+const STRONG_RECORD = {
+  title: "Diagonal Symmetry Rebalancing",
+  path: "concepts/alpha/Diagonal Symmetry Rebalancing.md",
+  abstraction: "rebalancing weights to preserve diagonal symmetry while folding",
+  tags: ["alpha"],
+  authority: 0.6,
 };
 
 const GAMMA_PATH = UNRELATED_RECORD.path;
@@ -498,7 +512,6 @@ describe("runConnectionPass", () => {
       fake.reset();
       assert.equal(await runConnectionPass(fake.ports, answerInput()), null);
       assertNoExpensiveCalls(fake, `turn ${t} inside the gap`);
-      assert.equal(fake.count("cwd"), 0, "rate limit precedes vault resolution");
     }
 
     // The first attempt surfaced Alpha Lattice, so it is in the seen-set;
@@ -578,6 +591,82 @@ describe("runConnectionPass", () => {
       "the note itself is not re-read",
     );
     assert.equal(fake.calls.find((c) => c.name === "note")?.args[0], "no candidates");
+  });
+
+  test("a rate-limited turn still spends nothing", async () => {
+    // The limiter moved BEHIND the vault resolve and the index load so it can
+    // see the seed score. Both are cached and free; what must stay true is
+    // that a skipped turn costs no model call and no subprocess.
+    fake.turn = 1;
+    await runConnectionPass(fake.ports, answerInput());
+    fake.turn = 2;
+    fake.reset();
+    assert.equal(await runConnectionPass(fake.ports, answerInput()), null);
+    assertNoExpensiveCalls(fake, "inside the gap");
+    assert.ok(
+      fake.traces.some((t) => t.stage === "skip:rate-limited"),
+      "and it says so",
+    );
+  });
+
+  test("an exceptionally strong hit preempts the ordinary gap", async () => {
+    // The live failure this fixes: the limiter ran before the seed, so it
+    // spent the budget on whichever turn arrived first. A throwaway turn took
+    // the slot, and the turn the vault genuinely covered was skipped without
+    // the pass ever looking at it.
+    fake.completeResult = "SKIP";
+    fake.turn = 1;
+    await runConnectionPass(fake.ports, answerInput());
+
+    // A different strong note, so the preempting turn has unseen evidence.
+    fake.indexRecords = [ALPHA_SIBLING_RECORD, STRONG_RECORD, UNRELATED_RECORD];
+    fake.clock += INDEX_TTL_MS + 1;
+    fake.turn = 1 + PREEMPT_TURN_GAP;
+    fake.reset();
+    await runConnectionPass(fake.ports, answerInput());
+
+    assert.ok(
+      fake.traces.some((t) => t.stage === "rate:preempted"),
+      "a strong unseen hit runs inside the ordinary gap",
+    );
+    assert.equal(fake.count("complete"), 1, "and it reaches the judge");
+  });
+
+  test("preempting never means twice in a row", async () => {
+    fake.completeResult = "SKIP";
+    fake.indexRecords = [STRONG_RECORD, UNRELATED_RECORD];
+    fake.turn = 1;
+    await runConnectionPass(fake.ports, answerInput());
+
+    fake.indexRecords = [ALPHA_RECORD, STRONG_RECORD, UNRELATED_RECORD];
+    fake.clock += INDEX_TTL_MS + 1;
+    fake.turn = 2;
+    fake.reset();
+    assert.equal(await runConnectionPass(fake.ports, answerInput()), null);
+    // readText is allowed here: the fixture expires the index cache, and an
+    // index reload is free-ish work. What must not happen is SPEND.
+    assert.equal(fake.count("classify"), 0, "no classify on the very next turn");
+    assert.equal(fake.count("complete"), 0, "no judge on the very next turn");
+    assert.equal(fake.count("runCommand"), 0, "no walk on the very next turn");
+    assert.equal(
+      fake.traces.find((t) => t.stage === "skip:rate-limited")?.detail.gap,
+      PREEMPT_TURN_GAP,
+      "blocked by the preempt gap, not the ordinary one",
+    );
+  });
+
+  test("a strong hit already seen does not preempt", async () => {
+    // Otherwise one sticky note dominates a session: it would preempt every
+    // other turn forever while never being new evidence.
+    fake.completeResult = "SKIP";
+    fake.indexRecords = [STRONG_RECORD, UNRELATED_RECORD];
+    fake.turn = 1;
+    await runConnectionPass(fake.ports, answerInput());
+
+    fake.turn = 1 + PREEMPT_TURN_GAP;
+    fake.reset();
+    assert.equal(await runConnectionPass(fake.ports, answerInput()), null);
+    assertNoExpensiveCalls(fake, "the only strong hit is already judged");
   });
 
   test("the seen-set is session-scoped", async () => {
