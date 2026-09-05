@@ -15,12 +15,21 @@
  * way to say whether a change to JUDGE_SYSTEM helped, and it costs no seeding,
  * no walk and no full session.
  *
- * SELF-CONSISTENCY IS SCORED, NOT ASSUMED. The judge is a sampled model call,
- * so `--repeat` runs each case N times and reports how often it agrees with
- * itself. The LLM-as-judge literature is blunt about why this matters and
- * about its limit: high test-retest reliability coexists happily with severe
- * bias, so agreement is a floor on trustworthiness, never evidence of
- * correctness. Read it alongside precision, never instead of it.
+ * SELF-CONSISTENCY IS SCORED, NOT ASSUMED — but read `agreement` with two
+ * caveats, both learned the hard way.
+ *
+ * First, the literature's: high test-retest reliability coexists happily with
+ * severe bias, so agreement is a floor on trustworthiness, never evidence of
+ * correctness. `confidentlyWrong` exists to keep that visible.
+ *
+ * Second, ours: at small N this number is optimistic. A borderline pair scored
+ * 3/3 surface with agreement 1.00, and the identical pair re-run minutes later
+ * came back 1/3. Cross-run variance dwarfed within-run variance, which means
+ * repeated identical calls are correlated rather than independent samples.
+ * Trials are interleaved now (see run.ts) to blunt that, but the honest check
+ * on stability is still a second RUN, not a bigger --repeat. Treat agreement
+ * at N < 5 as suggestive, and never quote `confidentlyWrong` from a single
+ * low-N run as though the judge were settled.
  */
 
 /** What the judge should say about one (answer, note) pair. */

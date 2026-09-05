@@ -118,6 +118,15 @@ export const CLASSIFY_LABELS = [
  * reading the note body before judging. "About the same thing" is a judgement
  * about subject matter, made against the actual prose — which is exactly what
  * separates it from "shares the word graph".
+ *
+ * WHAT IT COST, recorded because it is the predicted risk and it arrived.
+ * Across four `eval:connection` runs precision held at 1.00, 1.00, 1.00, then
+ * 0.75: the fourth surfaced a topically-adjacent note that had ranked first
+ * while the right note sat at rank three. Recall over the same runs went 0.25,
+ * 0.25, 0.75, 0.75. So this bought recall and has started spending precision,
+ * which for a feature that interrupts unprompted is the expensive direction.
+ * `eval:judge` exists to say whether the criterion or the ranking is at fault;
+ * do not tighten this text on the strength of one bad surface.
  */
 export const JUDGE_SYSTEM =
   "You judge whether a note from someone's personal knowledge vault is " +

@@ -107,9 +107,26 @@ function judgePrompt(answer: string, label: string, noteText: string): string {
   );
 }
 
-const results: JudgeResult[] = [];
+/*
+ * TRIALS ARE INTERLEAVED, not run back-to-back per case.
+ *
+ * They used to be, and the agreement number that produced was wrong in the
+ * flattering direction. One borderline pair reported 3/3 surface with
+ * agree=1.00; the identical pair re-run minutes later came back 1/3. Firing
+ * the same prompt three times in a row does not sample the judge three times
+ * — consecutive identical calls are correlated — so within-run unanimity was
+ * measuring the ordering, not the judge.
+ *
+ * Running every case's trial 1, then every case's trial 2, puts other work
+ * between repeats of a prompt. It does not make the trials independent, and
+ * cross-run variance is still the honest check, so `agreement` remains a
+ * FLOOR on trustworthiness rather than evidence of stability. Read it with
+ * that caveat or not at all.
+ */
+type Prepared = { c: JudgeCase; answer: string; label: string; noteText: string };
+const prepared: Prepared[] = [];
 
-for (const [i, c] of gold.entries()) {
+for (const c of gold) {
   const answer = c.answer
     ? c.answer
     : c.answerFile
@@ -128,24 +145,38 @@ for (const [i, c] of gold.entries()) {
   const label = c.note.replace(/^.*\//, "").replace(/\.md$/, "");
   const noteText = stripFrontmatter(readFileSync(notePath, "utf-8")).slice(0, NOTE_EXCERPT);
 
-  const trials: JudgeTrial[] = [];
-  for (let t = 0; t < repeat; t++) {
+  prepared.push({ c, answer, label, noteText });
+}
+
+const trialsById = new Map<string, JudgeTrial[]>(prepared.map((p) => [p.c.id, []]));
+
+for (let t = 0; t < repeat; t++) {
+  for (const [i, p] of prepared.entries()) {
     if (!args.json) {
-      process.stderr.write(`[${i + 1}/${gold.length}] ${c.id} trial ${t + 1}/${repeat} ... `);
+      process.stderr.write(`[round ${t + 1}/${repeat}] [${i + 1}/${prepared.length}] ${p.c.id} ... `);
     }
     const started = Date.now();
     const proc = spawnSync(
       "claude",
-      ["-p", judgePrompt(answer, label, noteText), "--model", model, "--system-prompt", JUDGE_SYSTEM],
+      [
+        "-p",
+        judgePrompt(p.answer, p.label, p.noteText),
+        "--model",
+        model,
+        "--system-prompt",
+        JUDGE_SYSTEM,
+      ],
       { timeout: 120_000, encoding: "utf-8", maxBuffer: 4 * 1024 * 1024, stdio: ["ignore", "pipe", "ignore"] },
     );
     const verdict = parseVerdict(String(proc.stdout ?? "")) ?? "";
-    trials.push({ verdict, ms: Date.now() - started });
+    trialsById.get(p.c.id)!.push({ verdict, ms: Date.now() - started });
     if (!args.json) process.stderr.write(`${verdict ? "surface" : "skip"}\n`);
   }
-
-  results.push(scoreJudgeCase(c, trials));
 }
+
+const results: JudgeResult[] = prepared.map((p) =>
+  scoreJudgeCase(p.c, trialsById.get(p.c.id)!),
+);
 
 const summary = summarizeJudge(results);
 if (args.json) {
