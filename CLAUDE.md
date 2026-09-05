@@ -175,8 +175,10 @@ the model's answer, which varies per run — so compare a change across repeated
 runs, and treat a stable number as reliable, not as correct.
 
 Full API notes, the probe method, and the migration checklist for when this API
-is officially documented live in the vault at
-`06 - Handbook/Building on Claude Code Function Hooks`.
+is officially documented live in this vault's own handbook note on building on
+Claude Code function hooks. Find it with wiki-query — it is deliberately not
+named by path here, because this repo is public and vault note titles are the
+user's content.
 
 ## Parallel agents over vault content
 

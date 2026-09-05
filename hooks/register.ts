@@ -3,8 +3,8 @@
  *
  * EARLY ACCESS. Loads only when CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1; without
  * the flag this file is inert and the shell hooks in hooks.json are the whole
- * plugin. See `06 - Handbook/Building on Claude Code Function Hooks` in the
- * vault for the API's verified constraints and the migration checklist.
+ * plugin. See the vault's handbook note on building on Claude Code function
+ * hooks for the API's verified constraints and the migration checklist.
  *
  * WHAT THIS DOES
  * The vault's most-wanted behaviour — "tell me when something I'm discussing
