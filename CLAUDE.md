@@ -167,6 +167,22 @@ gap between "a gold note was in the pool" and "a gold note surfaced" is the
 whole loss downstream of retrieval, and without it two runs can score
 identically for opposite reasons (they did).
 
+**`commonplace eval:judge` isolates the judge.** `eval:connection` measures the
+whole chain, which is right for the feature and wrong for diagnosing it — two
+runs of it scored 5/8 for opposite reasons (right notes dropped by the judge vs
+wrong notes correctly skipped), and no end-to-end number can separate those.
+`eval:judge` fixes the inputs: stored (answer, note) pairs, no seeding, no walk,
+no session. `eval:connection` writes the answers it generates to
+`$VAULT/.wiki/evals/answers/`, so it is the corpus this one consumes.
+
+It **imports `JUDGE_SYSTEM` and `parseVerdict` from `hooks/lib/`** rather than
+copying them. The sandbox forbids importing OUT of the module; nothing stops a
+plain Node script importing IN. A copied prompt would drift silently, and in
+the direction that flatters the eval. `--repeat N` scores self-agreement, and
+`confidentlyWrong` counts cases the judge got wrong unanimously — because
+reliability and correctness are different things, and a judge can have plenty
+of the first with none of the second.
+
 **Precision and recall are reported apart on purpose.** An ambient feature that
 interrupts must protect precision first, because low precision is alert fatigue
 and alert fatigue kills the feature; recall can be raised afterwards. A single

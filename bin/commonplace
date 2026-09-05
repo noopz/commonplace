@@ -44,6 +44,7 @@ const SCRIPTS = {
   'eval:retrieval':      'evals/retrieval/run.ts',
   'eval:connect':        'evals/connect/run.ts',
   'eval:connection':     'evals/connection/run.ts',
+  'eval:judge':          'evals/judge/run.ts',
   'abstract':            'scripts/abstract.ts',
   'seed':                'scripts/seed.ts',
   // Paper pipeline

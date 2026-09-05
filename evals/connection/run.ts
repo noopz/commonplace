@@ -151,11 +151,27 @@ for (const [i, c] of gold.entries()) {
   const started = Date.now();
   const proc = spawnSync("claude", argv, {
     timeout: timeoutMs,
-    stdio: ["ignore", "ignore", "ignore"],
+    // stdout is CAPTURED, not discarded: the answer this session produced is
+    // exactly the input the judge saw, and saving it turns this eval into the
+    // corpus for `eval:judge`. Without it the judge can only ever be measured
+    // through the whole chain, which is how two runs came to score 5/8 for
+    // opposite reasons.
+    encoding: "utf-8",
+    maxBuffer: 8 * 1024 * 1024,
+    stdio: ["ignore", "pipe", "ignore"],
     // The pass resolves the vault from the session cwd; run each case there so
     // a multi-vault registry cannot answer for the wrong one.
     cwd: config.vaultPath,
   });
+
+  // Answers live in the vault beside the gold set, never in the repo: they
+  // are generated FROM vault-adjacent prompts and may quote note content.
+  const answer = String(proc.stdout ?? "").trim();
+  if (answer) {
+    const dir = join(config.wikiPath, "evals", "answers");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, `${c.id}.txt`), answer);
+  }
 
   const observed = observePass(linesSince(before));
   const result = scoreCase(c, observed);
