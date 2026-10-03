@@ -91,3 +91,34 @@ test("personalizedPageRank: a dangling seed keeps mass finite and normalized", (
   const r = personalizedPageRank(adj, new Map([["lonely", 1]]));
   assert.ok(Math.abs(r.get("lonely")! - 1) < 1e-9);
 });
+
+test("buildContentGraph: typed relations resolve case-insensitively and through aliases (plan §3.8)", () => {
+  // Regression: buildsOn/comparesWith/usesMethod resolved by exact title only,
+  // so a lowercase or aliased reference produced no edge.
+  const adj = buildContentGraph({
+    sources: [
+      src({ title: "Alpha Method", path: "alpha/Alpha Method.md", aliases: ["AM"] }),
+      src({ title: "Beta Study", path: "beta/Beta Study.md", buildsOn: ["alpha method"] }),
+      src({ title: "Delta Review", path: "delta/Delta Review.md", comparesWith: ["am#Results"] }),
+      src({ title: "Epsilon Trial", path: "eps/Epsilon Trial.md", usesMethod: ["gt"] }),
+    ],
+    concepts: [{ ...con("Gamma Term", "gamma/Gamma Term.md"), aliases: ["GT"] }],
+    mocs: [moc("Alpha MOC", "moc/Alpha MOC.md", ["BETA STUDY"])],
+  });
+  assert.equal(adj.get("beta/Beta Study.md")!.get("alpha/Alpha Method.md"), DEFAULT_EDGE_WEIGHTS.rel);
+  assert.equal(adj.get("delta/Delta Review.md")!.get("alpha/Alpha Method.md"), DEFAULT_EDGE_WEIGHTS.rel);
+  assert.equal(adj.get("eps/Epsilon Trial.md")!.get("gamma/Gamma Term.md"), DEFAULT_EDGE_WEIGHTS.rel);
+  assert.equal(adj.get("moc/Alpha MOC.md")!.get("beta/Beta Study.md"), DEFAULT_EDGE_WEIGHTS.moc);
+});
+
+test("buildContentGraph: a concept reference never resolves to a source with that title", () => {
+  const adj = buildContentGraph({
+    sources: [
+      src({ title: "Zeta Topic", path: "z/Zeta Topic.md" }),
+      src({ title: "Iota Paper", path: "i/Iota Paper.md", concepts: ["zeta topic"] }),
+    ],
+    concepts: [],
+    mocs: [],
+  });
+  assert.equal(adj.get("i/Iota Paper.md"), undefined);
+});

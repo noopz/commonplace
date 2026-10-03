@@ -74,6 +74,8 @@ export interface SourceNote {
   buildsOn: string[];
   comparesWith: string[];
   usesMethod: string[];
+  /** Frontmatter `aliases:` — resolution keys for typed relations. Omitted when none. */
+  aliases?: string[];
   /** Indexed retrieval key: ~6-12 word noun-phrase descriptor. Absent on un-migrated notes. */
   abstraction?: string;
   /** Outgoing wikilink display texts — the note's cue anchors (Tier B seed keys). */
@@ -105,6 +107,8 @@ export interface ConceptNote {
    * v1.57.2, so every one of those checks silently passed private concepts.
    */
   scope?: "public" | "private";
+  /** Frontmatter `aliases:` — resolution keys for typed relations. Omitted when none. */
+  aliases?: string[];
   /** Indexed retrieval key: ~6-12 word noun-phrase descriptor. Absent on un-migrated notes. */
   abstraction?: string;
   /** Outgoing wikilink display texts — the note's cue anchors (Tier B seed keys). */

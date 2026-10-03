@@ -88,3 +88,58 @@ test("migrateFromVaultPath builds a single-entry default registry", () => {
   assert.equal(reg.vaults[0].id, "my-notes");
   assert.equal(reg.default, "my-notes");
 });
+
+// ---------------------------------------------------------------------------
+// Private vaults and project pins
+// ---------------------------------------------------------------------------
+
+import { findByRef, setDefault, parsePins, pinFor } from "./registry.ts";
+
+test("a private vault is parsed, and never honoured as default", () => {
+  const reg = parseRegistry(JSON.stringify({
+    default: "gamma",
+    vaults: [
+      { id: "alpha", path: "/v/alpha" },
+      { id: "gamma", path: "/v/gamma", isPrivate: true },
+    ],
+  }));
+  assert.equal(reg.vaults[1].isPrivate, true);
+  assert.equal(reg.default, null);
+});
+
+test("addVault never makes a private vault the default by being first", () => {
+  const reg = addVault(EMPTY_REGISTRY, { id: "gamma", path: "/v/gamma", label: "G", aliases: [], isPrivate: true });
+  assert.equal(reg.default, null);
+  const reg2 = addVault(reg, { id: "alpha", path: "/v/alpha", label: "A", aliases: [] });
+  assert.equal(reg2.default, "alpha");
+});
+
+test("setDefault refuses a private vault with a pin hint", () => {
+  const reg = parseRegistry(JSON.stringify({
+    default: "alpha",
+    vaults: [{ id: "alpha", path: "/v/alpha" }, { id: "gamma", path: "/v/gamma", isPrivate: true }],
+  }));
+  const out = setDefault(reg, "gamma");
+  assert.equal(typeof out, "string");
+  assert.match(out as string, /vault use gamma/);
+  assert.equal((setDefault(reg, "alpha") as { default: string }).default, "alpha");
+});
+
+test("findByRef matches id, alias, label and path", () => {
+  const reg = parseRegistry(JSON.stringify({
+    vaults: [{ id: "alpha", path: "/v/alpha", label: "Alpha Notes", aliases: ["work"] }],
+  }));
+  for (const ref of ["alpha", "ALPHA", "work", "alpha notes", "/v/alpha", "/v/alpha/"]) {
+    assert.equal(findByRef(reg, ref)?.id, "alpha", ref);
+  }
+  assert.equal(findByRef(reg, "beta"), undefined);
+});
+
+test("pinFor picks the longest pinned root containing cwd", () => {
+  const pins = parsePins(JSON.stringify({ "/r/mono": "alpha", "/r/mono/pkg": "beta", "/x": 7 }));
+  assert.equal(pinFor(pins, "/r/mono/src"), "alpha");
+  assert.equal(pinFor(pins, "/r/mono/pkg/lib"), "beta");
+  assert.equal(pinFor(pins, "/r/monorepo"), undefined, "prefix sibling is not inside");
+  assert.equal(pinFor(pins, "/x"), undefined, "non-string pin dropped");
+  assert.deepEqual(parsePins("not json"), {});
+});

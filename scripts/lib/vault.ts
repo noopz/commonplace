@@ -17,6 +17,10 @@ import {
   findById,
   getDefaultEntry,
   migrateFromVaultPath,
+  findByRef,
+  parsePins,
+  pinFor,
+  type VaultPins,
 } from "./registry.js";
 
 const EMPTY_REGISTRY: DomainRegistry = { domains: {} };
@@ -98,6 +102,63 @@ export function saveVaultRegistry(reg: VaultRegistry): void {
   const def = getDefaultEntry(reg);
   if (def) writeFileSync(join(dir, ".vault-path"), def.path + "\n");
   _vaultRegistryCache = reg;
+}
+
+/** Load project pins (`vault-pins.json`), first readable location wins. */
+export function loadVaultPins(): VaultPins {
+  for (const loc of pluginDataLocations("vault-pins.json")) {
+    try {
+      return parsePins(readFileSync(loc, "utf-8"));
+    } catch {}
+  }
+  return {};
+}
+
+export function saveVaultPins(pins: VaultPins): void {
+  const dir = primaryDataDir();
+  try { mkdirSync(dir, { recursive: true }); } catch {}
+  writeFileSync(join(dir, "vault-pins.json"), JSON.stringify(pins, null, 2) + "\n");
+}
+
+/** Which rule picked the vault — `commonplace vault` shows it. */
+export type VaultChoice = {
+  path: string;
+  id: string | null;
+  via: "explicit" | "pin" | "cwd" | "default";
+};
+
+/**
+ * THE vault precedence, shared by every script and mirrored (and parity-
+ * tested) by `bin/commonplace vault-path`:
+ *
+ *   1. explicit `--vault <id|alias|path>`
+ *   2. a project pin (`commonplace vault use <id>`) covering the caller's cwd
+ *   3. cwd walk-up to a vault marker (`.obsidian/` or `.wiki/`)
+ *   4. the registry default — never a private vault
+ *
+ * The pin beats the walk-up on purpose: a pin is an explicit choice, the
+ * walk-up an inference. Returns null when nothing applies.
+ */
+export function chooseVault(explicit: string | undefined, callerCwd: string): VaultChoice | null {
+  const reg = loadVaultRegistry();
+  if (explicit) {
+    const hit = findByRef(reg, explicit);
+    if (hit) return { path: hit.path, id: hit.id, via: "explicit" };
+    return { path: resolve(explicit), id: null, via: "explicit" };
+  }
+  const pinned = pinFor(loadVaultPins(), resolve(callerCwd));
+  if (pinned) {
+    const hit = findByRef(reg, pinned);
+    if (hit) return { path: hit.path, id: hit.id, via: "pin" };
+  }
+  const discovered = discoverVault(callerCwd);
+  if (discovered) {
+    const hit = reg.vaults.find((v) => resolve(v.path) === discovered);
+    return { path: discovered, id: hit?.id ?? null, via: "cwd" };
+  }
+  const def = getDefaultEntry(reg);
+  if (def) return { path: def.path, id: def.id, via: "default" };
+  return null;
 }
 
 /**
@@ -182,25 +243,9 @@ export function discoverVault(startPath: string): string | null {
 }
 
 export function resolveVault(explicit?: string): VaultConfig {
-  const reg = loadVaultRegistry();
-
-  // 1. Explicit --vault: match a registry id first, else treat as a path (back-compat).
-  if (explicit) {
-    const byId = findById(reg, explicit);
-    if (byId) return getVaultConfig(byId.path);
-    return getVaultConfig(resolve(explicit));
-  }
-
-  // 2. cwd walk-up — finds any vault marker, registered or not (preserves
-  //    support for never-initialized Obsidian folders).
   const callerCwd = process.env.COMMONPLACE_CALLER_CWD || process.cwd();
-  const discovered = discoverVault(callerCwd);
-  if (discovered) return getVaultConfig(discovered);
-
-  // 3. Global default.
-  const def = getDefaultEntry(reg);
-  if (def) return getVaultConfig(def.path);
-
+  const choice = chooseVault(explicit, callerCwd);
+  if (choice) return getVaultConfig(choice.path);
   console.error(
     "Error: Could not find vault. Run from a vault directory, pass --vault <id|path>, or run `commonplace init`."
   );

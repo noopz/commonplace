@@ -12,3 +12,6 @@ docs/superpowers/
 # Local copy of the unreleased Claude Code API declarations. The archived
 # snapshot under docs/api-snapshots/ is the tracked one; this is a working copy.
 .claude/types/
+
+# esbuild bundle — built by `npm run build` / `commonplace session-check`
+dist/
