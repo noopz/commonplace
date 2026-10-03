@@ -15,6 +15,8 @@ import {
   formatSearchResult,
   resolveNotePath,
   isSafeVaultPath,
+  openPrivateDomains,
+  visibleRecords,
 } from "./tools.ts";
 
 const RECORDS: Record<string, unknown>[] = [
@@ -183,4 +185,50 @@ test("isSafeVaultPath refuses traversal and absolute paths", () => {
   assert.equal(isSafeVaultPath("/etc/passwd"), false);
   assert.equal(isSafeVaultPath("~/.ssh/id_rsa"), false);
   assert.equal(isSafeVaultPath(""), false);
+});
+
+// ---------------------------------------------------------------------------
+// Private domains are explicit-entry
+// ---------------------------------------------------------------------------
+
+const DOMAINS = {
+  alpha: { path: "02 - Research/alpha", scope: "public" },
+  delta: { path: "04 - Explorations/private", scope: "private" },
+  epsilon: { path: "04 - Explorations/epsilon", scope: "private" },
+};
+
+test("a private domain opens only when the session STARTED inside its folder", () => {
+  const v = "/vaults/acme";
+  assert.deepEqual([...openPrivateDomains(DOMAINS, v, `${v}/04 - Explorations/private`)], ["delta"]);
+  assert.deepEqual([...openPrivateDomains(DOMAINS, v, `${v}/04 - Explorations/private/sub`)], ["delta"]);
+  assert.equal(openPrivateDomains(DOMAINS, v, v).size, 0, "vault root opens nothing");
+  assert.equal(openPrivateDomains(DOMAINS, v, "/repos/app").size, 0);
+  // A sibling folder sharing a prefix is not inside the domain.
+  assert.equal(openPrivateDomains(DOMAINS, v, `${v}/04 - Explorations/private-other`).size, 0);
+  // Public domains are never "opened" — they are simply visible.
+  assert.equal(openPrivateDomains(DOMAINS, v, `${v}/02 - Research/alpha`).size, 0);
+});
+
+test("sealed private records vanish before ranking, leaving no trace", () => {
+  const sealed = visibleRecords(RECORDS, new Set());
+  assert.ok(!sealed.some((r) => r.scope === "private"));
+  const hits = searchVault(sealed, "calibration", 25);
+  assert.ok(!hits.some((h) => h.title === "Private Calibration Log"));
+  assert.doesNotMatch(formatSearchResult(hits, "calibration"), /private|hidden/i);
+  // A sealed note cannot be resolved by vault_note either.
+  assert.equal(resolveNotePath(sealed, "Private Calibration Log"), null);
+});
+
+test("an open private domain behaves like the rest of the vault", () => {
+  const open = visibleRecords(RECORDS, new Set(["delta"]));
+  const hits = searchVault(open, "calibration", 25);
+  const priv = hits.find((h) => h.title === "Private Calibration Log");
+  assert.ok(priv, "visible once its domain is open");
+  assert.match(priv!.caution ?? "", /private/);
+  // Opening one private domain does not open another.
+  const other = visibleRecords(
+    [...RECORDS, { title: "Epsilon Note", path: "x.md", domain: "epsilon", scope: "private" }],
+    new Set(["delta"]),
+  );
+  assert.ok(!other.some((r) => r.title === "Epsilon Note"));
 });

@@ -89,14 +89,63 @@ export type SearchHit = {
   caution?: string;
 };
 
+/** A `domains.json` entry, as much of it as scope decisions need. */
+export type DomainEntry = { path?: string; scope?: string };
+
+/**
+ * The private domains a session has explicitly entered.
+ *
+ * A private domain is EXPLICIT-ENTRY: a session that did not start from it
+ * must not see it. Until v2's `/vault open` exists, the only entry signal is
+ * the one the user cannot give by accident — the session STARTED inside the
+ * domain's folder. Session-start cwd, not live cwd: a `cd` mid-session is
+ * something the model can do on its own, so it must not unlock anything.
+ */
+export function openPrivateDomains(
+  domains: Record<string, DomainEntry>,
+  vaultPath: string,
+  startCwd: string,
+): Set<string> {
+  const open = new Set<string>();
+  if (!vaultPath || !startCwd) return open;
+  for (const [slug, d] of Object.entries(domains ?? {})) {
+    if (d?.scope !== "private" || !d.path) continue;
+    const root = `${vaultPath}/${d.path}`.replace(/\/+$/, "");
+    if (startCwd === root || startCwd.startsWith(`${root}/`)) open.add(slug);
+  }
+  return open;
+}
+
+/**
+ * Drop private records the session has not entered.
+ *
+ * Applied BEFORE ranking, so a hidden note leaves no trace — no count, no
+ * "N private results hidden" line, which would itself reveal that a private
+ * note matches. A private record is visible when any domain it belongs to is
+ * open.
+ */
+export function visibleRecords(
+  records: Record<string, unknown>[],
+  openDomains: ReadonlySet<string>,
+): Record<string, unknown>[] {
+  return records.filter((rec) => {
+    if (rec.scope !== "private") return true;
+    const own = [
+      ...(rec.domain ? [String(rec.domain)] : []),
+      ...(Array.isArray(rec.domains) ? rec.domains.map(String) : []),
+    ];
+    return own.some((d) => openDomains.has(d));
+  });
+}
+
 /**
  * Rank index records against an explicit query.
  *
- * Unlike the ambient path this does NOT hide private or retired notes. The
- * ambient path suppresses them because it displays unbidden; here the user
- * asked, and it is their own vault. They are flagged instead, so a caller
- * knows a note is private (do not copy it into a public artefact) or retired
- * (do not present it as current) without being silently denied their own data.
+ * Callers pass records already filtered by `visibleRecords`, so a private
+ * note only reaches here when the session entered its domain. Retired notes
+ * and visible private ones are flagged rather than hidden, so a caller knows
+ * a note is private (do not copy it into a public artefact) or retired (do not
+ * present it as current).
  */
 export function searchVault(
   records: Record<string, unknown>[],

@@ -60,6 +60,9 @@ import {
   formatSearchResult,
   resolveNotePath,
   isSafeVaultPath,
+  openPrivateDomains,
+  visibleRecords,
+  type DomainEntry,
 } from "./lib/tools.js";
 
 // ---------------------------------------------------------------------------
@@ -115,6 +118,25 @@ let indexCache: {
   at: number;
   records: Record<string, unknown>[];
 } = { vaultPath: "", at: 0, records: [] };
+
+/**
+ * The domain registry (`.wiki/domains.json`), cached beside the indexes and
+ * refreshed on the same TTL, so private-domain scope follows a reclassified
+ * folder without a restart.
+ */
+let domainCache: { vaultPath: string; domains: Record<string, DomainEntry> } = {
+  vaultPath: "",
+  domains: {},
+};
+
+/**
+ * The directory the session STARTED in — the only signal that opens a private
+ * domain (see `openPrivateDomains`). Captured from `session.start`'s input
+ * rather than read live: a `cd` during the session is the model's to make, so
+ * it must not unlock anything. A reload re-runs `session.start`, which
+ * re-captures it; the `$.session.root()` fallback covers a hook racing it.
+ */
+let startCwd = "";
 
 /** The band's live state. See lib/status.ts for what each field means. */
 let status: Status = {
@@ -188,6 +210,7 @@ export const register = (on: any, options: any = {}) => {
    * on its first turn may as well not exist.
    */
   on("session.start", async ($: any, e: any, next: any) => {
+    startCwd = String(e?.cwd ?? "");
     try {
       await $.tool.register(VAULT_SEARCH_SPEC);
       await $.tool.register(VAULT_NOTE_SPEC);
@@ -429,9 +452,26 @@ export const register = (on: any, options: any = {}) => {
         if (parsed.length > 0) {
           indexCache = { vaultPath, at: $.clock.now(), records: parsed };
         }
+        const domRes = await $.process.run(["cat", `${vaultPath}/.wiki/domains.json`]);
+        let domains: Record<string, DomainEntry> = {};
+        try {
+          domains = JSON.parse(String(domRes?.stdout ?? "") || "{}")?.domains ?? {};
+        } catch {
+          /* unreadable registry: no private domain can be opened */
+        }
+        domainCache = { vaultPath, domains };
       }
-      const records = indexCache.vaultPath === vaultPath ? indexCache.records : [];
-      if (records.length === 0) {
+      const allRecords = indexCache.vaultPath === vaultPath ? indexCache.records : [];
+      // Private domains are explicit-entry. Filter BEFORE search and resolve,
+      // so a sealed note is indistinguishable from one that does not exist.
+      const sessionStart = startCwd || String(await $.session.root());
+      const open = openPrivateDomains(
+        domainCache.vaultPath === vaultPath ? domainCache.domains : {},
+        vaultPath,
+        sessionStart,
+      );
+      const records = visibleRecords(allRecords, open);
+      if (allRecords.length === 0) {
         return {
           deny:
             `Could not read the vault indexes at ${vaultPath}/.wiki/. ` +
