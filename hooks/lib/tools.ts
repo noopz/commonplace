@@ -18,7 +18,7 @@
  * mistake a lexical match for an answer, because the match never carries the
  * content that would let it pretend to be one.
  *
- * Pure — no `$`, no I/O. `hooks/register.ts` supplies the index records and
+ * Pure — no `$`, no I/O. `hooks/register.tsx` supplies the index records and
  * performs the reads.
  */
 

@@ -26,7 +26,7 @@
  *
  *   The classify makes the actual judgement.
  *
- * Pure — no `$`, no I/O. `hooks/register.ts` performs the classify.
+ * Pure — no `$`, no I/O. `hooks/register.tsx` performs the classify.
  */
 
 /**

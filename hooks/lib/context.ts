@@ -6,7 +6,7 @@
  * `prompt.context` fires once per conversation and is cached, so the block is
  * computed once and can be read like a briefing rather than a reminder.
  *
- * Pure — no `$`, no Node builtins. `hooks/register.ts` gathers the facts
+ * Pure — no `$`, no Node builtins. `hooks/register.tsx` gathers the facts
  * (vault resolution, index line counts, conventions.json) and passes them in
  * as plain data; everything that decides what gets said lives here so it can
  * be unit-tested without a filesystem.
@@ -151,7 +151,7 @@ export function mergeBlocks(
  * VAULT_SIGNALS / vaultIntent used to live here — a port of
  * `scripts/lib/vault-signals.ts`, which gated the OLD shell hook so it only
  * injected context when the user's prompt mentioned the vault. It was never
- * called from `register.ts` and is deleted rather than kept as ballast.
+ * called from `register.tsx` and is deleted rather than kept as ballast.
  *
  * The gate is genuinely gone, and that IS a behaviour change: the
  * outside-vault paragraph now goes into every conversation in every repo.

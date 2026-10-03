@@ -11,7 +11,7 @@ LLM-maintained knowledge base for any folder of notes. Transforms raw sources in
 
 ## In-process function hooks (EARLY ACCESS)
 
-`hooks/register.ts` is an in-process plugin module, loaded into a sandboxed
+`hooks/register.tsx` is an in-process plugin module, loaded into a sandboxed
 worker when `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1` **or** the account is in the
 `tengu_plugin_hooks_modules` rollout. It runs **beside** the shell hooks in
 `hooks/hooks.json`, not instead of them — without either gate the file is inert
@@ -27,7 +27,7 @@ announces itself: at `session.start` it writes its session id to
 `<vault>/.wiki/hooks-module.json`, and `scripts/lib/module-gate.ts` stands a
 shell hook down when that id matches the one on its own stdin payload. Comparing
 ids, not timestamps, means there is no staleness window to tune. The marker
-filename is **duplicated** in `hooks/register.ts` because the sandbox cannot
+filename is **duplicated** in `hooks/register.tsx` because the sandbox cannot
 import from `scripts/`; `scripts/module-gate.test.ts` asserts the two agree.
 
 `plugin.json` declares one `userConfig` field, `ambientConnections`, which turns
@@ -136,7 +136,7 @@ Hard constraints of this API, verified rather than assumed:
   declared in the same file (validate reports `$.session.cwd (via f)` and
   follows it two hops), but never across an import: "followed only into a
   function declared in this same file". So `hooks/lib/*` still takes plain
-  values or a Ports object of arrows, while `register.ts` may factor its own
+  values or a Ports object of arrows, while `register.tsx` may factor its own
   helpers normally.
 - `claude plugin validate <dir>` checks all of the above without running it, and
   prints the module's exact capability surface. Run it after every edit.

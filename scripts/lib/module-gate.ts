@@ -23,7 +23,7 @@
 import { readFileSync } from "fs";
 import { join } from "path";
 
-/** Written by `hooks/register.ts` at session.start, under the vault's `.wiki/`. */
+/** Written by `hooks/register.tsx` at session.start, under the vault's `.wiki/`. */
 export const MODULE_MARKER = "hooks-module.json";
 
 /**

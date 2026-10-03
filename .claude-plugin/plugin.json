@@ -3,6 +3,7 @@
   "version": "1.68.0",
   "description": "LLM-maintained knowledge base for Obsidian vaults. Auto-triggers on paper sharing, vault health queries, concept compilation, research questions, and domain management.",
   "homepage": "https://github.com/noopz/commonplace",
+  "types": "./types/index.d.ts",
   "userConfig": {
     "ambientConnections": {
       "type": "boolean",

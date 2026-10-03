@@ -41,8 +41,16 @@
  * import, so helpers in `lib/` take plain values or a Ports object of arrows.
  */
 
+import { atom, read, update } from "claude-code";
+import type { Register, EngineInterface, ToolCallInput } from "claude-code";
+import type { CommonplaceBand } from "../types/index.js";
 import { parseJsonl } from "./lib/seed.js";
-import { runConnectionPass, ensureRecords, privateNames } from "./lib/pipeline.js";
+import {
+  runConnectionPass,
+  ensureRecords,
+  privateNames,
+  type CompletionRequest,
+} from "./lib/pipeline.js";
 import { statusLine, type Status } from "./lib/status.js";
 import { buildVaultBlock, mergeBlocks } from "./lib/context.js";
 import { checkBashCommand, checkPrivateLeak } from "./lib/guard.js";
@@ -138,17 +146,41 @@ let domainCache: { vaultPath: string; domains: Record<string, DomainEntry> } = {
  */
 let startCwd = "";
 
-/** The band's live state. See lib/status.ts for what each field means. */
-let status: Status = {
+/**
+ * The band's live state, held by the host in `$.state` rather than in module
+ * scope: a hot reload re-instantiates module scope, and a band drawn from a
+ * module variable came back blank mid-session. Reading it inside the render
+ * hook subscribes that drawing, so a write redraws exactly the band and
+ * nothing calls `$.ui.invalidate` for it. Declared in `types/index.d.ts`.
+ * See lib/status.ts for what each field means.
+ */
+const BAND_INITIAL: CommonplaceBand = {
   phase: "idle",
   sources: 0,
   concepts: 0,
   surfaced: 0,
   lastOutcome: "",
-  lastError: "",
   paused: false,
   visible: false,
 };
+const band = atom({ plugin: "commonplace", key: "band" } as const, BAND_INITIAL);
+
+/**
+ * The breaker's last error text, kept OUT of `$.state` on purpose: every
+ * plugin can read state, and an exception's text can carry a note path. A
+ * reload loses it, which costs only the detail after the band's dash.
+ */
+let lastError = "";
+
+/**
+ * One argument of a tool call, read loosely.
+ *
+ * `tool.call`'s `e` is a union discriminated by `tool`; a registered tool's
+ * name (`mcp__commonplace__vault_search`) is not a literal the union knows,
+ * so its arguments are reached through the MCP fallback's index signature.
+ */
+const toolArg = (e: ToolCallInput, key: string): unknown =>
+  (e as Readonly<Record<string, unknown>>)[key];
 
 
 /**
@@ -168,14 +200,14 @@ let status: Status = {
  * A miss is not cached. At 46ms a re-resolve per turn is cheap, and caching
  * the empty answer would hide a `commonplace init` until the next restart.
  */
-const ensureVaultPath = async ($: any, projectDir: string): Promise<string> => {
+const ensureVaultPath = async ($: EngineInterface, projectDir: string): Promise<string> => {
   const known = vaultPaths.get(projectDir);
   if (known) return known;
   try {
     const res = await $.process.run([
       "node", `${$.plugin.root}/bin/commonplace`, "vault-path",
     ]);
-    const resolved = String(res?.stdout ?? "").trim();
+    const resolved = res.stdout.trim();
     if (resolved) vaultPaths.set(projectDir, resolved);
     return resolved;
   } catch {
@@ -187,7 +219,7 @@ const ensureVaultPath = async ($: any, projectDir: string): Promise<string> => {
 // Registration
 // ---------------------------------------------------------------------------
 
-export const register = (on: any, options: any = {}) => {
+export const register: Register = (on, options) => {
   /**
    * The one thing a user can turn off.
    *
@@ -209,8 +241,8 @@ export const register = (on: any, options: any = {}) => {
    * registration belongs here rather than lazily: a tool the model cannot see
    * on its first turn may as well not exist.
    */
-  on("session.start", async ($: any, e: any, next: any) => {
-    startCwd = String(e?.cwd ?? "");
+  on("session.start", async ($, e, next) => {
+    startCwd = e.cwd;
     try {
       await $.tool.register(VAULT_SEARCH_SPEC);
       await $.tool.register(VAULT_NOTE_SPEC);
@@ -285,9 +317,9 @@ export const register = (on: any, options: any = {}) => {
    * real work in an unrelated repo. See lib/guard.ts for the matching rules
    * and their documented failure modes.
    */
-  on("tool.call", { tool: "Bash" }, async ($: any, e: any, next: any) => {
+  on("tool.call", { tool: "Bash" }, async ($, e, next) => {
     try {
-      const verdict = checkBashCommand(String(e?.command ?? ""));
+      const verdict = checkBashCommand(e.command);
       if (verdict) return verdict;
     } catch {
       /* a broken guard must never block a command */
@@ -315,13 +347,13 @@ export const register = (on: any, options: any = {}) => {
    * A one-of matcher keeps this off every other tool. Our own docs said the
    * matcher could not express two tool names; it can.
    */
-  on("tool.call", { tool: ["Write", "Edit"] }, async ($: any, e: any, next: any) => {
+  on("tool.call", { tool: ["Write", "Edit"] }, async ($, e, next) => {
     const built = await next(e);
     try {
       // Nothing to add to a refused or failed write.
-      if (!built || built.deny || built.isError) return built;
+      if (!built || built.deny !== undefined || built.isError) return built;
 
-      const target = String(e?.file_path ?? "");
+      const target = e.file_path;
       if (!target) return built;
 
       const projectDir = await $.session.cwd();
@@ -339,7 +371,7 @@ export const register = (on: any, options: any = {}) => {
         },
       );
 
-      const out = String(res?.stdout ?? "").trim();
+      const out = res.stdout.trim();
       if (!out) return built;
       const notes = String(
         JSON.parse(out)?.hookSpecificOutput?.additionalContext ?? "",
@@ -365,17 +397,17 @@ export const register = (on: any, options: any = {}) => {
    * CLAUDE.md's "test fixtures must be invented" rule without needing to know
    * a repo's visibility, which nothing here can determine.
    */
-  on("tool.call", async ($: any, e: any, next: any) => {
-    const tool = String(e?.tool ?? "");
+  on("tool.call", async ($, e, next) => {
+    const tool = String(e.tool);
 
     // The private-leak guard and the vault tools share one registration: the
     // scanner allows only one matcher-less hook per event, and neither of
     // these can use a matcher — the guard covers two tool names, and the vault
     // tools' real names carry a plugin prefix this file cannot know.
-    if (tool === "Write" || tool === "Edit") {
+    if (e.tool === "Write" || e.tool === "Edit") {
       try {
-        const target = String(e?.file_path ?? "");
-        const text = String(e?.content ?? e?.new_string ?? "");
+        const target = e.file_path;
+        const text = e.tool === "Write" ? e.content : e.new_string;
         if (!target || !text) return next(e);
 
         const projectDir = await $.session.cwd();
@@ -433,7 +465,7 @@ export const register = (on: any, options: any = {}) => {
 
       if (
         indexCache.vaultPath !== vaultPath ||
-        $.clock.now() - indexCache.at > INDEX_TTL_MS
+        (await $.clock.now()) - indexCache.at > INDEX_TTL_MS
       ) {
         // `cat`, not the Read tool: Read caps a result near 48KB and returned
         // 114 of 347 concept records on this vault, so vault_search was
@@ -450,7 +482,7 @@ export const register = (on: any, options: any = {}) => {
           ...parseJsonl(String(sourceRes?.stdout ?? "")),
         ];
         if (parsed.length > 0) {
-          indexCache = { vaultPath, at: $.clock.now(), records: parsed };
+          indexCache = { vaultPath, at: await $.clock.now(), records: parsed };
         }
         const domRes = await $.process.run(["cat", `${vaultPath}/.wiki/domains.json`]);
         let domains: Record<string, DomainEntry> = {};
@@ -480,12 +512,12 @@ export const register = (on: any, options: any = {}) => {
       }
 
       if (isSearch) {
-        const query = String(e?.query ?? "");
-        const hits = searchVault(records, query, Number(e?.limit ?? 8));
+        const query = String(toolArg(e, "query") ?? "");
+        const hits = searchVault(records, query, Number(toolArg(e, "limit") ?? 8));
         return { result: formatSearchResult(hits, query) };
       }
 
-      const ref = String(e?.note ?? "");
+      const ref = String(toolArg(e, "note") ?? "");
       const path = resolveNotePath(records, ref);
       if (!path || !isSafeVaultPath(path)) {
         return {
@@ -517,12 +549,12 @@ export const register = (on: any, options: any = {}) => {
    * spends nothing. See lib/agent.ts on why that marker check is allowed to be
    * loose — it gates a model call, not a decision.
    */
-  on("agent.spawn", async ($: any, e: any, next: any) => {
+  on("agent.spawn", async ($, e, next) => {
     try {
-      if (!isSteerableSpawn(String(e?.subagentType ?? ""), Boolean(e?.fork))) {
+      if (!isSteerableSpawn(e.subagentType, e.fork)) {
         return next(e);
       }
-      const prompt = String(e?.prompt ?? "");
+      const prompt = e.prompt;
       if (!prompt) return next(e);
 
       const projectDir = await $.session.cwd();
@@ -566,7 +598,7 @@ export const register = (on: any, options: any = {}) => {
    * Deliberately additive. The engine caches rendered schemas for the session,
    * so this costs one string concatenation per session, not per call.
    */
-  on("tool.describe", { tool: "Agent" }, async ($: any, e: any, next: any) => {
+  on("tool.describe", { tool: "Agent" }, async ($, e, next) => {
     const built = await next(e);
     try {
       return {
@@ -591,10 +623,10 @@ export const register = (on: any, options: any = {}) => {
    * which is a round-trip the plugin can simply answer — and a class of bug
    * ("the skill forgot to resolve the vault") that then cannot happen.
    */
-  on("skill.prompt", async ($: any, e: any, next: any) => {
+  on("skill.prompt", async ($, e, next) => {
     const built = await next(e);
     try {
-      const skill = String(e?.skill ?? "");
+      const skill = e.skill;
       // `includes`, not `startsWith`: it is not established whether a plugin
       // skill arrives bare (`wiki-query`) or namespaced
       // (`commonplace:wiki-query`). Under `startsWith` the namespaced form
@@ -634,7 +666,7 @@ export const register = (on: any, options: any = {}) => {
    * both far cheaper and in the right place. `$.ui.invalidate("prompt.context")`
    * re-runs it when the vault actually changes.
    */
-  on("prompt.context", async ($: any, e: any, next: any) => {
+  on("prompt.context", async ($, e, next) => {
     const built = await next(e);
     try {
       // `session.start` already resolved this, once, in ~46ms. The elaborate
@@ -671,10 +703,11 @@ export const register = (on: any, options: any = {}) => {
         const convRes = await $.process.run([
           "cat", `${vaultPath}/.wiki/conventions.json`,
         ]);
-        const conv = JSON.parse(String(convRes?.stdout ?? "") || "{}");
+        type Genre = { name?: unknown; rules?: Record<string, unknown> | null };
+        const conv: { genres?: Genre[] } = JSON.parse(convRes.stdout || "{}");
         untunedGenres = (conv.genres ?? [])
-          .filter((g: any) => !g?.rules || Object.keys(g.rules).length === 0)
-          .map((g: any) => String(g?.name ?? ""))
+          .filter((g) => !g?.rules || Object.keys(g.rules).length === 0)
+          .map((g) => String(g?.name ?? ""))
           .filter(Boolean);
       } catch {
         /* conventions.json not written yet; not an error */
@@ -705,10 +738,15 @@ export const register = (on: any, options: any = {}) => {
    * Must pass the prompt through untouched — a hook that returns anything but
    * `next(e)` here can rewrite or drop what the user typed.
    */
-  on("prompt.submit", async ($: any, e: any, next: any) => {
-    if (status.visible) {
-      status = { ...status, visible: false };
-      $.ui.invalidate("ui.render");
+  on("prompt.submit", async ($, e, next) => {
+    // No `$.ui.invalidate`: the band's render read subscribed it to this
+    // state, so the write alone redraws it.
+    try {
+      if ((await read($, band)).visible) {
+        await update($, band, (b) => ({ ...b, visible: false }));
+      }
+    } catch {
+      /* a band that fails to lower must never hold up the prompt */
     }
     // Clear the pinned status line unconditionally, not just when we think we
     // set one. It is ENGINE-side state: it survives a module reload and a new
@@ -728,33 +766,40 @@ export const register = (on: any, options: any = {}) => {
    * The status band above the prompt. Wraps whatever the engine already draws
    * there rather than replacing it, so nothing else loses its slot.
    */
-  on("ui.render", { component: "AbovePrompt" }, async ($: any, e: any, next: any) => {
-    // `$.ui.resolve`/`next` return Promises — a missing await yields undefined
-    // JSX tags and the whole tree fails validation silently.
+  on("ui.render", { component: "AbovePrompt" }, async ($, e, next) => {
+    // `next` returns a Promise — a missing await nests a Promise in the tree
+    // and the whole tree fails validation silently. `$.ui.resolve` does not.
     const base = await next(e);
 
     // A survey owns the band while it is up; never fight it for the space.
-    if (e?.props?.hasSurvey) return base;
+    if (e.props.hasSurvey) return base;
 
-    const line = statusLine(status);
+    // Read while drawing: this subscribes the band, so every later write to
+    // the state redraws it without an invalidate.
+    const line = statusLine({ ...(await read($, band)), lastError });
     if (!line) return base;
+
+    const { Box, Text } = $.ui.resolve(e);
 
     // Props are a strict allowlist (BoxProps / TextProps) and ONE bad prop
     // fails the whole tree — at which point the engine silently draws its own
     // component instead. No `key` anywhere: only Button accepts one.
-    const ours = {
-      type: "Text",
-      props: { color: line.color, dimColor: line.dim, wrap: "truncate-end" },
-      children: [line.text],
-    };
+    const ours = (
+      <Text color={line.color} dimColor={line.dim} wrap="truncate-end">
+        {line.text}
+      </Text>
+    );
     // `base` may be null when nothing beneath renders. A null in `children`
     // fails the tree's validation, and a failed tree draws NOTHING — so the
     // band would vanish in exactly the case where it is the only content.
-    return {
-      type: "Box",
-      props: { flexDirection: "column" },
-      children: base ? [base, ours] : [ours],
-    };
+    return base ? (
+      <Box flexDirection="column">
+        {base}
+        {ours}
+      </Box>
+    ) : (
+      <Box flexDirection="column">{ours}</Box>
+    );
   });
 
   /**
@@ -768,7 +813,7 @@ export const register = (on: any, options: any = {}) => {
    * but an arrow whose body calls `$.noun.verb()` is fine) and does nothing
    * else.
    */
-  on("turn.complete", async ($: any, e: any, next: any) => {
+  on("turn.complete", async ($, e, next) => {
     // Let everything beneath run first; `next` resolves to the engine's answer.
     // A hook that returns while its next is pending aborts what runs beneath.
     const base = await next(e);
@@ -802,11 +847,21 @@ export const register = (on: any, options: any = {}) => {
           ]);
           return r.exitCode === 0 ? String(r.stdout ?? "").trim() : "";
         },
-        classify: (text: string, labels: readonly string[]) =>
-          $.model.classify(text, labels),
-        complete: (req: any) => $.model.complete(req),
+        // `undefined` means no label fit; the pipeline compares against one
+        // label, so "" is the same decision with a string type.
+        classify: async (text: string, labels: readonly string[]) =>
+          (await $.model.classify(text, labels)) ?? "",
+        // The engine answers a ModelCompleteResult RECORD, never a bare
+        // string. Handing the record to `parseVerdict` stringified it to
+        // "[object Object]" — 15 characters that pass every skip check — so
+        // a judged pass would have surfaced that text under the answer. An
+        // unanswered call (api-error, empty-reply, aborted) is a SKIP.
+        complete: async (req: CompletionRequest) => {
+          const r = await $.model.complete(req);
+          return r.isAnswered ? r.text : "";
+        },
         now: () => $.clock.now(),
-        status: () => status,
+        status: async () => ({ ...(await read($, band)), lastError }),
         trace: (stage: string, detail: Record<string, unknown> = {}) => {
           // Always logged, never shown. This is the record that answers "did
           // it run, and what did it decide?" — the question the ephemeral
@@ -821,11 +876,23 @@ export const register = (on: any, options: any = {}) => {
             }).catch(() => {});
           }
         },
-        note: (outcome: string, extra: Partial<Status> = {}) => {
+        note: async (outcome: string, extra: Partial<Status> = {}) => {
           // Raising the band is the default: note() is only called when the
           // vault actually did something. The session-reset caller opts out.
-          status = { ...status, lastOutcome: outcome, visible: true, ...extra };
-          $.ui.invalidate("ui.render");
+          // The error text stays in module memory (see `lastError`); the rest
+          // goes to `$.state`, whose write redraws the band by itself.
+          const { lastError: err, ...shown } = extra;
+          if (err !== undefined) lastError = err;
+          try {
+            await update($, band, (b) => ({
+              ...b,
+              lastOutcome: outcome,
+              visible: true,
+              ...shown,
+            }));
+          } catch {
+            /* the band is a receipt; failing to draw it must not end the pass */
+          }
 
           // DURABLE OUTCOME LOG.
           //
@@ -853,12 +920,16 @@ export const register = (on: any, options: any = {}) => {
         },
       },
       {
-        answer: String(e?.answer ?? ""),
-        reason: String(e?.reason ?? ""),
-        aborted: Boolean(e?.aborted),
+        answer: e.answer,
+        reason: e.reason,
+        // The input names it `isAborted`. This read `e.aborted`, which does
+        // not exist, so an interrupted turn was always treated as finished.
+        aborted: e.isAborted,
       },
     );
 
-    return surfaced ?? base;
+    // Keep the engine's `usage` beside the replaced text: a hook that drops
+    // it hides the turn's cost from every hook above.
+    return surfaced ? { ...base, text: surfaced.text } : base;
   });
 };

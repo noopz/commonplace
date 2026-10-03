@@ -90,14 +90,14 @@ test("it fails OPEN on anything unreadable", () => {
 });
 
 test("the module writes the same marker filename this gate reads", () => {
-  // The constant is duplicated in hooks/register.ts because the hooks sandbox
+  // The constant is duplicated in hooks/register.tsx because the hooks sandbox
   // cannot import from scripts/. A rename on one side would silently un-gate
   // every shell hook, so assert the two literals agree by reading the source.
-  const src = readFileSync(new URL("../hooks/register.ts", import.meta.url), "utf-8");
+  const src = readFileSync(new URL("../hooks/register.tsx", import.meta.url), "utf-8");
   const declared = /const MODULE_MARKER = "([^"]+)"/.exec(src)?.[1];
   assert.equal(declared, MODULE_MARKER);
   assert.ok(
     src.includes("`${vp}/.wiki/${MODULE_MARKER}`"),
-    "register.ts must write the marker under the vault's .wiki/",
+    "register.tsx must write the marker under the vault's .wiki/",
   );
 });

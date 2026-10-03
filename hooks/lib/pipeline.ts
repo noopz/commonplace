@@ -1,11 +1,11 @@
 /**
  * The ambient connection-surfacing decision pipeline, as a pure orchestrator.
  *
- * `hooks/register.ts` runs in a sandbox whose static scanner allows `$` (the
+ * `hooks/register.tsx` runs in a sandbox whose static scanner allows `$` (the
  * host RPC handle) only at `$.noun.verb(...)` call sites — never bound, passed,
  * or spread. That constraint applies to the MODULE, not to what a caller hands
  * in. So this file takes a `Ports` bag of plain async functions and owns every
- * decision; `register.ts` supplies the real ports by calling `$` inline inside
+ * decision; `register.tsx` supplies the real ports by calling `$` inline inside
  * each closure, and tests supply fakes that record every call.
  *
  * PURE: no Node APIs, no I/O, no imports beyond its sibling `lib/` modules.
@@ -171,7 +171,7 @@ export type SessionState = {
 };
 
 /**
- * Everything the pipeline needs from the world. `register.ts` implements each
+ * Everything the pipeline needs from the world. `register.tsx` implements each
  * as an inline closure over `$`; tests implement them as recorders.
  */
 export interface Ports {
@@ -203,16 +203,27 @@ export interface Ports {
    * built to avoid the CLI entirely; it no longer applies.
    */
   runCommand(argv: readonly string[]): Promise<string>;
-  /** `$.model.classify` */
+  /** `$.model.classify`, its `undefined` (no label fit) mapped to "". */
   classify(text: string, labels: readonly string[]): Promise<string>;
-  /** `$.model.complete` */
+  /**
+   * `$.model.complete`, reduced to the reply text: "" when the model did not
+   * answer. The engine resolves a `ModelCompleteResult` record, never a bare
+   * string, so the adapter must unwrap `text` — passing the record through
+   * made the judge read "[object Object]", which `parseVerdict` accepts.
+   */
   complete(req: CompletionRequest): Promise<string>;
-  /** `$.clock.now()` */
-  now(): number;
-  /** Current status-band state (module scope in register.ts). */
-  status(): Status;
-  /** Record an outcome on the status band and ask for a redraw. */
-  note(outcome: string, extra?: Partial<Status>): void;
+  /** `$.clock.now()` — a Promise in the engine, a plain number in test fakes. */
+  now(): number | Promise<number>;
+  /**
+   * Current status-band state. In register.tsx it is read from `$.state`
+   * (async); test fakes may answer synchronously.
+   */
+  status(): Status | Promise<Status>;
+  /**
+   * Record an outcome on the status band. Awaited, so two outcomes in one pass
+   * land in the order they were noted.
+   */
+  note(outcome: string, extra?: Partial<Status>): void | Promise<void>;
   /**
    * Record WHY the pass declined, whether or not the band moves.
    *
@@ -315,9 +326,9 @@ export async function runConnectionPass(
     // The store's failure count is session-scoped, so a new session clears
     // the breaker. The status band lives in module scope and would otherwise
     // keep saying "stopped" while the feature had quietly resumed.
-    const status0 = ports.status();
+    const status0 = await ports.status();
     if (!sameSession && (status0.paused || status0.lastError)) {
-      ports.note("", { paused: false, lastError: "", phase: "idle", visible: false });
+      await ports.note("", { paused: false, lastError: "", phase: "idle", visible: false });
     }
 
     // Circuit breaker: repeated failure disables the feature rather than
@@ -326,7 +337,7 @@ export async function runConnectionPass(
     if (failures >= MAX_FAILURES) {
       // Re-announce every turn: the band is cleared on each new prompt, so a
       // once-only note would make a stopped feature invisible again.
-      ports.note("paused", { paused: true, phase: "warn" });
+      await ports.note("paused", { paused: true, phase: "warn" });
       return null;
     }
 
@@ -354,7 +365,7 @@ export async function runConnectionPass(
     if (!vaultPath) {
       vaultPath = String((await ports.runCommand(["vault-path"])) ?? "").trim();
       if (!vaultPath) {
-        ports.note("no vault resolved", {
+        await ports.note("no vault resolved", {
           phase: "warn",
           lastError: "commonplace vault-path returned nothing",
           paused: failures + 1 >= MAX_FAILURES,
@@ -374,7 +385,7 @@ export async function runConnectionPass(
     // pure waste.
     if (
       indexCache.vaultPath !== vaultPath ||
-      ports.now() - indexCache.at > INDEX_TTL_MS
+      (await ports.now()) - indexCache.at > INDEX_TTL_MS
     ) {
       const conceptText = await ports.readText(`${vaultPath}/.wiki/concept-index.jsonl`);
       const sourceText = await ports.readText(`${vaultPath}/.wiki/source-index.jsonl`);
@@ -399,7 +410,7 @@ export async function runConnectionPass(
       const sourceRecs = parseJsonl(sourceText);
       const parsed = [...conceptRecs, ...sourceRecs];
       if (parsed.length === 0) {
-        ports.note("index unreadable", {
+        await ports.note("index unreadable", {
           phase: "warn",
           lastError: "no records parsed from .wiki indexes",
           paused: failures + 1 >= MAX_FAILURES,
@@ -414,9 +425,9 @@ export async function runConnectionPass(
         await ports.setState(SESSION_KEY, { ...state, failures: failures + 1 });
         return null;
       }
-      indexCache = { vaultPath, at: ports.now(), records: parsed };
-      const s = ports.status();
-      ports.note(s.lastOutcome || "indexed", {
+      indexCache = { vaultPath, at: await ports.now(), records: parsed };
+      const s = await ports.status();
+      await ports.note(s.lastOutcome || "indexed", {
         phase: "ok",
         concepts: conceptRecs.length,
         sources: sourceRecs.length,
@@ -497,7 +508,7 @@ export async function runConnectionPass(
       // rate limit governs spend. Without this, a session whose answers keep
       // matching a note pays ~700ms on every single turn.
       ports.trace("skip:off-topic", { label: topical });
-      ports.note("off-topic");
+      await ports.note("off-topic");
       await ports.setState(SESSION_KEY, {
         id: sessionId,
         lastTurn: turnCount,
@@ -594,7 +605,7 @@ export async function runConnectionPass(
         lexical: lexical.length,
         graph: graph.length,
       });
-      ports.note("no candidates", { visible: ports.status().visible });
+      await ports.note("no candidates", { visible: (await ports.status()).visible });
       await ports.setState(SESSION_KEY, {
         id: sessionId,
         lastTurn: turnCount,
@@ -631,7 +642,7 @@ export async function runConnectionPass(
     );
 
     if (!verdict) {
-      ports.note("judged not relevant");
+      await ports.note("judged not relevant");
       // A considered SKIP is a success, not a failure — reset the breaker.
       // Bank the turn number anyway: the rate limit governs how often we
       // are willing to SPEND, not how often we surface. Without this, a
@@ -657,8 +668,8 @@ export async function runConnectionPass(
       seen: [...seen, best.path].slice(-SEEN_LIMIT),
     });
 
-    ports.note("surfaced a connection", {
-      surfaced: ports.status().surfaced + 1,
+    await ports.note("surfaced a connection", {
+      surfaced: (await ports.status()).surfaced + 1,
       phase: "ok",
     });
     return { text: renderConnection(best.label, verdict) };
@@ -671,7 +682,7 @@ export async function runConnectionPass(
       // rebinds the record and resets the counter to zero forever.
       const n = (prev.id === sessionId ? Number(prev.failures ?? 0) : 0) + 1;
       // The band above the prompt is the only place this becomes visible.
-      ports.note("error", {
+      await ports.note("error", {
         phase: "warn",
         lastError: String(err).slice(0, 90),
         paused: n >= MAX_FAILURES,
@@ -698,7 +709,7 @@ export async function runConnectionPass(
  * The parsed index records currently cached for `vaultPath`, or an empty array
  * when the cache holds a different vault (or nothing yet).
  *
- * Exists so the private-leak guard in `register.ts` can consult the same cache
+ * Exists so the private-leak guard in `register.tsx` can consult the same cache
  * this pass populates instead of keeping a second one. It deliberately never
  * loads: the guard runs on the critical path of a Write, and blocking a write
  * on index I/O to enforce a heuristic is a bad trade. Before the first
@@ -725,10 +736,10 @@ export function cachedRecords(vaultPath: string): Record<string, unknown>[] {
 export async function ensureRecords(
   vaultPath: string,
   readText: (path: string) => Promise<string>,
-  now: () => number,
+  now: () => number | Promise<number>,
 ): Promise<Record<string, unknown>[]> {
   if (!vaultPath) return [];
-  if (indexCache.vaultPath === vaultPath && now() - indexCache.at <= INDEX_TTL_MS) {
+  if (indexCache.vaultPath === vaultPath && (await now()) - indexCache.at <= INDEX_TTL_MS) {
     return indexCache.records;
   }
   try {
@@ -737,7 +748,7 @@ export async function ensureRecords(
       ...parseJsonl(await readText(`${vaultPath}/.wiki/source-index.jsonl`)),
     ];
     if (parsed.length === 0) return [];
-    indexCache = { vaultPath, at: now(), records: parsed };
+    indexCache = { vaultPath, at: await now(), records: parsed };
     return parsed;
   } catch {
     return [];

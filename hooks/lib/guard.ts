@@ -1,5 +1,5 @@
 /**
- * Predicates for the two enforcement hooks in `register.ts`.
+ * Predicates for the two enforcement hooks in `register.tsx`.
  *
  * Pure — no `$`, no Node builtins, no I/O — because the function-hooks
  * sandbox forbids all of them and because every decision that can refuse a
