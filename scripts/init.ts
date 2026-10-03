@@ -21,7 +21,7 @@ import { discoverGenres } from "./lib/genre-discovery.js";
 import type { DomainRegistry } from "./lib/types.js";
 import type { WikiConfig } from "./lib/types.js";
 
-const { values } = parseArgs({ options: { vault: { type: "string" }, help: { type: "boolean" } } });
+const { values } = parseArgs({ options: { vault: { type: "string" }, help: { type: "boolean" }, private: { type: "boolean" } } });
 if (values.help) {
   console.log("Usage: commonplace init [--vault <path>]");
   console.log("Initialize or re-initialize commonplace for a vault.");
@@ -199,6 +199,8 @@ const reg = addVault(loadVaultRegistry(), {
   path: config.vaultPath,
   label: base,
   aliases: [],
+  // --private: explicit-entry vault, never the registry default.
+  ...(values.private ? { isPrivate: true } : {}),
 });
 saveVaultRegistry(reg); // also writes the .vault-path back-compat mirror
 

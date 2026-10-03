@@ -63,6 +63,10 @@ test("post-write accepts a PostToolUse payload, not only a flat file_path", () =
   // every vault write — validate, index, scope-check and the impact chain
   // never ran. The nested shape is the one the hook actually delivers.
   const root = mkdtempSync(join(tmpdir(), "pw-shape-"));
+  // init registers the vault; without an isolated data dir it appended every
+  // run's temp vault to the developer's own vaults.json.
+  const dataDir = mkdtempSync(join(tmpdir(), "pw-shape-data-"));
+  const env = { ...process.env, CLAUDE_PLUGIN_DATA: dataDir };
   try {
     mkdirSync(join(root, "02 - Research", "alpha"), { recursive: true });
     mkdirSync(join(root, ".obsidian"), { recursive: true });
@@ -72,14 +76,14 @@ test("post-write accepts a PostToolUse payload, not only a flat file_path", () =
       "# Acme Report\n\n## Summary\nA study of the Gamma Term.\n");
     execFileSync(process.execPath,
       ["--import", "tsx", join(import.meta.dirname!, "init.ts"), "--vault", root],
-      { encoding: "utf-8" });
+      { encoding: "utf-8", env });
 
     const run = (payload: object) =>
       execFileSync(
         process.execPath,
         ["--import", "tsx", join(import.meta.dirname!, "post-write.ts"), "--vault", root],
         { encoding: "utf-8", input: JSON.stringify(payload),
-          env: { ...process.env, COMMONPLACE_HOOK_CHILD: "1" } },
+          env: { ...env, COMMONPLACE_HOOK_CHILD: "1" } },
       );
 
     const nested = run({ tool_input: { file_path: note } });
@@ -88,5 +92,6 @@ test("post-write accepts a PostToolUse payload, not only a flat file_path", () =
     assert.match(flat, /sourceWritten/, "the flat shape must keep working");
   } finally {
     rmSync(root, { recursive: true, force: true });
+    rmSync(dataDir, { recursive: true, force: true });
   }
 });

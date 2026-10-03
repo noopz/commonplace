@@ -41,6 +41,7 @@ const SCRIPTS = {
   'moc:sync':            'scripts/moc-sync.ts',
   'supersede':           'scripts/supersede.ts',
   'vaults':              'scripts/vaults.ts',
+  'vault':               'scripts/vault.ts',
   'eval:retrieval':      'evals/retrieval/run.ts',
   'eval:connect':        'evals/connect/run.ts',
   'eval:connection':     'evals/connection/run.ts',
@@ -62,58 +63,96 @@ const SCRIPTS = {
 
 const [,, cmd, ...args] = process.argv;
 
-// Built-ins: instant lookups without spawning tsx
+// Built-ins: instant lookups without spawning tsx.
+//
+// The precedence MUST match chooseVault() in scripts/lib/vault.ts:
+//   --vault <id|alias|path> → project pin → cwd walk-up → registry default
+//   (a private vault is never the default). scripts/lib/vault-path-parity.test.ts
+//   runs both against the same fixtures; it used to be the reverse order, so a
+//   session inside vault B printed the default A while every script used B.
 if (cmd === 'vault-path' || cmd === 'config') {
   const { readFileSync } = await import('fs');
-  let vp;
-  // Check CLAUDE_PLUGIN_DATA first (survives plugin updates), fall back to plugin root
+  const { resolve } = await import('path');
   const dataDir = process.env.CLAUDE_PLUGIN_DATA;
   const homeDir = process.env.HOME || process.env.USERPROFILE || '';
-  const locations = [
-    ...(dataDir ? [join(dataDir, '.vault-path')] : []),
-    join(__dirname, '..', '.vault-path'),
-  ];
-  const vaultsJsonLocs = [
-    ...(dataDir ? [join(dataDir, 'vaults.json')] : []),
-    join(__dirname, '..', 'vaults.json'),
-  ];
-  // Scan all possible plugin data dirs (marketplace name varies)
-  if (homeDir) {
-    try {
-      const pluginDataRoot = join(homeDir, '.claude', 'plugins', 'data');
-      for (const dir of readdirSync(pluginDataRoot)) {
-        if (dir.startsWith('commonplace-')) {
-          locations.push(join(pluginDataRoot, dir, '.vault-path'));
-          vaultsJsonLocs.push(join(pluginDataRoot, dir, 'vaults.json'));
+  const dataLocs = (name) => {
+    const locs = [
+      ...(dataDir ? [join(dataDir, name)] : []),
+      join(__dirname, '..', name),
+    ];
+    if (homeDir) {
+      try {
+        const root = join(homeDir, '.claude', 'plugins', 'data');
+        for (const dir of readdirSync(root)) {
+          if (dir.startsWith('commonplace-')) locs.push(join(root, dir, name));
         }
-      }
-    } catch {}
-  }
-  // Prefer the registry's default vault.
-  for (const loc of vaultsJsonLocs) {
+      } catch {}
+    }
+    return locs;
+  };
+  const readJson = (name) => {
+    for (const loc of dataLocs(name)) {
+      try { return JSON.parse(readFileSync(loc, 'utf-8')); } catch {}
+    }
+    return null;
+  };
+  let reg = null;
+  for (const loc of dataLocs('vaults.json')) {
     try {
-      const reg = JSON.parse(readFileSync(loc, 'utf-8'));
-      const def = (reg.vaults || []).find((v) => v.id === reg.default);
-      if (def && def.path) { vp = def.path; break; }
+      const r = JSON.parse(readFileSync(loc, 'utf-8'));
+      if (Array.isArray(r.vaults) && r.vaults.length > 0) { reg = r; break; }
     } catch {}
   }
-  // Legacy .vault-path fallback.
-  if (!vp) for (const loc of locations) {
-    try { vp = readFileSync(loc, 'utf-8').trim(); break; } catch {}
+  const vaults = (reg?.vaults || []).filter((v) => v && typeof v.id === 'string' && typeof v.path === 'string');
+  const strip = (p) => String(p).replace(/[\\/]+$/, '');
+  const byRef = (ref) => {
+    const r = String(ref).trim().toLowerCase();
+    return vaults.find((v) => v.id.toLowerCase() === r)
+      || vaults.find((v) => (v.aliases || []).some((a) => String(a).toLowerCase() === r))
+      || vaults.find((v) => String(v.label || v.id).toLowerCase() === r)
+      || vaults.find((v) => strip(v.path) === strip(String(ref).trim()));
+  };
+  const callerCwd = resolve(process.env.COMMONPLACE_CALLER_CWD || process.cwd());
+
+  let vp;
+  // 1. --vault
+  const vi = args.indexOf('--vault');
+  if (vi !== -1 && args[vi + 1]) {
+    const hit = byRef(args[vi + 1]);
+    vp = hit ? hit.path : resolve(args[vi + 1]);
   }
-  // Fall back to cwd discovery (walk up looking for .obsidian/ or .wiki/)
+  // 2. project pin (longest pinned root containing cwd)
   if (!vp) {
-    let current = process.cwd();
+    const pins = readJson('vault-pins.json') || {};
+    let best;
+    for (const root of Object.keys(pins)) {
+      const r = strip(root);
+      if ((callerCwd === r || callerCwd.startsWith(r + '/')) && (!best || r.length > best.length)) best = r;
+    }
+    const hit = best !== undefined ? byRef(pins[best] ?? pins[best + '/']) : undefined;
+    if (hit) vp = hit.path;
+  }
+  // 3. cwd walk-up
+  if (!vp) {
+    let current = callerCwd;
     while (current !== '/') {
       if (existsSync(join(current, '.obsidian')) || existsSync(join(current, '.wiki'))) {
         vp = current;
         break;
       }
-      current = join(current, '..');
+      current = resolve(current, '..');
     }
   }
+  // 4. registry default (never private), then the legacy .vault-path mirror
   if (!vp) {
-    console.error('commonplace: no .vault-path configured — run commonplace init');
+    const def = vaults.find((v) => v.id === reg?.default && v.isPrivate !== true);
+    if (def) vp = def.path;
+  }
+  if (!vp && !reg) for (const loc of dataLocs('.vault-path')) {
+    try { vp = readFileSync(loc, 'utf-8').trim(); if (vp) break; } catch {}
+  }
+  if (!vp) {
+    console.error('commonplace: no vault resolves here — run commonplace init');
     process.exit(1);
   }
   if (cmd === 'vault-path') {
@@ -156,6 +195,7 @@ if (!cmd || cmd === '--help' || cmd === '-h') {
   console.error('  moc:sync      Reconcile MOC headers/bullet lists with the source index');
   console.error('  supersede     Retire an entity superseded by a successor; propagate live-framing rewrites');
   console.error('  vaults        List registered vaults or match one by name');
+  console.error('  vault         Show/choose the active vault: show | list | use <id> [--default] | unpin');
   console.error('');
   console.error('  paper:fetch          Download paper from arXiv/URL');
   console.error('  paper:extract        Extract pages from PDF');

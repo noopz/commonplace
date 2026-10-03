@@ -9,6 +9,12 @@ export interface VaultRegistryEntry {
   path: string; // absolute
   label: string;
   aliases: string[];
+  /**
+   * A private vault is explicit-entry: it is selected only by an explicit
+   * `--vault`, a pin, or a session that starts inside it — never as the
+   * registry default, which every unrelated repo falls back to.
+   */
+  isPrivate?: boolean;
 }
 
 export interface VaultRegistry {
@@ -39,9 +45,13 @@ export function parseRegistry(json: string): VaultRegistry {
       path: e.path,
       label: typeof e.label === "string" ? e.label : e.id,
       aliases: Array.isArray(e.aliases) ? e.aliases.filter((a): a is string => typeof a === "string") : [],
+      ...(e.isPrivate === true ? { isPrivate: true } : {}),
     });
   }
-  const def = typeof obj.default === "string" && vaults.some((v) => v.id === obj.default)
+  // A private vault named as default (hand-edited registry) is ignored rather
+  // than honoured: the default is what an unrelated repo falls back to.
+  const def = typeof obj.default === "string" &&
+    vaults.some((v) => v.id === obj.default && !v.isPrivate)
     ? obj.default
     : null;
   return { default: def, vaults };
@@ -91,8 +101,66 @@ function slugify(s: string): string {
 export function addVault(reg: VaultRegistry, entry: VaultRegistryEntry): VaultRegistry {
   const vaults = reg.vaults.filter((v) => v.id !== entry.id && v.path !== entry.path);
   vaults.push(entry);
-  const def = reg.default ?? entry.id;
+  // A private vault never becomes the default by being first.
+  const keep = reg.default && vaults.some((v) => v.id === reg.default) ? reg.default : null;
+  const def = keep ?? (entry.isPrivate ? null : entry.id);
   return { default: def, vaults };
+}
+
+/** Find a vault by id, alias or label (case-insensitive), or by absolute path. */
+export function findByRef(reg: VaultRegistry, ref: string): VaultRegistryEntry | undefined {
+  const r = ref.trim().toLowerCase();
+  if (!r) return undefined;
+  const norm = (p: string) => p.replace(/[\\/]+$/, "");
+  return (
+    reg.vaults.find((v) => v.id.toLowerCase() === r) ??
+    reg.vaults.find((v) => v.aliases.some((a) => a.toLowerCase() === r)) ??
+    reg.vaults.find((v) => v.label.toLowerCase() === r) ??
+    reg.vaults.find((v) => norm(v.path) === norm(ref.trim()))
+  );
+}
+
+/** Make `id` the default. Refuses a private vault (returns an error string). */
+export function setDefault(reg: VaultRegistry, id: string): VaultRegistry | string {
+  const entry = findById(reg, id);
+  if (!entry) return `no vault with id "${id}"`;
+  if (entry.isPrivate) {
+    return `"${id}" is private and cannot be the default — pin it per project with \`commonplace vault use ${id}\` instead`;
+  }
+  return { default: id, vaults: reg.vaults };
+}
+
+// ---------------------------------------------------------------------------
+// Project pins — `commonplace vault use <id>` / `/vault use <id>`
+// ---------------------------------------------------------------------------
+
+/** project root (absolute) → vault id. One file shared by the CLI and the module. */
+export type VaultPins = Record<string, string>;
+
+export function parsePins(json: string): VaultPins {
+  try {
+    const raw = JSON.parse(json);
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+    const out: VaultPins = {};
+    for (const [k, v] of Object.entries(raw)) if (typeof v === "string") out[k] = v;
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * The pin governing `cwd`: the longest pinned root that equals or contains it.
+ * Longest wins so a pin on a subproject overrides one on its monorepo.
+ */
+export function pinFor(pins: VaultPins, cwd: string): string | undefined {
+  const c = cwd.replace(/[\\/]+$/, "");
+  let best: string | undefined;
+  for (const root of Object.keys(pins)) {
+    const r = root.replace(/[\\/]+$/, "");
+    if ((c === r || c.startsWith(`${r}/`)) && (!best || r.length > best.length)) best = r;
+  }
+  return best === undefined ? undefined : pins[best] ?? pins[`${best}/`];
 }
 
 /** Build a single-entry registry from a legacy `.vault-path` value. */
