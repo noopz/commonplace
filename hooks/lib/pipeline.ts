@@ -177,7 +177,7 @@ export type SessionState = {
 export interface Ports {
   /** `$.session.id()` — stable for one conversation, differs across them. */
   sessionId(): Promise<string>;
-  /** `$.session.turnCount()` — restarts at 1 in every session. */
+  /** `$.session.turns()` (named `turnCount()` before 2.1.288) — restarts at 1 in every session. */
   turnCount(): Promise<number>;
   /** `$.session.cwd()` — the project dir; keys the cached vault path. */
   cwd(): Promise<string>;

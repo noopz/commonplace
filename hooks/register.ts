@@ -748,7 +748,7 @@ export const register = (on: any, options: any = {}) => {
     const surfaced = await runConnectionPass(
       {
         sessionId: () => $.session.id(),
-        turnCount: () => $.session.turnCount(),
+        turnCount: () => $.session.turns(),
         cwd: () => $.session.cwd(),
         getState: (key: string) => $.store.get(key),
         setState: (key: string, value: unknown) => $.store.set(key, value),
