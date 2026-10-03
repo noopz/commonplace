@@ -40,7 +40,7 @@ try {
     }, 1000);
 
     process.stdin.on("data", (chunk) => {
-      chunks.push(chunk as string);
+      chunks.push(String(chunk));
     });
 
     process.stdin.on("end", () => {

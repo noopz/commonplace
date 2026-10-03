@@ -1,0 +1,21 @@
+{
+  // The hooks module runs in the engine's sandbox: no Node, no DOM. Typecheck
+  // it against the shipped mods API snapshot only, so a call into an API the
+  // build no longer has (v1.67.2's turnCount) fails here instead of at run time.
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "skipLibCheck": false,
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "lib": ["ES2022"],
+    "types": [],
+    "jsx": "react",
+    "jsxFactory": "h",
+    "jsxFragmentFactory": "Fragment"
+  },
+  "include": ["hooks/**/*.ts", "hooks/**/*.tsx", "types/**/*.d.ts", "docs/api-snapshots/claude-code.2.1.288.d.ts"],
+  "exclude": ["hooks/**/*.test.ts", "hooks/**/*.test.tsx", "node_modules"]
+}

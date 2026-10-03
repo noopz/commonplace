@@ -59,7 +59,7 @@ function saveFreshness(data: FreshnessIndex): void {
 if (values.record) {
   const chunks: string[] = [];
   process.stdin.setEncoding("utf-8");
-  process.stdin.on("data", (c) => chunks.push(c as string));
+  process.stdin.on("data", (c) => chunks.push(String(c)));
   process.stdin.on("end", () => {
     try {
       const entry = JSON.parse(chunks.join("")) as {

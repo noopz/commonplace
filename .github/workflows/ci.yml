@@ -1,0 +1,19 @@
+name: ci
+on:
+  push:
+  pull_request:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      # typecheck (scripts + hooks against the mods API snapshot), the API
+      # drift test, and the unit suite.
+      - run: npm test
+      # Reads the manifest and module source the way the engine will.
+      - run: npx -y @anthropic-ai/claude-code plugin validate .

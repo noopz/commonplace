@@ -96,9 +96,9 @@ test("searchVault flags private, retired, and stub notes rather than hiding them
   const hits = searchVault(RECORDS, "calibration");
   const byTitle = Object.fromEntries(hits.map((h) => [h.title, h]));
 
-  assert.match(byTitle["Private Calibration Log"].caution, /private/);
-  assert.match(byTitle["Retired Calibration Rig"].caution, /retired/);
-  assert.match(byTitle["Stub Calibration Idea"].caution, /stub/);
+  assert.match(byTitle["Private Calibration Log"].caution ?? "", /private/);
+  assert.match(byTitle["Retired Calibration Rig"].caution ?? "", /retired/);
+  assert.match(byTitle["Stub Calibration Idea"].caution ?? "", /stub/);
   // A plain note carries no caution at all.
   assert.equal(byTitle["Alpha Calibration Drift"].caution, undefined);
 });
@@ -106,7 +106,7 @@ test("searchVault flags private, retired, and stub notes rather than hiding them
 test("the private caution warns against copying into public artefacts", () => {
   const hits = searchVault(RECORDS, "calibration");
   const priv = hits.find((h) => h.title === "Private Calibration Log");
-  assert.match(priv.caution, /never copy into a public repo/i);
+  assert.match(priv?.caution ?? "", /never copy into a public repo/i);
 });
 
 test("searchVault returns nothing for a query of only generic vocabulary", () => {

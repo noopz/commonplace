@@ -10,8 +10,21 @@
     "rootDir": ".",
     "resolveJsonModule": true,
     "declaration": false,
-    "sourceMap": false
+    "sourceMap": false,
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "types": [
+      "node"
+    ]
   },
-  "include": ["scripts/**/*.ts"],
-  "exclude": ["node_modules", "dist"]
+  "include": [
+    "scripts/**/*.ts",
+    "evals/**/*.ts",
+    "hooks/**/*.test.ts",
+    "bin/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist"
+  ]
 }

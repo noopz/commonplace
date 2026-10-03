@@ -58,7 +58,7 @@ if (rawFiles.length === 0) {
 }
 
 // Check each raw file against all source notes
-const allNotes = findAllNotes(config.vaultPath);
+const allNotes = await findAllNotes(config.vaultPath);
 const sourceNotes = allNotes.filter(
   (p) => classifyNote(p, config.vaultPath) === "source"
 );

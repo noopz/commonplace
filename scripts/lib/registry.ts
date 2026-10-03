@@ -16,7 +16,7 @@ export interface VaultRegistry {
   vaults: VaultRegistryEntry[];
 }
 
-export const EMPTY_REGISTRY: VaultRegistry = Object.freeze({ default: null, vaults: Object.freeze([]) as VaultRegistryEntry[] }) as VaultRegistry;
+export const EMPTY_REGISTRY: VaultRegistry = Object.freeze({ default: null, vaults: Object.freeze([]) as unknown as VaultRegistryEntry[] }) as VaultRegistry;
 
 export function parseRegistry(json: string): VaultRegistry {
   let raw: unknown;

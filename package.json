@@ -8,7 +8,7 @@
   },
   "description": "LLM-maintained knowledge base for Obsidian vaults",
   "scripts": {
-    "test": "node --import tsx --test \"scripts/**/*.test.ts\" \"evals/**/*.test.ts\" \"hooks/**/*.test.ts\"",
+    "test": "npm run typecheck && node --import tsx --test \"scripts/**/*.test.ts\" \"evals/**/*.test.ts\" \"hooks/**/*.test.ts\"",
     "index": "tsx scripts/index.ts",
     "lint": "tsx scripts/lint.ts",
     "validate": "tsx scripts/validate.ts",
@@ -18,12 +18,18 @@
     "eval:retrieval": "tsx evals/retrieval/run.ts",
     "eval:connection": "tsx evals/connection/run.ts",
     "eval:judge": "tsx evals/judge/run.ts",
-    "eval:connect": "tsx evals/connect/run.ts"
+    "eval:connect": "tsx evals/connect/run.ts",
+    "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.hooks.json"
   },
   "dependencies": {
-    "gray-matter": "^4.0.3",
     "glob": "^11.0.0",
+    "gray-matter": "^4.0.3",
     "pdfjs-dist": "^4.9.155",
     "tsx": "^4.19.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "esbuild": "^0.28.2",
+    "typescript": "^5.9.3"
   }
 }

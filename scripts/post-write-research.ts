@@ -104,7 +104,7 @@ try {
 try {
   const cross = JSON.parse(crossJson);
   hasCross = cross.results?.length > 0 &&
-    cross.results.some((r: { bridgeConcepts?: unknown[] }) => r.bridgeConcepts?.length > 0);
+    cross.results.some((r: { bridgeConcepts?: unknown[] }) => (r.bridgeConcepts?.length ?? 0) > 0);
 } catch {}
 
 if (!hasImpact && !hasCross && !hasConsolidation) {

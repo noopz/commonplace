@@ -65,7 +65,8 @@ export async function extractPages(
 
     // Sort items by position (top-to-bottom, left-to-right) for better column handling
     const items = textContent.items
-      .filter((item): item is { str: string; transform: number[] } => "str" in item)
+      .filter((item) => "str" in item)
+      .map((item) => item as unknown as { str: string; transform: number[] })
       .sort((a, b) => {
         const yDiff = b.transform[5] - a.transform[5]; // Y descending (PDF coords)
         if (Math.abs(yDiff) > 5) return yDiff;
