@@ -9,24 +9,13 @@
 
 import { relative, sep } from "node:path";
 import type { SourceNote, ConceptNote, MocNote } from "./types.js";
-
-/** Query-function words that carry no content signal. */
-const STOPWORDS = new Set([
-  "the", "a", "an", "and", "or", "but", "not", "of", "in", "on", "at", "by",
-  "for", "to", "with", "from", "into", "over", "under", "about", "between",
-  "across", "through", "how", "what", "which", "where", "when", "who", "why",
-  "does", "do", "did", "is", "are", "was", "were", "be", "been", "it", "its",
-  "this", "that", "these", "those", "there", "their", "they", "them", "than",
-  "then", "also", "just", "only", "some", "any", "all", "each", "such",
-  "can", "could", "should", "would", "will", "may", "might", "must",
-  "have", "has", "had", "we", "you", "i", "he", "she", "his", "her", "our",
-  "your", "my", "say", "says", "said", "note", "notes", "vault",
-]);
+import { tokenize } from "../../hooks/lib/core/text.js";
 
 /**
  * Extract deterministic key terms from a question: quoted phrases,
  * capitalized multi-word runs (proper-noun phrases), and individual
- * non-stopword words of 3+ characters. All lowercased, deduped, in
+ * words from the shared tokenizer (hooks/lib/core/text.ts: 3+ characters,
+ * one stopword set). All lowercased, deduped, in
  * first-appearance order.
  */
 export function extractKeyTerms(question: string): string[] {
@@ -42,9 +31,7 @@ export function extractKeyTerms(question: string): string[] {
 
   for (const m of question.matchAll(/"([^"]+)"/g)) push(m[1]);
   for (const m of question.matchAll(/\b[A-Z][\w-]*(?:\s+[A-Z][\w-]*)+\b/g)) push(m[0]);
-  for (const w of question.toLowerCase().replace(/[^\w\s-]/g, " ").split(/\s+/)) {
-    if (w.length >= 3 && !STOPWORDS.has(w)) push(w);
-  }
+  for (const w of tokenize(question)) push(w);
   return terms;
 }
 
@@ -85,13 +72,14 @@ export interface SeedOptions {
 }
 
 /**
- * Record serialized WITHOUT the mixed-key fields (abstraction, anchors, hub, authority):
+ * Record serialized WITHOUT the mixed-key fields (abstraction, anchors, hub, authority)
+ * or `aliases` (added to index records after the baseline was frozen):
  * the pre-mixed-key record shape a whole-record grep would have seen.
  * Both flat mode and Tier D use this, so the new key spaces are reachable
  * ONLY through their own tiers and ablations stay clean.
  */
 function baselineBlob(record: object, vaultPath?: string): string {
-  const { abstraction: _a, anchors: _n, hub: _h, authority: _y, ...rest } = record as Record<string, unknown>;
+  const { abstraction: _a, anchors: _n, hub: _h, authority: _y, aliases: _al, ...rest } = record as Record<string, unknown>;
   if (vaultPath && typeof rest.path === "string" && rest.path.startsWith(vaultPath)) {
     const rel = relative(vaultPath, rest.path);
     rest.path = sep === "\\" ? rel.split(sep).join("/") : rel;

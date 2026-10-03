@@ -35,7 +35,7 @@ import {
   inferConceptDomains,
   lookupScope,
 } from "./lib/domain.js";
-import { normalizeWikilinkTarget } from "./lib/resolve.js";
+import { buildNames, resolve, readAliases, fileNameNodes } from "./lib/resolve.js";
 import { computeHITS, type HitsEdge } from "./lib/hits.js";
 import { discoverGenres, loadGenreSamples } from "./lib/genre-discovery.js";
 import type {
@@ -129,6 +129,9 @@ for (const filePath of processFiles) {
   }
 
   const fm = parsed.frontmatter;
+  const fmAliases = Array.isArray(fm.aliases)
+    ? fm.aliases.filter((a): a is string => typeof a === "string" && a.trim().length > 0)
+    : [];
 
   if (noteType === "source") {
     const domain = inferSourceDomain(filePath, config.vaultPath, registry);
@@ -157,6 +160,7 @@ for (const filePath of processFiles) {
       buildsOn: extractFrontmatterWikilinks(fm.builds_on),
       comparesWith: extractFrontmatterWikilinks(fm.compares_with),
       usesMethod: extractFrontmatterWikilinks(fm.uses_method),
+      ...(fmAliases.length > 0 ? { aliases: fmAliases } : {}),
       ...(typeof fm.abstraction === "string" && fm.abstraction.trim().length > 0
         ? { abstraction: fm.abstraction.trim() }
         : {}),
@@ -179,6 +183,7 @@ for (const filePath of processFiles) {
       domains: [], // Filled in below
       backlinkCount: 0, // Filled in below
       isStub: computeIsStub(parsed.body, fm, abstractionsEnabled),
+      ...(fmAliases.length > 0 ? { aliases: fmAliases } : {}),
       ...(typeof fm.abstraction === "string" && fm.abstraction.trim().length > 0
         ? { abstraction: fm.abstraction.trim() }
         : {}),
@@ -210,27 +215,15 @@ for (const filePath of processFiles) {
 // case-insensitively in Obsidian and through `aliases:` frontmatter, so the
 // indexer treats `[[layered memory]]`, `[[Layered Memory]]`, and an aliased
 // short form as references to the same concept's canonical name.
-const conceptByLower = new Map<string, string>(); // lower(name|alias) → canonical
-for (const c of concepts) {
-  conceptByLower.set(c.name.toLowerCase(), c.name);
-  try {
-    const parsed = parseNote(c.path, config.vaultPath);
-    const aliases = parsed.frontmatter.aliases;
-    if (Array.isArray(aliases)) {
-      for (const alias of aliases) {
-        if (typeof alias === "string" && alias.length > 0) {
-          const key = alias.toLowerCase();
-          if (!conceptByLower.has(key)) conceptByLower.set(key, c.name);
-        }
-      }
-    }
-  } catch {}
-}
+// Collisions follow the shared resolver's total order (stem > alias > path),
+// so the winner does not depend on file order.
+const conceptNames = buildNames(
+  concepts.map((c, id) => ({ id, path: c.path, title: "", aliases: readAliases(c.path, config.vaultPath) })),
+);
 
 function resolveConceptRef(target: string): string | null {
-  const key = normalizeWikilinkTarget(target);
-  if (!key) return null;
-  return conceptByLower.get(key) ?? null;
+  const id = resolve(conceptNames, target);
+  return id === null ? null : concepts[id].name;
 }
 
 // Resolve each source's collected concept refs to canonical names. This
@@ -256,23 +249,7 @@ for (const source of sources) {
 // resolve case-insensitively and through `aliases:` frontmatter, so we need
 // the same lookup behavior as concept resolution but keyed by path (since the
 // backlink index records target paths, not names).
-const nameToPath = new Map<string, string>();
-for (const filePath of allFiles) {
-  const canonical = basename(filePath, ".md").toLowerCase();
-  if (!nameToPath.has(canonical)) nameToPath.set(canonical, filePath);
-  try {
-    const parsed = parseNote(filePath, config.vaultPath);
-    const aliases = parsed.frontmatter.aliases;
-    if (Array.isArray(aliases)) {
-      for (const alias of aliases) {
-        if (typeof alias === "string" && alias.length > 0) {
-          const key = alias.toLowerCase();
-          if (!nameToPath.has(key)) nameToPath.set(key, filePath);
-        }
-      }
-    }
-  } catch {}
-}
+const fileNames = buildNames(fileNameNodes(allFiles, config.vaultPath));
 
 // Inverted backlink index: target path → Map<source path, count>.
 // Body wikilinks only — frontmatter edges are already captured in
@@ -301,10 +278,10 @@ for (const filePath of allFiles) {
       bodyLinkCounts.set(raw, (bodyLinkCounts.get(raw) ?? 0) + 1);
     }
     for (const [raw, count] of bodyLinkCounts) {
-      const key = normalizeWikilinkTarget(raw);
-      if (!key) continue;
-      const targetPath = nameToPath.get(key);
-      if (!targetPath || targetPath === filePath) continue;
+      const targetId = resolve(fileNames, raw);
+      if (targetId === null) continue;
+      const targetPath = allFiles[targetId];
+      if (targetPath === filePath) continue;
       if (!backlinkIndex.has(targetPath)) backlinkIndex.set(targetPath, new Map());
       const sourceMap = backlinkIndex.get(targetPath)!;
       sourceMap.set(filePath, (sourceMap.get(filePath) ?? 0) + count);
