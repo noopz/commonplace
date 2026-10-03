@@ -5,13 +5,7 @@
  * Lexical only, no embeddings (CLAUDE.md "No RAG").
  */
 
-/** Query function-words with no content signal (kept small; seed.ts owns the seed-side list). */
-const STOPWORDS = new Set(
-  ("the a an and or of to in on for with is are was how what which does do my me it its into their" +
-    " two one same both other than only new using via without across each within from at by be been this" +
-    " that these those there they them then also just any all such can could should would will note notes vault")
-    .split(" "),
-);
+import { tokenize as coreTokenize } from "../../hooks/lib/core/text.js";
 
 /** node id -> tokenizable text (title + abstraction + tags/anchors, caller's choice). */
 export interface LexNode {
@@ -19,9 +13,9 @@ export interface LexNode {
   text: string;
 }
 
-/** Lowercase alphanumeric tokens of length >= 3, minus stopwords. */
+/** Shared tokenizer (hooks/lib/core/text.ts): length >= 3, minus the one stopword set. */
 export function tokenize(s: string): string[] {
-  return (s.toLowerCase().match(/[a-z0-9]+/g) ?? []).filter((t) => t.length >= 3 && !STOPWORDS.has(t));
+  return coreTokenize(s);
 }
 
 /**

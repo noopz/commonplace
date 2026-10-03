@@ -13,6 +13,7 @@
  */
 
 import type { SourceNote, ConceptNote, MocNote } from "./types.js";
+import { buildNames, resolve, type NameNode } from "../../hooks/lib/graph/resolver.js";
 
 /** Undirected weighted adjacency: node -> (neighbor -> summed edge weight). */
 export type Adjacency = Map<string, Map<string, number>>;
@@ -56,7 +57,10 @@ export interface PprOptions {
  * the records' `path` strings — the caller MUST pass all record paths and
  * backlink paths in ONE consistent space (this repo uses vault-relative).
  * Relations reference notes by title / concept name / MOC name; those are
- * resolved to paths, and any unresolved or dangling endpoint is skipped.
+ * resolved to paths through the shared resolver (case-insensitive, alias- and
+ * anchor-aware, total collision order), and any unresolved or dangling
+ * endpoint is skipped. Each reference kind resolves only against its own kind
+ * of note, as before: a concept ref never lands on a source with that title.
  */
 export function buildContentGraph(
   input: ContentGraphInput,
@@ -69,12 +73,19 @@ export function buildContentGraph(
   for (const c of concepts) nodes.add(c.path);
   for (const m of mocs) nodes.add(m.path);
 
-  const titleToPath = new Map<string, string>();
-  for (const s of sources) titleToPath.set(s.title, s.path);
-  const conceptNameToPath = new Map<string, string>();
-  for (const c of concepts) conceptNameToPath.set(c.name, c.path);
-  const mocNameToPath = new Map<string, string>();
-  for (const m of mocs) mocNameToPath.set(m.name, m.path);
+  // Typed relations used to resolve by exact title only, so `builds_on:
+  // [[alpha method]]` or an alias produced no edge at all (plan §3.8).
+  const namesOf = (recs: { path: string; title: string; aliases?: string[] }[]) => {
+    const nodes: NameNode[] = recs.map((r, id) => ({ id, path: r.path, title: r.title, aliases: r.aliases ?? [] }));
+    const names = buildNames(nodes);
+    return (raw: string): string | undefined => {
+      const id = resolve(names, raw);
+      return id === null ? undefined : recs[id].path;
+    };
+  };
+  const sourcePath = namesOf(sources.map((s) => ({ path: s.path, title: s.title, aliases: s.aliases })));
+  const conceptPath = namesOf(concepts.map((c) => ({ path: c.path, title: c.name, aliases: c.aliases })));
+  const mocPath = namesOf(mocs.map((m) => ({ path: m.path, title: m.name })));
 
   const adj: Adjacency = new Map();
   const addEdge = (a: string, b: string | undefined, w: number) => {
@@ -86,14 +97,14 @@ export function buildContentGraph(
   };
 
   for (const s of sources) {
-    for (const cn of s.concepts) addEdge(s.path, conceptNameToPath.get(cn), weights.concept);
-    for (const mn of s.mocs) addEdge(s.path, mocNameToPath.get(mn), weights.moc);
+    for (const cn of s.concepts) addEdge(s.path, conceptPath(cn), weights.concept);
+    for (const mn of s.mocs) addEdge(s.path, mocPath(mn), weights.moc);
     for (const t of [...s.buildsOn, ...s.comparesWith, ...s.usesMethod]) {
-      addEdge(s.path, titleToPath.get(t) ?? conceptNameToPath.get(t), weights.rel);
+      addEdge(s.path, sourcePath(t) ?? conceptPath(t), weights.rel);
     }
   }
   for (const m of mocs) {
-    for (const t of m.sources) addEdge(m.path, titleToPath.get(t), weights.moc);
+    for (const t of m.sources) addEdge(m.path, sourcePath(t), weights.moc);
   }
   for (const b of backlinks) {
     for (const bl of b.backlinks) addEdge(bl.source, b.target, bl.count);

@@ -1,37 +1,50 @@
 /**
  * Wikilink resolution helpers — shared by lint, scope-check, indexer, and score.
  *
- * Obsidian wikilinks are case-insensitive, may carry section anchors (`Note#Heading`),
- * may target attachments (.pdf, .png, …), and may resolve through frontmatter aliases.
- * Every consumer that resolves a wikilink to an actual note needs this same logic —
- * skipping any of it produces silent false positives or false negatives.
+ * The logic lives in `hooks/lib/graph/resolver.ts` (the one resolver, plan
+ * §3.8); this file re-exports it for the Node scripts and adds the one piece
+ * that needs the filesystem: reading each file's `aliases:` frontmatter.
  */
 
 import { basename } from "path";
 import { parseNote } from "./frontmatter.js";
+import {
+  ATTACHMENT_EXTS,
+  buildNames,
+  claimants,
+  normalizeKey,
+  resolve,
+  stemOf,
+  type NameNode,
+  type Names,
+} from "../../hooks/lib/graph/resolver.js";
 
-export const ATTACHMENT_EXTS = new Set([
-  ".pdf", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".bmp",
-  ".mp4", ".webm", ".mov", ".mp3", ".wav", ".ogg", ".flac",
-  ".zip", ".csv", ".xlsx", ".docx", ".pptx",
-]);
+export { ATTACHMENT_EXTS, buildNames, claimants, normalizeKey, resolve, stemOf };
+export type { NameNode, Names };
 
 /**
  * Reduce a wikilink target string to its canonical lookup key, or null if
- * the target is something we can't resolve to a note (intra-doc anchor,
- * attachment file, or empty).
- *
- * Returns lowercase so callers can compare case-insensitively, matching
- * Obsidian's resolution behavior.
+ * the target can't resolve to a note (intra-doc anchor, attachment, empty).
+ * Lowercase, matching Obsidian's case-insensitive resolution.
  */
-export function normalizeWikilinkTarget(target: string): string | null {
-  const noteName = target.includes("#") ? target.split("#")[0] : target;
-  if (!noteName) return null; // bare [[#section]] — internal anchor
-  const dotIdx = noteName.lastIndexOf(".");
-  if (dotIdx > 0 && ATTACHMENT_EXTS.has(noteName.slice(dotIdx).toLowerCase())) {
-    return null; // attachment, never resolves to a note
+export const normalizeWikilinkTarget = normalizeKey;
+
+/** A file's frontmatter aliases; [] when absent or unparseable. */
+export function readAliases(file: string, vaultPath: string): string[] {
+  try {
+    const aliases = parseNote(file, vaultPath).frontmatter.aliases;
+    return Array.isArray(aliases) ? aliases.filter((a): a is string => typeof a === "string" && a.length > 0) : [];
+  } catch {
+    return [];
   }
-  return noteName.toLowerCase();
+}
+
+/**
+ * Name nodes for a file list: filename stem and aliases, no title — body
+ * wikilinks resolve the way Obsidian resolves them. Node id = index in `files`.
+ */
+export function fileNameNodes(files: string[], vaultPath: string): NameNode[] {
+  return files.map((f, id) => ({ id, path: f, title: "", aliases: readAliases(f, vaultPath) }));
 }
 
 /**
@@ -40,32 +53,15 @@ export function normalizeWikilinkTarget(target: string): string | null {
  * form that indexes record, so `bodyLinks` and `frontmatter.concepts`
  * resolve to a stable identifier regardless of how the user typed the link.
  *
- * The first occurrence of a name/alias wins on collision — caller's
- * responsibility to choose file order if duplicates exist.
+ * Collisions follow the resolver's total order (stem > alias > path), so the
+ * result does not depend on the order of `files`.
  */
 export function buildNameIndex(
   files: string[],
   vaultPath: string,
 ): Map<string, string> {
+  const names = buildNames(fileNameNodes(files, vaultPath));
   const index = new Map<string, string>();
-  for (const f of files) {
-    const canonical = basename(f, ".md");
-    const lcName = canonical.toLowerCase();
-    if (!index.has(lcName)) index.set(lcName, canonical);
-    try {
-      const parsed = parseNote(f, vaultPath);
-      const aliases = parsed.frontmatter.aliases;
-      if (Array.isArray(aliases)) {
-        for (const alias of aliases) {
-          if (typeof alias === "string" && alias.length > 0) {
-            const key = alias.toLowerCase();
-            if (!index.has(key)) index.set(key, canonical);
-          }
-        }
-      }
-    } catch {
-      // Unparseable — skip aliases for this file
-    }
-  }
+  for (const [key, ids] of names) index.set(key, basename(files[ids[0]], ".md"));
   return index;
 }

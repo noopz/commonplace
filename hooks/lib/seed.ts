@@ -7,52 +7,33 @@
  * names/titles.
  */
 
+import { tokenize as coreTokenize, GENERIC } from "./core/text.js";
+
 /** Lexical score a candidate must clear before it costs a model call. */
 export const MIN_SEED_SCORE = 6;
 
 /**
- * Terms too generic to constitute evidence of a connection. A candidate whose
- * every matched term is on this list is dropped before it costs anything —
- * this is the "skip generic terms like 'AI' or 'model'" rule that cross-domain
- * linking already applies, enforced earlier and for free.
+ * Terms too generic to constitute evidence of a connection, and the stopword
+ * list, both live in `core/text.ts` — one tokenizer for every lexical caller
+ * (plan §3.8). A candidate whose every matched term is generic is dropped
+ * before it costs anything — the "skip generic terms like 'AI' or 'model'"
+ * rule that cross-domain linking already applies, enforced earlier and free.
  */
-const GENERIC = new Set([
-  "agent", "agents", "model", "models", "system", "systems", "data", "code",
-  "tool", "tools", "note", "notes", "vault", "file", "files", "text", "user",
-  "work", "thing", "things", "part", "case", "type", "kind", "line", "lines",
-  "context", "content", "value", "values", "result", "results", "problem",
-  "approach", "method", "methods", "process", "state", "level", "point",
-  "example", "question", "answer", "output", "input", "change", "changes",
-  "version", "project", "design", "build", "test", "tests", "prompt", "prompts",
-]);
 
-const STOPWORDS = new Set([
-  "the", "and", "for", "that", "this", "with", "from", "have", "has", "had",
-  "was", "were", "been", "being", "are", "is", "not", "but", "you", "your",
-  "its", "it's", "they", "them", "their", "there", "then", "than", "when",
-  "what", "which", "who", "whom", "how", "why", "where", "into", "onto", "over",
-  "under", "about", "after", "before", "between", "through", "during", "would",
-  "could", "should", "will", "can", "may", "might", "must", "shall", "does",
-  "did", "doing", "done", "each", "every", "some", "any", "all", "both", "few",
-  "more", "most", "other", "such", "only", "own", "same", "also", "just", "one",
-  "two", "three", "here", "very", "much", "many", "well", "back", "even",
-  "still", "way", "make", "made", "get", "got", "use", "used", "using", "like",
-]);
+/**
+ * Minimum token length for the ambient pass. The shared tokenizer defaults to
+ * 3; MIN_SEED_SCORE was calibrated against 4-character tokens, so this caller
+ * keeps 4 until eval:connection re-pins both together.
+ */
+export const SEED_MIN_TOKEN_LENGTH = 4;
 
 // ---------------------------------------------------------------------------
 // Pure helpers — no `$`, so the scanner is satisfied and these stay testable.
 // ---------------------------------------------------------------------------
 
-/** Lowercased significant word tokens: length >= 4, not a stopword. */
+/** Lowercased significant word tokens (shared tokenizer, length >= 4), as a set. */
 export function tokenize(text: string): Set<string> {
-  const out = new Set<string>();
-  const words = String(text).toLowerCase().match(/[a-z][a-z0-9-]{2,}/g) ?? [];
-  for (const w of words) {
-    if (w.length < 4) continue;
-    if (STOPWORDS.has(w)) continue;
-    out.add(w);
-  }
-  return out;
+  return new Set(coreTokenize(text, { minLength: SEED_MIN_TOKEN_LENGTH }));
 }
 
 /** Parse a .wiki/*.jsonl index. Malformed lines are skipped, never thrown. */
