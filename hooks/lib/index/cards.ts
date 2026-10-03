@@ -1,0 +1,67 @@
+/**
+ * One compact card per note (`graph/cards/main.NNN.jsonl`, plan §3.3).
+ *
+ * A card is what search results, link listings and the prime show about a
+ * note WITHOUT reading it: title, path, kind, domain, a ≤120-char abstraction
+ * and its public degree/neighbours. It is a pointer, never content — reading
+ * the note is still `vault_note`'s job.
+ *
+ * `deg`/`nb` are computed by the caller on the public subgraph (review B8),
+ * so a card never reveals that a sealed note links here. No hub/authority
+ * scores on cards: those are internal ranking signals, not facts to show.
+ *
+ * Sandbox-safe.
+ */
+
+export type Card = {
+  id: number;
+  t: string;
+  p: string;
+  k: "source" | "concept" | "moc" | "other";
+  d: string;
+  a: string;
+  /** 1 when `a` is the first-sentence fallback, not a written abstraction. */
+  af?: 1;
+  /** [in-degree, out-degree] on the public subgraph. */
+  deg: [number, number];
+  /** Up to 3 strongest public neighbour ids. */
+  nb: number[];
+  tags: string[];
+  stub: boolean;
+  ret: boolean;
+};
+
+export const CARD_ABSTRACTION_MAX = 120;
+export const CARD_MAX_BYTES = 250;
+export const CARDS_PER_CHUNK = 2000;
+
+export function clip(s: string, max: number): string {
+  const t = String(s ?? "").replace(/\s+/g, " ").trim();
+  if (t.length <= max) return t;
+  const cut = t.slice(0, max - 1);
+  const sp = cut.lastIndexOf(" ");
+  return `${(sp > max * 0.6 ? cut.slice(0, sp) : cut).replace(/[\s,;:.-]+$/, "")}…`;
+}
+
+/**
+ * Build a card, shrinking optional parts (tags, then neighbours, then the
+ * abstraction) until the serialised line fits CARD_MAX_BYTES.
+ */
+export function makeCard(c: Omit<Card, "a"> & { a: string }): Card {
+  const card: Card = { ...c, a: clip(c.a, CARD_ABSTRACTION_MAX), tags: c.tags.slice(0, 5), nb: c.nb.slice(0, 3) };
+  if (!c.af) delete card.af;
+  const size = () => new TextEncoder().encode(JSON.stringify(card)).length;
+  while (size() > CARD_MAX_BYTES && card.tags.length > 0) card.tags.pop();
+  while (size() > CARD_MAX_BYTES && card.nb.length > 0) card.nb.pop();
+  let max = CARD_ABSTRACTION_MAX;
+  while (size() > CARD_MAX_BYTES && max > 20) {
+    max -= 10;
+    card.a = clip(c.a, max);
+  }
+  return card;
+}
+
+/** Chunk number for an id (cards are written in id order, CARDS_PER_CHUNK per file). */
+export const cardChunk = (id: number) => Math.floor(id / CARDS_PER_CHUNK);
+export const cardChunkName = (shard: string, chunk: number) =>
+  `${shard}.${String(chunk).padStart(3, "0")}.jsonl`;
