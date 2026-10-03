@@ -19,17 +19,18 @@
     "eval:connection": "tsx evals/connection/run.ts",
     "eval:judge": "tsx evals/judge/run.ts",
     "eval:connect": "tsx evals/connect/run.ts",
-    "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.hooks.json"
+    "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.hooks.json",
+    "build": "tsx scripts/build.ts"
   },
   "dependencies": {
     "glob": "^11.0.0",
     "gray-matter": "^4.0.3",
     "pdfjs-dist": "^4.9.155",
-    "tsx": "^4.19.0"
+    "tsx": "^4.19.0",
+    "esbuild": "^0.28.2"
   },
   "devDependencies": {
     "@types/node": "^22.20.5",
-    "esbuild": "^0.28.2",
     "typescript": "^5.9.3"
   }
 }

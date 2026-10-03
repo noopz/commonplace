@@ -10,7 +10,7 @@
 import { spawnSync } from 'child_process';
 import { fileURLToPath } from 'url';
 import { join, dirname } from 'path';
-import { readdirSync, existsSync } from 'fs';
+import { readdirSync, existsSync, readFileSync, statSync } from 'fs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -71,7 +71,6 @@ const [,, cmd, ...args] = process.argv;
 //   runs both against the same fixtures; it used to be the reverse order, so a
 //   session inside vault B printed the default A while every script used B.
 if (cmd === 'vault-path' || cmd === 'config') {
-  const { readFileSync } = await import('fs');
   const { resolve } = await import('path');
   const dataDir = process.env.CLAUDE_PLUGIN_DATA;
   const homeDir = process.env.HOME || process.env.USERPROFILE || '';
@@ -219,10 +218,42 @@ const root = join(__dirname, '..');
 const tsx = join(root, 'node_modules', '.bin', 'tsx');
 const scriptPath = join(root, SCRIPTS[cmd]);
 
-const result = spawnSync(tsx, [scriptPath, ...args], {
-  stdio: 'inherit',
-  cwd: root,
-  env: { ...process.env, COMMONPLACE_CALLER_CWD: process.cwd() },
-});
+// Prefer the esbuild bundle (plain node, ~40ms) over a tsx cold start
+// (~220ms) — but only when no source is newer than the bundle's stamp, so an
+// edited script never runs stale. Mirrors scripts/lib/build-stamp.ts.
+function freshBundle() {
+  const bundled = join(root, 'dist', SCRIPTS[cmd].replace(/\.ts$/, '.mjs'));
+  if (process.env.COMMONPLACE_NO_DIST || !existsSync(bundled)) return null;
+  let stamp = 0;
+  try { stamp = JSON.parse(readFileSync(join(root, 'dist', 'stamp.json'), 'utf-8')).newestSourceMtime || 0; } catch { return null; }
+  let newest = 0;
+  const walk = (dir) => {
+    let ents;
+    try { ents = readdirSync(dir, { withFileTypes: true }); } catch { return; }
+    for (const e of ents) {
+      const p = join(dir, e.name);
+      if (e.isDirectory()) walk(p);
+      else if (e.name.endsWith('.ts') && !e.name.endsWith('.test.ts')) {
+        const m = statSync(p).mtimeMs;
+        if (m > newest) newest = m;
+      }
+    }
+  };
+  for (const d of ['scripts', 'evals', join('hooks', 'lib')]) walk(join(root, d));
+  return newest <= stamp ? bundled : null;
+}
+
+const bundled = freshBundle();
+const result = bundled
+  ? spawnSync(process.execPath, [bundled, ...args], {
+      stdio: 'inherit',
+      cwd: root,
+      env: { ...process.env, COMMONPLACE_CALLER_CWD: process.cwd() },
+    })
+  : spawnSync(tsx, [scriptPath, ...args], {
+      stdio: 'inherit',
+      cwd: root,
+      env: { ...process.env, COMMONPLACE_CALLER_CWD: process.cwd() },
+    });
 
 process.exit(result.status ?? 1);
