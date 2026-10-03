@@ -35,9 +35,8 @@ const SCRIPTS = {
   'hub-score':    'scripts/hub-score.ts',
   'connect':      'scripts/connect.ts',
   'post-write-research': 'scripts/post-write-research.ts',
-  'prompt-context':      'scripts/prompt-context.ts',
-  'agent-guard':         'scripts/agent-guard.ts',
   'cleanup-cache':       'scripts/cleanup-cache.ts',
+  'session-check':       'scripts/session-check.ts',
   'moc:sync':            'scripts/moc-sync.ts',
   'supersede':           'scripts/supersede.ts',
   'vaults':              'scripts/vaults.ts',
@@ -46,8 +45,19 @@ const SCRIPTS = {
   'eval:connect':        'evals/connect/run.ts',
   'eval:connection':     'evals/connection/run.ts',
   'eval:judge':          'evals/judge/run.ts',
+  'eval:scale':          'evals/scale/run.ts',
+  'eval:prime':          'evals/prime/run.ts',
+  'test:ui':             'scripts/test-ui.ts',
+  'synthetic':           'scripts/synthetic.ts',
   'abstract':            'scripts/abstract.ts',
   'seed':                'scripts/seed.ts',
+  // CLI twins of the vault tools (same hooks/lib code and formatters)
+  'records':             'scripts/records.ts',
+  'search':              'scripts/search.ts',
+  'note':                'scripts/note.ts',
+  'links':               'scripts/links.ts',
+  'path':                'scripts/path.ts',
+  'neighbourhood':       'scripts/neighbourhood.ts',
   // Paper pipeline
   'paper:fetch':          'scripts/paper/fetch-paper.ts',
   'paper:extract':        'scripts/paper/extract-sections.ts',
@@ -195,6 +205,16 @@ if (!cmd || cmd === '--help' || cmd === '-h') {
   console.error('  supersede     Retire an entity superseded by a successor; propagate live-framing rewrites');
   console.error('  vaults        List registered vaults or match one by name');
   console.error('  vault         Show/choose the active vault: show | list | use <id> [--default] | unpin');
+  console.error('  records       Maintenance records as JSONL: --kind source|concept|moc|domain|backlink [--match t] [--path rel]');
+  console.error('  search        vault_search twin: --query "<text>" [--limit N] [--open <domain>] [--json]');
+  console.error('  note          vault_note twin: --ref "<title|path>" [--max-chars N]');
+  console.error('  links         vault_links twin: --ref "<title|path>" [--direction out|in|both]');
+  console.error('  path          vault_path twin: --from <ref> --to <ref> [--max-hops N]');
+  console.error('  neighbourhood vault_neighbourhood twin: --seed <ref> [--seed …] [--k N]');
+  console.error('  synthetic     Generate a deterministic synthetic vault: --scale N --out <dir> [--seed S]');
+  console.error('  test:ui       Module UI tests (band, tool row, spinner) under `claude plugin test`, terminal + desktop');
+  console.error('  eval:prime    Gate for primeContext: live claude -p sessions over $VAULT/.wiki/evals/prime-gold.jsonl [--repeat 3] [--init]');
+  console.error('  eval:scale    Benchmark index/seed/connect on synthetic 1x/10x/50x vaults [--scales 1,10,50] [--json] [--keep]');
   console.error('');
   console.error('  paper:fetch          Download paper from arXiv/URL');
   console.error('  paper:extract        Extract pages from PDF');

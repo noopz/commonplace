@@ -1,9 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "child_process";
-import { mkdirSync, writeFileSync, readFileSync, mkdtempSync, rmSync } from "fs";
+import { mkdirSync, writeFileSync, readFileSync, mkdtempSync, rmSync, existsSync, readdirSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
+import { recordsOfKind, type RecordKind } from "../hooks/lib/index/records.ts";
 
 const CLI = join(import.meta.dirname!, "index.ts");
 
@@ -30,9 +31,18 @@ function makeVault(): string {
   return root;
 }
 
-function records(root: string, file: string): Array<Record<string, unknown>> {
-  return readFileSync(join(root, ".wiki", file), "utf-8")
-    .trim().split("\n").filter(Boolean).map((l) => JSON.parse(l));
+/** Public records of one kind, from the typed graph/records.jsonl. */
+function records(root: string, kind: RecordKind): Array<Record<string, unknown>> {
+  return recordsOfKind(readFileSync(join(root, ".wiki", "graph", "records.jsonl"), "utf-8"), kind);
+}
+
+/** Private records of one kind, across every sealed shard. */
+function sealedRecords(root: string, kind: RecordKind): Array<Record<string, unknown>> {
+  const sealed = join(root, ".wiki", "sealed");
+  if (!existsSync(sealed)) return [];
+  return readdirSync(sealed)
+    .filter((s) => existsSync(join(sealed, s, "records.jsonl")))
+    .flatMap((s) => recordsOfKind<Record<string, unknown>>(readFileSync(join(sealed, s, "records.jsonl"), "utf-8"), kind));
 }
 
 test("index persists HITS hub/authority on linked records", () => {
@@ -40,12 +50,12 @@ test("index persists HITS hub/authority on linked records", () => {
   try {
     execFileSync(process.execPath, ["--import", "tsx", CLI, "--vault", root], { encoding: "utf-8" });
 
-    const concepts = records(root, "concept-index.jsonl");
+    const concepts = records(root, "concept");
     const bridge = concepts.find((c) => c.name === "Shared Bridge Concept")!;
     assert.ok(typeof bridge.authority === "number" && (bridge.authority as number) > 0,
       "linked-to concept should carry positive authority");
 
-    const sources = records(root, "source-index.jsonl");
+    const sources = records(root, "source");
     const alpha = sources.find((s) => s.title === "Alpha Source Note")!;
     assert.ok(typeof alpha.hub === "number" && (alpha.hub as number) > 0,
       "outlinking source should carry positive hub score");
@@ -70,7 +80,7 @@ test("index run on a linkless vault emits records without hub/authority keys", (
     writeFileSync(join(root, "03 - Concepts", "Shared Bridge Concept.md"),
       "---\ntags: [concept]\ncreated: '2026-01-01'\n---\n\n# Shared Bridge Concept\n\nA real definition here.\n");
     execFileSync(process.execPath, ["--import", "tsx", CLI, "--vault", root], { encoding: "utf-8" });
-    for (const rec of [...records(root, "source-index.jsonl"), ...records(root, "concept-index.jsonl")]) {
+    for (const rec of [...records(root, "source"), ...records(root, "concept")]) {
       assert.ok(!("hub" in rec) && !("authority" in rec),
         `linkless record ${rec.title ?? rec.name} must omit hub/authority`);
     }
@@ -113,7 +123,11 @@ test("concept records carry a scope derived from their domains", () => {
       "---\ntags: [concept]\ncreated: '2026-01-01'\n---\n\n# Omega Measure\n\nA real definition here.\n");
 
     execFileSync(process.execPath, ["--import", "tsx", CLI, "--vault", root], { encoding: "utf-8" });
-    const concepts = records(root, "concept-index.jsonl");
+    // v2 splits private records out of the public records file entirely;
+    // they live under .wiki/sealed/<shard>/, which only an opened scope reads.
+    const publicNames = records(root, "concept").map((c) => c.name);
+    assert.ok(!publicNames.includes("Omega Measure") && !publicNames.includes("Gamma Term"), "private concept in public index");
+    const concepts = sealedRecords(root, "concept");
     const byName = Object.fromEntries(concepts.map((c) => [c.name, c]));
 
     // Referenced only from a private domain.

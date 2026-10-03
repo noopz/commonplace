@@ -38,7 +38,7 @@ The `--json` flag exists for *other scripts* to consume, not for shell one-liner
 
 ### Step 0: Resolve vault path and git checkpoint
 
-Run `commonplace vault-path` to get the vault path.
+The plugin states the vault path above this skill's text; use it directly. Only if it is missing, run `commonplace vault-path`.
 
 If the vault is a git repo, create a safety checkpoint before starting:
 

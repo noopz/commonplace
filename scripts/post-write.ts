@@ -9,23 +9,24 @@
  */
 
 import { parseArgs } from "util";
-import { existsSync, writeFileSync } from "fs";
+import { existsSync } from "fs";
 import { resolve, dirname } from "path";
 import { discoverVault, getVaultConfig, isInVault, classifyNote } from "./lib/vault.js";
 import { parseNote, validateFrontmatter } from "./lib/frontmatter.js";
-import { sanitizeIngestedBody, splitFrontmatterRaw } from "./lib/sanitize.js";
-import { moduleIsLive } from "./lib/module-gate.js";
 import { execSync } from "child_process";
 
 const { values } = parseArgs({
   options: {
     vault: { type: "string" },
+    // The hooks module patches its in-memory graph and journal itself and
+    // schedules the rebuild; it passes this so the write path does not pay for
+    // a full reindex on every note.
+    "no-index": { type: "boolean", default: false },
   },
 });
 
 // Read stdin for tool input JSON
 let filePath: string | undefined;
-let sessionId: string | undefined;
 try {
   let input = "";
   // Set a short timeout so we don't hang if there's no stdin
@@ -73,7 +74,6 @@ try {
       data.tool_input?.filePath ||
       data.file_path ||
       data.filePath;
-    sessionId = data.session_id;
   }
 } catch {
   // No valid stdin, exit silently
@@ -87,24 +87,6 @@ const vaultPath = values.vault
   ? resolve(values.vault)
   : discoverVault(dirname(filePath));
 if (!vaultPath) process.exit(0);
-
-// Double-fire guard. `hooks/hooks.json` wires BOTH the shell PostToolUse hook
-// and the in-process module, deliberately, so a broken module degrades to this
-// rather than to nothing. When the module is loaded it runs this same script
-// itself (via $.process.run) and merges the result into the tool's own
-// `context`, so without this guard a vault write would run the whole pipeline
-// twice — including two concurrent index rebuilds, the race v1.57.1 removed.
-//
-// COMMONPLACE_HOOK_CHILD marks the module's own invocation so it is not guarded
-// against itself. Runs after vault resolution because `moduleIsLive` reads the
-// module's marker from the vault; see scripts/lib/module-gate.ts for why an
-// env-var check alone misses the flag-based rollout.
-if (
-  process.env.COMMONPLACE_HOOK_CHILD !== "1" &&
-  moduleIsLive(sessionId, vaultPath)
-) {
-  process.exit(0);
-}
 
 const config = getVaultConfig(vaultPath);
 
@@ -127,7 +109,6 @@ const output: {
   scopeCheck?: unknown;
   supersede?: { target: string; keyword: string };
   sourceWritten?: boolean;
-  sanitized?: string[];
 } = {};
 
 if (noteType === "source") {
@@ -138,14 +119,9 @@ if (noteType === "source") {
 try {
   const parsed = parseNote(filePath, config.vaultPath);
 
-  if (noteType === "source") {
-    const { frontmatterBlock, body: rawBody } = splitFrontmatterRaw(parsed.raw);
-    const { body: cleanBody, stripped } = sanitizeIngestedBody(rawBody);
-    if (stripped.length > 0) {
-      writeFileSync(filePath, frontmatterBlock + cleanBody);
-      output.sanitized = stripped;
-    }
-  }
+  // Sanitisation happens on the way DOWN, in the module's tool.call guard
+  // (hooks/lib/core/vault-guard.ts sanitizeWrite): no file is rewritten
+  // after the fact any more.
 
   const errors = validateFrontmatter(parsed.frontmatter, noteType);
   if (errors.length > 0) {
@@ -167,8 +143,10 @@ try {
   };
 }
 
-// Step 2: Incremental index update
-try {
+// Step 2: Incremental index update (skipped when the module owns indexing)
+if (values["no-index"]) {
+  output.index = "deferred";
+} else try {
   const scriptDir = new URL(".", import.meta.url).pathname;
   execSync(
     `npx tsx ${scriptDir}index.ts --vault ${config.vaultPath} --incremental`,
@@ -225,15 +203,9 @@ if (
   output.validate ||
   output.scopeCheck ||
   output.supersede ||
-  output.sourceWritten ||
-  output.sanitized
+  output.sourceWritten
 ) {
   const notes: string[] = [];
-  if (output.sanitized) {
-    notes.push(
-      `Sanitized ${output.sanitized.length} item(s) from this note's body before indexing:\n- ${output.sanitized.join("\n- ")}`,
-    );
-  }
   if (output.supersede) {
     const { keyword, target } = output.supersede;
     notes.push(

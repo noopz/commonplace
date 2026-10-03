@@ -2,8 +2,8 @@
  * Steering for Agent dispatches that are really vault research.
  *
  * WHY THIS REPLACES A DENY
- * `scripts/agent-guard.ts` catches the same failure — a general-purpose Agent
- * sent off to re-implement wiki-query's iterative search — by DENYING the
+ * v1's `agent-guard` shell hook caught the same failure — a general-purpose
+ * Agent sent off to re-implement wiki-query's iterative search — by DENYING the
  * dispatch after the model has already composed the prompt. Two problems with
  * that: a regex had to carry the whole decision, and because it cannot tell
  * research from orchestrated work (both talk about `[[wikilinks]]` and source

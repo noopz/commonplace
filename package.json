@@ -1,6 +1,6 @@
 {
   "name": "commonplace",
-  "version": "1.68.0",
+  "version": "2.0.0",
   "private": true,
   "type": "module",
   "bin": {
@@ -19,7 +19,9 @@
     "eval:connection": "tsx evals/connection/run.ts",
     "eval:judge": "tsx evals/judge/run.ts",
     "eval:connect": "tsx evals/connect/run.ts",
+    "eval:scale": "tsx evals/scale/run.ts",
     "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.hooks.json",
+    "test:ui": "tsx scripts/test-ui.ts",
     "build": "tsx scripts/build.ts"
   },
   "dependencies": {

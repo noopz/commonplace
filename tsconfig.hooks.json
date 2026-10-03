@@ -16,6 +16,6 @@
     "jsxFactory": "h",
     "jsxFragmentFactory": "Fragment"
   },
-  "include": ["hooks/**/*.ts", "hooks/**/*.tsx", "types/**/*.d.ts", "docs/api-snapshots/claude-code.2.1.288.d.ts"],
+  "include": ["hooks/**/*.ts", "hooks/**/*.tsx", "ui-tests/**/*.ts", "ui-tests/**/*.tsx", "types/**/*.d.ts", "docs/api-snapshots/claude-code.2.1.288.d.ts"],
   "exclude": ["hooks/**/*.test.ts", "hooks/**/*.test.tsx", "node_modules"]
 }

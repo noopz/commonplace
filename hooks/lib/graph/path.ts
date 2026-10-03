@@ -15,7 +15,7 @@
  * Dijkstra with a binary heap; deterministic tie-break on node id.
  */
 
-import { type Csr, degree, EDGE_KINDS, type EdgeKind } from "./csr.js";
+import { type Csr, type Adjacency, adj, EDGE_KINDS, type EdgeKind } from "./csr.js";
 
 export type PathOptions = {
   maxHops?: number;
@@ -66,10 +66,11 @@ export function hubCost(deg: number): number {
   return 1 + 0.5 * Math.log(1 + deg);
 }
 
-export function findPath(g: Csr, from: number, to: number, opts: PathOptions = {}): PathResult {
+export function findPath(graph: Csr | Adjacency, from: number, to: number, opts: PathOptions = {}): PathResult {
   const maxHops = opts.maxHops ?? 4;
   const avoidHubs = opts.avoidHubs ?? true;
   const blocked = opts.blocked ?? new Set<number>();
+  const g = adj(graph);
   if (from === to || blocked.has(from) || blocked.has(to)) return null;
   if (from < 0 || to < 0 || from >= g.n || to >= g.n) return null;
 
@@ -80,7 +81,7 @@ export function findPath(g: Csr, from: number, to: number, opts: PathOptions = {
   heap.push([0, 0, from]);
 
   const stepCost = (v: number, w: number) => {
-    const node = v === to || !avoidHubs ? 1 : hubCost(degree(g, v));
+    const node = v === to || !avoidHubs ? 1 : hubCost(g.degOf(v));
     // Typed relations (w=3) are a little cheaper than a single body link.
     return node / (1 + 0.25 * Math.min(w - 1, 2));
   };
@@ -101,8 +102,8 @@ export function findPath(g: Csr, from: number, to: number, opts: PathOptions = {
         heap.push([nd, h + 1, v]);
       }
     };
-    for (let e = g.outPtr[u]; e < g.outPtr[u + 1]; e++) relax(g.outTo[e], g.outW[e], g.outKind[e], "out");
-    for (let e = g.inPtr[u]; e < g.inPtr[u + 1]; e++) relax(g.inFrom[e], g.inW[e], g.inKind[e], "in");
+    g.eachOut(u, (v, w, k) => relax(v, w, k, "out"));
+    g.eachIn(u, (v, w, k) => relax(v, w, k, "in"));
   }
 
   if (!prev.has(to)) return null;

@@ -12,7 +12,7 @@
 import { readFileSync, existsSync } from "fs";
 import { join, relative } from "path";
 import { parseArgs } from "util";
-import { resolveVault, ensureIndex, loadIndexes } from "./lib/vault.js";
+import { resolveVault, ensureIndex, loadIndexes, readLegacyIndex } from "./lib/vault.js";
 import { computeHITS, type HitsEdge, type HitsScore } from "./lib/hits.js";
 
 const { values } = parseArgs({
@@ -26,26 +26,14 @@ const { values } = parseArgs({
 const config = resolveVault(values.vault);
 const topN = Math.max(1, parseInt(values.top!, 10) || 15);
 
-const backlinkPath = join(config.wikiPath, "backlink-index.jsonl");
-if (!existsSync(backlinkPath)) {
-  console.error("backlink-index.jsonl not found. Run `commonplace index` first.");
-  process.exit(1);
-}
+if (!ensureIndex(config)) process.exit(1);
 
 interface BacklinkRecord {
   target: string;
   backlinks: { source: string; count: number }[];
 }
 
-function parseJsonl<T>(filePath: string): T[] {
-  return readFileSync(filePath, "utf-8")
-    .trim()
-    .split("\n")
-    .filter((line) => line)
-    .map((line) => JSON.parse(line) as T);
-}
-
-const backlinkRecords = parseJsonl<BacklinkRecord>(backlinkPath);
+const backlinkRecords = readLegacyIndex<BacklinkRecord>(config, "backlink");
 
 const edges: HitsEdge[] = [];
 for (const record of backlinkRecords) {
@@ -55,7 +43,7 @@ for (const record of backlinkRecords) {
 }
 
 if (edges.length === 0) {
-  console.error("No links found in backlink-index.jsonl — nothing to score.");
+  console.error("No body links found in the index — nothing to score.");
   process.exit(1);
 }
 

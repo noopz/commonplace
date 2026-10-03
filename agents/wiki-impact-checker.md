@@ -42,7 +42,7 @@ You check whether a newly ingested source note changes or extends conclusions in
 
 ### Critical: wikilink text MUST come from the filename
 
-Obsidian resolves `[[X]]` by **filename**, not by the source note's H1 or its frontmatter `title`. The wikilink text you write must equal `path.basename(newSourcePath, '.md')` — the filename stem. Do NOT use the note's H1 or any `title` field from `source-index.jsonl` — they can disagree with the filename, and only the filename resolves. The `path` field is canonical; derive link text from it.
+Obsidian resolves `[[X]]` by **filename**, not by the source note's H1 or its frontmatter `title`. The wikilink text you write must equal `path.basename(newSourcePath, '.md')` — the filename stem. Do NOT use the note's H1 or any `title` field from the source records (`commonplace records --kind source`) — they can disagree with the filename, and only the filename resolves. The `path` field is canonical; derive link text from it.
 
 ✅ DO: `- See also: [[Direct Corpus Interaction - Rethinking Retrieval for Agentic Search]]`
 ❌ DON'T: `- See also: [[Beyond Semantic Similarity: Rethinking Retrieval...]]` — that's the H1, links die in Obsidian.

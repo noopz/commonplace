@@ -1,5 +1,5 @@
 {
-  "description": "commonplace hooks: shell hooks (always) + in-process module (CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1)",
+  "description": "commonplace: the in-process module is the plugin; one SessionStart shell hook keeps deps and dist/ fresh and warns if the module did not load",
   "modules": [
     "register.tsx"
   ],
@@ -13,39 +13,7 @@
           },
           {
             "type": "command",
-            "command": "node ${CLAUDE_PLUGIN_ROOT}/bin/commonplace cleanup-cache 2>/dev/null || true"
-          }
-        ]
-      }
-    ],
-    "UserPromptSubmit": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node ${CLAUDE_PLUGIN_ROOT}/bin/commonplace prompt-context"
-          }
-        ]
-      }
-    ],
-    "PreToolUse": [
-      {
-        "matcher": "Agent|Task",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node ${CLAUDE_PLUGIN_ROOT}/bin/commonplace agent-guard"
-          }
-        ]
-      }
-    ],
-    "PostToolUse": [
-      {
-        "matcher": "Write|Edit",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node ${CLAUDE_PLUGIN_ROOT}/bin/commonplace post-write"
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/bin/commonplace\" session-check 2>/dev/null || true"
           }
         ]
       }

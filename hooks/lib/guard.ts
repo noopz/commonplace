@@ -342,12 +342,46 @@ export function checkBashCommand(command: string): { deny: string } | null {
         `Never parse vault JSON with a shell one-liner (CLAUDE.md hard rule). ` +
         (viaCli
           ? `\`commonplace <cmd> --json\` already prints valid JSON — run it alone and read the output directly. `
-          : `To search a \`.wiki/*.jsonl\` index use the Grep tool; to read a JSON file use the Read tool; ` +
+          : `To query records use \`commonplace records --kind <kind> --match "<text>"\` (or the vault_* tools); to read a JSON file use the Read tool; ` +
             `for computed results use \`commonplace <cmd> --json\` and read its output directly. `) +
         `Not python3 -c / jq / node -e.`,
     };
   }
   return null;
+}
+
+// ---------------------------------------------------------------------------
+// Rule 1b — the model cannot widen its own scope through the CLI
+// ---------------------------------------------------------------------------
+
+/**
+ * `COMMONPLACE_OPEN` and `--open` unseal private shards for one CLI run. Both
+ * are the PERSON's (a terminal flag, or the module mirroring `/vault open`);
+ * a model-written command that sets either would be a third unseal signal,
+ * which plan §4.3 forbids. Only an assignment or a flag on a `commonplace`
+ * stage counts — mentioning the name (grepping this file) is fine.
+ */
+export function checkScopeEscalation(command: string): { deny: string } | null {
+  const cleaned = stripCommentLines(stripDataHeredocs(String(command ?? "")));
+  const setsEnv = /(^|[\s;&|(])(export\s+)?COMMONPLACE_OPEN=/.test(cleaned) || /\benv\b[^|;&]*\bCOMMONPLACE_OPEN=/.test(cleaned);
+  const flag = splitPipelines(cleaned).some((stages) =>
+    stages.some((st) => firstCommandWord(st) === "commonplace" && /(^|\s)--open(=|\s|$)/.test(st)),
+  );
+  if (!setsEnv && !flag) return null;
+  return {
+    deny:
+      "Private vault domains open only by the user's choice (/vault open <domain>). " +
+      "Do not pass --open or set COMMONPLACE_OPEN; run the command without it, " +
+      "or ask the user to open the domain.",
+  };
+}
+
+/** Prefix `commonplace` commands with the session's open shards (empty → unchanged). */
+export function withOpenShards(command: string, shards: readonly string[]): string {
+  if (shards.length === 0) return command;
+  const safe = shards.filter((s) => /^[A-Za-z0-9_.-]+$/.test(s));
+  if (safe.length === 0 || !/\bcommonplace\b/.test(command)) return command;
+  return `export COMMONPLACE_OPEN=${safe.join(",")}; ${command}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -474,4 +508,84 @@ export function checkPrivateLeak(
       `Invent fixtures and examples instead (\`Alpha Method\`, \`Gamma Term\`, domains \`alpha\`/\`gamma\`) — ` +
       `see CLAUDE.md, "Test fixtures must be invented".`,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Sealed-names leak guard (v2)
+// ---------------------------------------------------------------------------
+
+/**
+ * One private title as `commonplace index` writes it to
+ * `<vault>/.wiki/sealed/names.json`: `{"v":2,"names":[{t, al, shard}]}`.
+ * `vault` is stamped by the caller when it unions several vaults.
+ */
+export type SealedName = { t: string; al?: string[]; shard: string; vault?: string };
+
+/** Parse `sealed/names.json`; anything malformed reads as "no names". */
+export function parseSealedNames(text: string, vault?: string): SealedName[] {
+  try {
+    const j = JSON.parse(String(text ?? ""));
+    if (!j || !Array.isArray(j.names)) return [];
+    const out: SealedName[] = [];
+    for (const n of j.names) {
+      const t = typeof n?.t === "string" ? n.t.trim() : "";
+      if (!t) continue;
+      out.push({
+        t,
+        al: Array.isArray(n.al) ? n.al.filter((a: unknown) => typeof a === "string" && a.trim()) : [],
+        shard: typeof n.shard === "string" && n.shard ? n.shard : "loose",
+        ...(vault ? { vault } : {}),
+      });
+    }
+    return out;
+  } catch {
+    return [];
+  }
+}
+
+/** Deny text while the matched title's domain is sealed — names nothing. */
+export const SEALED_LEAK_DENY = "This text reproduces a private vault title; remove it.";
+
+/**
+ * The leak verdict over names from every registered vault, scope-independent.
+ *
+ * `isOpen(name)` says whether the session has opened that title's shard. Any
+ * match against a SEALED name gets the generic deny — echoing the title would
+ * itself reveal what is sealed. Matches against open names only keep today's
+ * deny, which names the title so the user can judge a false positive.
+ *
+ * `linksOnly` restricts matching to explicit `[[wikilinks]]`: used for a write
+ * into a PUBLIC note of the same vault, where a private→public link is the
+ * one-way violation but a coincidental phrase is not worth a deny.
+ */
+export function checkSealedLeak(
+  text: string,
+  names: readonly SealedName[],
+  isOpen: (n: SealedName) => boolean,
+  opts: { linksOnly?: boolean } = {},
+): { deny: string } | null {
+  if (!names.length || !String(text ?? "").trim()) return null;
+  const byKey = new Map<string, SealedName[]>();
+  const keys: string[] = [];
+  for (const n of names) {
+    for (const k of [n.t, ...(n.al ?? [])]) {
+      const nk = normalizePhrase(k);
+      if (!nk) continue;
+      if (!byKey.has(nk)) {
+        byKey.set(nk, []);
+        keys.push(k);
+      }
+      byKey.get(nk)!.push(n);
+    }
+  }
+  let hits = findPrivateMatches(text, keys);
+  if (opts.linksOnly) {
+    const links = new Set<string>();
+    for (const m of String(text).matchAll(/\[\[([^\]|#]+)(?:[|#][^\]]*)?\]\]/g)) links.add(normalizePhrase(m[1]));
+    hits = hits.filter((h) => links.has(normalizePhrase(h)));
+  }
+  if (hits.length === 0) return null;
+  const matched = hits.flatMap((h) => byKey.get(normalizePhrase(h)) ?? []);
+  if (matched.some((n) => !isOpen(n))) return { deny: SEALED_LEAK_DENY };
+  return checkPrivateLeak(text, hits);
 }

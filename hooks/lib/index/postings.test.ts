@@ -4,7 +4,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { buildPostings, indexPostings, searchPostings, noteTerms, type PostingsInput } from "./postings.ts";
-import { makeCard, clip, CARD_MAX_BYTES, cardChunk, cardChunkName } from "./cards.ts";
+import { makeCard, clip, CARD_MAX_BYTES, CARDS_PER_CHUNK, cardChunk, cardChunkName } from "./cards.ts";
 
 const NOTES: PostingsInput[] = [
   { id: 0, title: "Alpha Calibration Drift", abstraction: "how staged calibration reduces drift", tags: ["paper"] },
@@ -61,6 +61,6 @@ test("cards fit the byte budget and clip on word boundaries", () => {
   assert.ok(card.a.endsWith("…"));
   assert.equal(card.af, undefined);
   assert.equal(clip("short", 120), "short");
-  assert.equal(cardChunk(1999), 0);
-  assert.equal(cardChunkName("main", cardChunk(4000)), "main.002.jsonl");
+  assert.equal(cardChunk(CARDS_PER_CHUNK - 1), 0);
+  assert.equal(cardChunkName("main", cardChunk(CARDS_PER_CHUNK * 2)), "main.002.jsonl");
 });

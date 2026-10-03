@@ -26,6 +26,7 @@ import {
   renderConnection,
 } from "./seed.js";
 import { connectArgv, parseConnectOutput, mergeSeeds } from "./graph.js";
+import { recordsOfKind } from "./index/records.js";
 import type { Status } from "./status.js";
 
 // ---------------------------------------------------------------------------
@@ -387,8 +388,6 @@ export async function runConnectionPass(
       indexCache.vaultPath !== vaultPath ||
       (await ports.now()) - indexCache.at > INDEX_TTL_MS
     ) {
-      const conceptText = await ports.readText(`${vaultPath}/.wiki/concept-index.jsonl`);
-      const sourceText = await ports.readText(`${vaultPath}/.wiki/source-index.jsonl`);
 
       // NO SCALING CEILING HERE ANY MORE.
       //
@@ -406,9 +405,7 @@ export async function runConnectionPass(
       // `$.process.run(["grep", ...])` — NOT the Read/Grep tool, which this
       // build does not expose to hooks at all ("no tool named Grep in this
       // session", verified).
-      const conceptRecs = parseJsonl(conceptText);
-      const sourceRecs = parseJsonl(sourceText);
-      const parsed = [...conceptRecs, ...sourceRecs];
+      const parsed = await readSeedRecords(vaultPath, ports.readText);
       if (parsed.length === 0) {
         await ports.note("index unreadable", {
           phase: "warn",
@@ -429,8 +426,9 @@ export async function runConnectionPass(
       const s = await ports.status();
       await ports.note(s.lastOutcome || "indexed", {
         phase: "ok",
-        concepts: conceptRecs.length,
-        sources: sourceRecs.length,
+        // Concept records carry `name`, source records `title`.
+        concepts: parsed.filter((r) => typeof r.name === "string").length,
+        sources: parsed.filter((r) => typeof r.title === "string").length,
       });
     }
     const records = indexCache.records;
@@ -733,6 +731,27 @@ export function cachedRecords(vaultPath: string): Record<string, unknown>[] {
  * circuit breaker (the connection pass) keep their own handling; this one is
  * for callers where an unreadable index simply means "no opinion".
  */
+/**
+ * Concept + source records for seeding: the PUBLIC records file
+ * (`graph/records.jsonl`, hooks/lib/index/records.ts), or a pre-v2 vault's
+ * `concept-index.jsonl` + `source-index.jsonl`. Sealed shards' records are
+ * never read here: the ambient pass surfaces unbidden, so it sees public
+ * notes only.
+ */
+export async function readSeedRecords(
+  vaultPath: string,
+  readText: (path: string) => Promise<string>,
+): Promise<Record<string, unknown>[]> {
+  const records = await readText(`${vaultPath}/.wiki/graph/records.jsonl`);
+  if (records.trim()) {
+    return [...recordsOfKind<Record<string, unknown>>(records, "concept"), ...recordsOfKind<Record<string, unknown>>(records, "source")];
+  }
+  return [
+    ...parseJsonl(await readText(`${vaultPath}/.wiki/concept-index.jsonl`)),
+    ...parseJsonl(await readText(`${vaultPath}/.wiki/source-index.jsonl`)),
+  ];
+}
+
 export async function ensureRecords(
   vaultPath: string,
   readText: (path: string) => Promise<string>,
@@ -743,10 +762,7 @@ export async function ensureRecords(
     return indexCache.records;
   }
   try {
-    const parsed = [
-      ...parseJsonl(await readText(`${vaultPath}/.wiki/concept-index.jsonl`)),
-      ...parseJsonl(await readText(`${vaultPath}/.wiki/source-index.jsonl`)),
-    ];
+    const parsed = await readSeedRecords(vaultPath, readText);
     if (parsed.length === 0) return [];
     indexCache = { vaultPath, at: await now(), records: parsed };
     return parsed;

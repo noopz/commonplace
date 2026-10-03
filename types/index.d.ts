@@ -8,10 +8,10 @@
 // apiVersion 1. Semver: removing a method or a field is a major; adding an
 // optional field is a minor.
 //
-// STATUS (v2 Phase 0): the contract is declared, the noun is NOT yet added to
-// `$` — no `engine.create` registration ships until probe P4 settles how a
-// noun's methods run. Until then `$.commonplace` is absent at run time, and a
-// dependent must not call it. The `band` state key below IS live.
+// STATUS: live. commonplace adds `$.commonplace` at `engine.create` and answers
+// every method from its own `commonplace.<method>` hook. A policy refusal
+// arrives as a rejected promise (the event's `{ deny }`), so call inside
+// try/catch; a recoverable failure resolves to `{ error }`.
 //
 // Privacy rules the contract is shaped by:
 //   - No method changes scope, names a sealed domain, or returns anything a
@@ -98,6 +98,8 @@ export type CommonplaceLink = {
   /** "Why this link exists": heading + first sentence, "" when unavailable. Pointer text, not evidence. */
   why: string;
   heading: string;
+  /** Path steps only: this hop was walked against the link (`to` → `from`). */
+  reversed?: true;
 };
 
 export type CommonplaceNote = {
@@ -170,6 +172,12 @@ export type CommonplaceBand = {
   lastOutcome: string;
   /** The circuit breaker has stopped the ambient pass. */
   paused: boolean;
+  /**
+   * What the band is a receipt for. The line's text (which can name an open
+   * private note) is composed at render time from commonplace's module
+   * memory, never stored here.
+   */
+  kind?: "idle" | "primed" | "following" | "connected" | "warn" | "open" | "propose" | "reindexed";
 };
 
 export type Commonplace = {
@@ -197,9 +205,12 @@ declare module "claude-code" {
     commonplace: {
       // Live. Dependents: on("state.set", { plugin: "commonplace", key: "band" }).
       band: CommonplaceBand;
-      // Planned with their writers (index engine, scope, tool activity):
-      // index: CommonplaceIndexStatus; scope: CommonplaceScope;
-      // activity: { tool: string; startedAt: number } | null;
+      // A vault tool in flight (drives the Spinner message), else null.
+      activity: { tool: string; startedAt: number } | null;
+      // Dependents: on("state.set", { plugin: "commonplace", key: "index" }).
+      index: CommonplaceIndexStatus;
+      // Display mirror only; commonplace never reads it back.
+      scope: CommonplaceScope;
     };
   }
 }

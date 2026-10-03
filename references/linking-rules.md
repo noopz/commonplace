@@ -36,7 +36,7 @@ If a note already has 15+ inline wikilinks, only add links that are central to t
 
 If a concept appears in >50% of notes within the same domain, don't link it in that domain — it's assumed knowledge there. "Machine learning" linked in every ML paper is noise. Still link it in notes from *other* domains where it carries information (an economics paper discussing ML techniques should link it).
 
-To check: grep `concept-index.jsonl` for the concept's `backlinkCount` and compare to the domain's source count in `domain-index.jsonl`.
+To check: `commonplace records --kind concept --match "<name>"` gives the concept's `backlinkCount`; compare it to the domain's source count from `commonplace records --kind domain`.
 
 ### Structural relevance
 

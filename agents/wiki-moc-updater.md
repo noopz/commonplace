@@ -16,7 +16,7 @@ The vault path is provided in the prompt that dispatched you. Use it directly in
 
 ## Your job
 
-1. Read `$VAULT/.wiki/source-index.jsonl` and `$VAULT/.wiki/moc-index.jsonl`
+1. List records with `commonplace records --kind source` and `commonplace records --kind moc` (one JSON record per line)
 2. For each MOC, check if all sources that reference it are listed
 3. Add missing source entries under the appropriate subcategory section
 4. Update the `## Papers (N)` count to match the actual number of listed papers
@@ -28,17 +28,17 @@ Obsidian resolves `[[X]]` by **filename**, not by the source note's H1 or its fr
 Do NOT use:
 - The note's first H1 line
 - The `title:` frontmatter field
-- A `title` field from `source-index.jsonl` (that field is derived from H1 in some indexers and is unreliable for resolution)
+- A `title` field from the source records (that field is derived from H1 in some indexers and is unreliable for resolution)
 
-The path field in `source-index.jsonl` is canonical. Derive link text from it.
+The `path` field of a source record is canonical. Derive link text from it.
 
 ### Validation step (required before every MOC edit)
 
 For each source you intend to add to a MOC:
 
-1. Grep `source-index.jsonl` for the new source's path:
+1. Fetch the new source's record by path:
    ```bash
-   grep '"path":"<relative-path-to-new-source>"' "$VAULT/.wiki/source-index.jsonl"
+   commonplace records --kind source --path "<relative-path-to-new-source>"
    ```
 2. From the matched record's `path` value, compute `basename(path, '.md')` — that string is the wikilink text.
 3. Use that exact string inside `[[...]]`. Never modify capitalization or punctuation.

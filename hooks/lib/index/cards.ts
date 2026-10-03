@@ -33,7 +33,8 @@ export type Card = {
 
 export const CARD_ABSTRACTION_MAX = 120;
 export const CARD_MAX_BYTES = 250;
-export const CARDS_PER_CHUNK = 2000;
+/** Small on purpose: a card lookup parses its whole chunk, and lookups scatter across ids. */
+export const CARDS_PER_CHUNK = 128;
 
 export function clip(s: string, max: number): string {
   const t = String(s ?? "").replace(/\s+/g, " ").trim();

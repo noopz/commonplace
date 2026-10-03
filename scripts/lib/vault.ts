@@ -1,6 +1,8 @@
 import { readFileSync, writeFileSync, existsSync, statSync, readdirSync, mkdirSync } from "fs";
+import { recordsOfKind, type RecordKind } from "../../hooks/lib/index/records.js";
 import { join, resolve, dirname, relative as relPath } from "path";
 import { glob } from "glob";
+import { isExcluded } from "../../hooks/lib/index/exclude.js";
 import type {
   VaultConfig,
   WikiConfig,
@@ -161,75 +163,6 @@ export function chooseVault(explicit: string | undefined, callerCwd: string): Va
   return null;
 }
 
-/**
- * Predicate: is `cwd` inside the configured/discovered vault?
- *
- * Used by hook scripts (UserPromptSubmit) to decide whether the current
- * session is vault-focused (full snapshot is appropriate) or external
- * (lightweight pointer is appropriate). The plugin is installed
- * globally, so a session in /some/random/project shouldn't get treated
- * the same as one inside the vault.
- *
- * Resolution: walk up from cwd looking for a vault marker (.wiki/ or
- * .obsidian/); if none found, fall back to comparing cwd against the
- * registry default vault's path. Note: for multi-vault setups this
- * fallback only checks the default, not every registered vault.
- */
-export function isCwdInVault(cwd: string): { inVault: boolean; vaultPath?: string } {
-  let cur = resolve(cwd);
-  while (true) {
-    if (existsSync(join(cur, ".wiki")) || existsSync(join(cur, ".obsidian"))) {
-      return { inVault: true, vaultPath: cur };
-    }
-    const parent = resolve(cur, "..");
-    if (parent === cur) break;
-    cur = parent;
-  }
-  // Not inside any vault by walk-up. Fall back to the registry's global
-  // default — a non-sensitive "anywhere" vault — so prompt-context can still
-  // point the user at it without leaking a specific (possibly private) vault.
-  const def = getDefaultEntry(loadVaultRegistry());
-  if (def) {
-    const norm = (s: string) => s.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
-    const c = norm(cwd);
-    const v = norm(def.path);
-    if (c === v || c.startsWith(v + "/")) return { inVault: true, vaultPath: def.path };
-    return { inVault: false, vaultPath: def.path };
-  }
-  return { inVault: false };
-}
-
-/**
- * Predicate: is `cwd` inside commonplace's own source repo (i.e. the
- * package.json at some ancestor directory declares `"name": "commonplace"`)?
- *
- * Used by agent-guard to distinguish "working on commonplace itself" (code
- * work that happens to be dense with vault-shaped vocabulary — wikilink,
- * wiki-*, .wiki/ — because the task IS commonplace) from "asking about
- * vault content while inside a configured vault", which should still be
- * routed through wiki-query.
- *
- * Resolution: walk up from cwd looking for a package.json whose "name"
- * field is exactly "commonplace". Malformed/unreadable package.json files
- * are treated as non-matches and the walk continues upward.
- */
-export function isCwdInCommonplaceRepo(cwd: string): boolean {
-  let cur = resolve(cwd);
-  while (true) {
-    const pkgPath = join(cur, "package.json");
-    if (existsSync(pkgPath)) {
-      try {
-        const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"));
-        if (pkg?.name === "commonplace") return true;
-      } catch {}
-    }
-    const parent = resolve(cur, "..");
-    if (parent === cur) break;
-    cur = parent;
-  }
-  return false;
-}
-
 export function discoverVault(startPath: string): string | null {
   let current = resolve(startPath);
   while (current !== "/") {
@@ -387,14 +320,10 @@ export async function findNotesByGlob(
   // Underscore-prefixed directories (e.g. _raw/) are scaffolding, not managed
   // notes — raw scrape dumps, attachments, templates. A domain-path fallback
   // would otherwise classify a frontmatter-less _raw/ dump as a "source" and
-  // let it pollute the index, lint, seed, and score. Exclude anything under
-  // such a directory (matched on directory segments only, so a note simply
-  // named _foo.md is still discovered) so no downstream consumer sees them.
-  return matches.filter((f) => {
-    if (!f.endsWith(".md")) return false;
-    const dirs = f.slice(vaultPath.length + 1).split("/").slice(0, -1);
-    return !dirs.some((seg) => seg.startsWith("_"));
-  });
+  // let it pollute the index, lint, seed, and score. The rule (plus dot-dirs
+  // and non-.md) lives in hooks/lib/index/exclude.ts, shared with the hooks
+  // module's sweep so the CLI and the module agree on what a note is.
+  return matches.filter((f) => !isExcluded(relPath(vaultPath, f)));
 }
 
 export async function findAllNotes(vaultPath: string): Promise<string[]> {
@@ -410,6 +339,7 @@ export function isInVault(filePath: string, vaultPath: string): boolean {
 
 /** Parse a JSONL file (one JSON object per line) into an array */
 function parseJsonl<T>(filePath: string): T[] {
+  if (!existsSync(filePath)) return [];
   return readFileSync(filePath, "utf-8")
     .trim()
     .split("\n")
@@ -439,14 +369,69 @@ function warnIfStale(records: { path?: string }[]): void {
   }
 }
 
+/**
+ * Private shards whose legacy rows a CLI run may read, from
+ * `COMMONPLACE_OPEN` (comma-separated shard ids, or `*` for every shard).
+ *
+ * The public `*-index.jsonl` files hold no private row at all (v2 split).
+ * The hooks module sets this on the model's `commonplace` Bash commands to the
+ * shards the session has opened, so a lint or impact run inside a session sees
+ * exactly what the vault tools see; a person at a terminal can set it to `*`.
+ */
+export function openShardsFromEnv(env: NodeJS.ProcessEnv = process.env): { all: boolean; shards: Set<string> } {
+  const raw = String(env.COMMONPLACE_OPEN ?? "").trim();
+  const list = raw.split(",").map((x) => x.trim()).filter(Boolean);
+  return { all: list.includes("*"), shards: new Set(list.filter((x) => x !== "*")) };
+}
+
+const _recordText = new Map<string, { mt: number; text: string }>();
+function readRecordFile(path: string): string | null {
+  let mt: number;
+  try {
+    mt = statSync(path).mtimeMs;
+  } catch {
+    return null;
+  }
+  const hit = _recordText.get(path);
+  if (hit && hit.mt === mt) return hit.text;
+  const text = readFileSync(path, "utf-8");
+  _recordText.set(path, { mt, text });
+  return text;
+}
+
+/**
+ * Maintenance records of one kind: the public shard's plus those of every
+ * shard open in `COMMONPLACE_OPEN` (hooks/lib/index/records.ts). A vault not
+ * yet rebuilt by v2 has no records file; its v1 `<kind>-index.jsonl` is read
+ * instead, so pre-v2 vaults and hand-written fixtures keep working.
+ */
+export function readLegacyIndex<T>(config: VaultConfig, name: RecordKind): T[] {
+  const pub = readRecordFile(join(config.wikiPath, "graph", "records.jsonl"));
+  if (pub === null) return parseJsonl<T>(join(config.wikiPath, `${name}-index.jsonl`));
+  const rows = recordsOfKind<T>(pub, name);
+  const open = openShardsFromEnv();
+  if (!open.all && open.shards.size === 0) return rows;
+  const sealed = join(config.wikiPath, "sealed");
+  const shards = open.all
+    ? existsSync(sealed)
+      ? readdirSync(sealed, { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name)
+      : []
+    : [...open.shards];
+  for (const shard of shards) {
+    if (!/^[A-Za-z0-9_.-]+$/.test(shard)) continue;
+    rows.push(...recordsOfKind<T>(readRecordFile(join(sealed, shard, "records.jsonl")), name));
+  }
+  return rows;
+}
+
 export function loadIndexes(config: VaultConfig): {
   sources: SourceNote[];
   concepts: ConceptNote[];
   mocs: MocNote[];
 } {
-  const sources = parseJsonl<SourceNote>(join(config.wikiPath, "source-index.jsonl"));
-  const concepts = parseJsonl<ConceptNote>(join(config.wikiPath, "concept-index.jsonl"));
-  const mocs = parseJsonl<MocNote>(join(config.wikiPath, "moc-index.jsonl"));
+  const sources = readLegacyIndex<SourceNote>(config, "source");
+  const concepts = readLegacyIndex<ConceptNote>(config, "concept");
+  const mocs = readLegacyIndex<MocNote>(config, "moc");
   warnIfStale([...sources, ...concepts, ...mocs]);
   for (const s of sources) s.path = resolveIndexPath(s.path, config.vaultPath);
   for (const c of concepts) c.path = resolveIndexPath(c.path, config.vaultPath);
@@ -456,7 +441,8 @@ export function loadIndexes(config: VaultConfig): {
 
 export function ensureIndex(config: VaultConfig): boolean {
   if (
-    existsSync(join(config.wikiPath, "source-index.jsonl")) &&
+    (existsSync(join(config.wikiPath, "graph", "records.jsonl")) ||
+      existsSync(join(config.wikiPath, "source-index.jsonl"))) &&
     existsSync(join(config.wikiPath, ".last-index"))
   ) {
     return true;

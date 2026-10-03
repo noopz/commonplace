@@ -27,6 +27,11 @@ export type SealRoots = {
   sealed: readonly string[];
   /** Absolute, normalised: `<vault>/.wiki/skills`, `<vault>/.wiki/agents`. */
   protectedWrite: readonly string[];
+  /**
+   * Denied UNDER but not as a scan ancestor: `.wiki/sealed` of a vault with
+   * no sealed domain, so its root stays greppable (user rule Q9).
+   */
+  sealedNoScan?: readonly string[];
 };
 
 export const SEALED_DENY =
@@ -165,10 +170,13 @@ export function checkSealedAccess(
   cwd: string,
   home = "",
 ): { deny: string } | null {
-  if (roots.sealed.length === 0 && roots.protectedWrite.length === 0) return null;
+  const noScan = roots.sealedNoScan ?? [];
+  if (roots.sealed.length === 0 && roots.protectedWrite.length === 0 && noScan.length === 0) return null;
   for (const c of candidatePaths(tool, input, cwd, home)) {
     if (!c.path) continue;
-    if (roots.sealed.some((r) => isUnder(c.path, r))) return { deny: SEALED_DENY };
+    if (roots.sealed.some((r) => isUnder(c.path, r)) || noScan.some((r) => isUnder(c.path, r))) {
+      return { deny: SEALED_DENY };
+    }
     if (c.write && roots.protectedWrite.some((r) => isUnder(c.path, r))) return { deny: PROTECTED_DENY };
     if (c.scan && roots.sealed.some((r) => isAncestorOf(c.path, r))) return { deny: SEALED_DENY };
   }

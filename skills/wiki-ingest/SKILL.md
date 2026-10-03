@@ -53,7 +53,7 @@ When the user describes something they learned or discovered:
 
 ## Creating the Source Note
 
-First, run `commonplace vault-path` and `commonplace config` to get the vault path and structure. Use `structure.sources`, `structure.concepts`, and `structure.mocs` for all file placement — never assume `02 - Areas/Research` or any other path.
+The vault path is stated above by the plugin; run `commonplace config` for the structure. Use `structure.sources`, `structure.concepts`, and `structure.mocs` for all file placement — never assume `02 - Areas/Research` or any other path.
 
 Place the note in the correct domain directory:
 ```
@@ -117,7 +117,7 @@ Personal observations...
 
 For each key concept mentioned in the source:
 
-1. **Check if concept exists**: Grep `.wiki/concept-index.jsonl` for the concept name, or Glob `{structure.concepts}/` (from config.json). Don't load the full index.
+1. **Check if concept exists**: `vault_note note:"<concept name>"` (resolves titles and aliases), or `vault_search` for near-variants. A concept born while ingesting into a **private** domain is created private — in that domain's folder, or with `scope: private` — never as a public note.
 2. **If it exists**: Add it to the source note's `concepts:` frontmatter array
 3. **If it doesn't exist**: Create a stub concept note:
 
@@ -146,10 +146,10 @@ Only create concepts for genuine noun-phrase concepts (e.g., "reinforcement lear
 
 ## MOC Linking
 
-1. Check existing MOCs in `.wiki/moc-index.jsonl`
+1. Check existing MOCs with `vault_list what:"mocs"`
 2. Add relevant MOCs to the source note's `mocs:` array
 3. If no existing MOC fits, consider whether a new one is warranted (only if this domain has 3+ sources)
-4. **Size guard (allow-but-flag):** check the chosen MOC's `sourceCount` in `.wiki/moc-index.jsonl`. If it exceeds `moc.softCap` from `commonplace config` (default 25), STILL add the link — a full MOC never blocks ingest — but flag it in your final summary: "MOC <name> is over its soft cap (<n> sources); consider a split (`commonplace lint --check moc-size`)."
+4. **Size guard (allow-but-flag):** check the chosen MOC's `sourceCount` (`commonplace records --kind moc --match "<MOC name>"`). If it exceeds `moc.softCap` from `commonplace config` (default 25), STILL add the link — a full MOC never blocks ingest — but flag it in your final summary: "MOC <name> is over its soft cap (<n> sources); consider a split (`commonplace lint --check moc-size`)."
 
 ## Post-Creation Steps
 
@@ -192,3 +192,7 @@ After writing the source note and any new concept stubs:
    - Number of concepts extracted (new + existing)
    - MOCs linked
    - Any stubs created (mention wiki-compile can fill them)
+
+## Never write into `.wiki/`
+
+Indexes, `.wiki/skills/` and `.wiki/agents/` are the plugin's and the user's. The plugin denies model writes there; do not try another route.

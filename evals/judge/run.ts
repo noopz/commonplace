@@ -16,6 +16,12 @@
  * NEVER committed — cases name real notes. Answers live beside it in
  * $VAULT/.wiki/evals/answers/, written by `eval:connection`.
  *
+ * `--prime` runs the PRIME judge instead (plan §8.4/§11 6.5): each case's
+ * answer text is the TASK, and the prompt/system come from
+ * `hooks/lib/core/prime.ts`. Default gold: prime-judge-gold.jsonl.
+ * `--used` asks whether a primed answer actually used the note
+ * (used-in-answer, §8.6), over eval:prime's stored answers.
+ *
  * The judge runs on haiku in the hook (`$.model.complete({model:"haiku"})`),
  * so --model defaults to haiku here. Point it elsewhere to ablate the model
  * rather than the prompt.
@@ -27,6 +33,7 @@ import { parseArgs } from "node:util";
 import { spawnSync } from "child_process";
 import { resolveVault } from "../../scripts/lib/vault.js";
 import { JUDGE_SYSTEM, ANSWER_EXCERPT, NOTE_EXCERPT } from "../../hooks/lib/pipeline.js";
+import { PRIME_JUDGE_SYSTEM, PRIME_JUDGE_PROMPT, PRIME_NOTE_CHARS, USED_JUDGE_SYSTEM, USED_JUDGE_PROMPT } from "../../hooks/lib/core/prime.js";
 import { stripFrontmatter, parseVerdict } from "../../hooks/lib/seed.js";
 import {
   scoreJudgeCase,
@@ -47,12 +54,16 @@ const { values: args } = parseArgs({
     only: { type: "string" },
     json: { type: "boolean" },
     init: { type: "boolean" },
+    prime: { type: "boolean" },
+    used: { type: "boolean" },
   },
 });
+const mode: "connection" | "prime" | "used" = args.used ? "used" : args.prime ? "prime" : "connection";
 
 const config = resolveVault(args.vault);
-const goldPath = args.gold ?? join(config.wikiPath, "evals", "judge-gold.jsonl");
-const answersDir = join(config.wikiPath, "evals", "answers");
+const goldPath =
+  args.gold ?? join(config.wikiPath, "evals", mode === "connection" ? "judge-gold.jsonl" : `${mode}-judge-gold.jsonl`);
+const answersDir = join(config.wikiPath, "evals", ...(mode === "used" ? ["prime", "answers"] : ["answers"]));
 const model = args.model ?? "haiku";
 const repeat = Math.max(1, Number(args.repeat ?? 1));
 
@@ -123,7 +134,7 @@ function judgePrompt(answer: string, label: string, noteText: string): string {
  * FLOOR on trustworthiness rather than evidence of stability. Read it with
  * that caveat or not at all.
  */
-type Prepared = { c: JudgeCase; answer: string; label: string; noteText: string };
+type Prepared = { c: JudgeCase; answer: string; label: string; noteText: string; abstraction: string };
 const prepared: Prepared[] = [];
 
 for (const c of gold) {
@@ -143,9 +154,11 @@ for (const c of gold) {
     process.exit(1);
   }
   const label = c.note.replace(/^.*\//, "").replace(/\.md$/, "");
-  const noteText = stripFrontmatter(readFileSync(notePath, "utf-8")).slice(0, NOTE_EXCERPT);
+  const raw = readFileSync(notePath, "utf-8");
+  const noteText = stripFrontmatter(raw).slice(0, mode === "connection" ? NOTE_EXCERPT : PRIME_NOTE_CHARS);
 
-  prepared.push({ c, answer, label, noteText });
+  const abstraction = /^abstraction:\s*["']?(.*?)["']?\s*$/m.exec(raw)?.[1] ?? "";
+  prepared.push({ c, answer, label, noteText, abstraction });
 }
 
 const trialsById = new Map<string, JudgeTrial[]>(prepared.map((p) => [p.c.id, []]));
@@ -160,11 +173,15 @@ for (let t = 0; t < repeat; t++) {
       "claude",
       [
         "-p",
-        judgePrompt(p.answer, p.label, p.noteText),
+        mode === "prime"
+          ? PRIME_JUDGE_PROMPT(p.answer, { title: p.label, abstraction: p.abstraction }, p.noteText)
+          : mode === "used"
+            ? USED_JUDGE_PROMPT(p.answer, p.label, p.noteText)
+            : judgePrompt(p.answer, p.label, p.noteText),
         "--model",
         model,
         "--system-prompt",
-        JUDGE_SYSTEM,
+        mode === "prime" ? PRIME_JUDGE_SYSTEM : mode === "used" ? USED_JUDGE_SYSTEM : JUDGE_SYSTEM,
       ],
       { timeout: 120_000, encoding: "utf-8", maxBuffer: 4 * 1024 * 1024, stdio: ["ignore", "pipe", "ignore"] },
     );

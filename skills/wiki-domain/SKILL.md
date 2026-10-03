@@ -19,9 +19,14 @@ Every source note lives in a domain directory. Domain is inferred from the file 
 
 Notes can override their domain's scope with `scope: private` in frontmatter (e.g., a sensitive note in a public domain).
 
+**How private domains behave in a session.** Links are one-way: a private note may link to public notes, a public note may never link into a private one. A private domain is sealed — absent from every vault tool, search and connection — until the user runs `/vault open <domain>` (or starts the session inside its folder). `/vault close <domain>` seals it again; opening one domain of a `linkGroup` opens the group. Only the user can open a domain: never set `COMMONPLACE_OPEN` or pass `--open` yourself.
+
+- `aliases: ["…"]` on a domain entry lists other names the user calls it by; typing one in a prompt makes the plugin *propose* `/vault open` (it never opens on its own).
+- `/vault domain public|private <id>` re-scopes a domain, including a folder the plugin quarantined because it appeared after the first v2 index.
+
 ## Listing Existing Domains
 
-First, run `commonplace vault-path` and `commonplace config` to get the vault path and structure. Use `structure.sources` and `structure.mocs` for all directory creation — never assume any specific path.
+The vault path is stated above by the plugin; run `commonplace config` for the structure. Use `structure.sources` and `structure.mocs` for all directory creation — never assume any specific path.
 
 Read the domain registry from `$VAULT_PATH/.wiki/domains.json`.
 
@@ -30,7 +35,7 @@ Also show stats from the index:
 commonplace index --incremental
 ```
 
-Parse `domain-index.jsonl` from `.wiki/` to show source and concept counts per domain.
+`vault_list what:"domains"` shows source and concept counts per domain (private domains appear only while open).
 
 ## Creating a New Domain
 

@@ -15,7 +15,7 @@ When wiki-ingest creates a source note, it extracts concepts and creates stub no
 
 ### Step 0: Resolve vault path
 
-Run `commonplace vault-path` to get the vault path. Use it in all commands and paths below.
+The plugin states the vault path above this skill's text; use it directly. Only if it is missing, run `commonplace vault-path`. Use it in all commands and paths below.
 
 ### Step 1: Find stubs
 
@@ -38,11 +38,7 @@ Flag skipped names to the user: "Skipping 'Context File Quality Directly Impacts
 
 For each valid stub:
 
-1. **Find referencing sources**: Grep `.wiki/source-index.jsonl` for the concept name — sources that list it in their `concepts` array will have it on adjacent lines. Don't load the full index.
-   ```
-   Grep "<concept name>" "$VAULT_PATH/.wiki/source-index.jsonl"
-   ```
-   Also check `backlinkCount` in `concept-index.jsonl` (Grep for the concept name) — high backlink counts mean the concept is referenced widely across the corpus and deserves a richer definition.
+1. **Find referencing sources**: `vault_links note:"<concept name>" direction:"in"` lists every note that links the concept, with the sentence each one uses it in (CLI twin: `commonplace links --ref "<concept name>" --direction in`). A long incoming list means the concept is referenced widely and deserves a richer definition. Cite only sources visible from the concept's own scope: a public concept never cites a private-domain source, even one open this session.
 2. **Read those source notes**: Understand how the concept is used in context
 3. **Synthesize a definition AND an abstraction**: Write a real definition based on how the concept appears across sources, and add an `abstraction:` frontmatter field — one canonical descriptor, ~6–12 words, noun-phrase-first, no citations or dates (e.g. 'memory architecture separating working, episodic, and semantic layers'). Filling a stub means writing both; the abstraction is the concept's primary retrieval key and its absence is what marked the note as a stub.
 4. **Record source hashes**: For each source note cited, record its current commit in the `compiledFrom` frontmatter array so staleness can be detected later:
@@ -53,7 +49,7 @@ For each valid stub:
 
 ### What a Good Concept Note Looks Like
 
-Reference: a compiled concept note in `$VAULT_PATH/.wiki/concept-index.jsonl`
+Reference: a compiled concept note's record (`commonplace records --kind concept --match "<name>"`)
 
 ```markdown
 ---

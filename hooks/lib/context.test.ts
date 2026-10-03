@@ -73,15 +73,16 @@ test("outside the vault: one short paragraph naming the path and the two skills"
 
 // --- buildVaultBlock: in-vault tier ----------------------------------------
 
-test("inside the vault: briefing carries path, counts, index shapes, and toolchain facts", () => {
+test("inside the vault: briefing carries path, counts, the vault tools, and toolchain facts", () => {
   const b = buildVaultBlock(facts());
   assert.ok(b);
   assert.equal(b.name, VAULT_BLOCK_NAME);
   assert.ok(b.text.includes(`${VAULT}/.wiki/`));
   assert.ok(b.text.includes("12 sources, 34 concepts, 5 MOCs"));
-  for (const idx of ["source-index.jsonl", "concept-index.jsonl", "moc-index.jsonl", "domain-index.jsonl"]) {
-    assert.ok(b.text.includes(idx), `missing ${idx}`);
+  for (const tool of ["vault_search", "vault_note", "vault_links"]) {
+    assert.ok(b.text.includes(tool), `missing ${tool}`);
   }
+  assert.ok(!b.text.includes("index.jsonl"), "no v1 index schemas");
   assert.ok(b.text.includes("paper:*"));
   assert.ok(b.text.includes("raw/"));
   assert.ok(b.text.includes("wiki-query"));

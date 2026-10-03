@@ -1,6 +1,6 @@
 {
   "name": "commonplace",
-  "version": "1.68.0",
+  "version": "2.0.0",
   "description": "LLM-maintained knowledge base for Obsidian vaults. Auto-triggers on paper sharing, vault health queries, concept compilation, research questions, and domain management.",
   "homepage": "https://github.com/noopz/commonplace",
   "types": "./types/index.d.ts",
@@ -9,6 +9,18 @@
       "type": "boolean",
       "title": "Ambient vault connections",
       "description": "Surface a one-line pointer beneath an answer when it genuinely connects to a note you have already written. Costs one small model call per rate-limited turn, after the answer is on screen.",
+      "default": true
+    },
+    "primeContext": {
+      "type": "boolean",
+      "title": "Prime tasks with a vault note",
+      "description": "Before a task starts, show the model one pointer to the note your vault most clearly holds about it (judged by a small model; most prompts get nothing). Off until its precision gate passes on your vault: run commonplace eval:prime.",
+      "default": false
+    },
+    "showBand": {
+      "type": "boolean",
+      "title": "Vault status band",
+      "description": "Show a one-line receipt above the prompt when the vault was consulted, a private domain is open, or surfacing has stopped.",
       "default": true
     }
   }

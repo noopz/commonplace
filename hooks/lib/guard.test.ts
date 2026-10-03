@@ -14,6 +14,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  checkScopeEscalation,
+  withOpenShards,
   splitPipelines,
   stripDataHeredocs,
   firstCommandWord,
@@ -25,6 +27,8 @@ import {
   isDistinctiveTitle,
   findPrivateMatches,
   checkPrivateLeak,
+  checkSealedLeak,
+  SEALED_LEAK_DENY,
 } from "./guard.ts";
 
 // ---------------------------------------------------------------------------
@@ -164,7 +168,7 @@ test("checkBashCommand denies the exact CLAUDE.md examples", () => {
     `cat .wiki/moc-index.jsonl | python3 -c "import json,sys; ..."`,
   );
   assert.ok(r1, "python3 -c over a vault index must be denied");
-  assert.match(r1.deny, /Grep/);
+  assert.match(r1.deny, /commonplace records/);
   assert.match(r1.deny, /Read/);
 
   const r2 = checkBashCommand(
@@ -481,4 +485,47 @@ test("an interpreter stage that really decodes vault JSON is still denied", () =
 test("jq needs no proof of decoding — it is all it does", () => {
   assert.ok(checkBashCommand("jq '.domains' .wiki/domains.json"));
   assert.ok(checkBashCommand("cat concept-index.jsonl | jq -c ."));
+});
+
+// ---------------------------------------------------------------------------
+// checkSealedLeak (names from sealed/names.json)
+// ---------------------------------------------------------------------------
+
+test("checkSealedLeak: any sealed match wins the generic deny, even beside an open one", () => {
+  const names = [
+    { t: "Gamma Signal Ledger", shard: "g1" },
+    { t: "Delta Forecast Notebook", shard: "d1" },
+  ];
+  const open = (n: { shard: string }) => n.shard === "d1";
+  assert.deepEqual(
+    checkSealedLeak("Gamma Signal Ledger and Delta Forecast Notebook", names, open),
+    { deny: SEALED_LEAK_DENY },
+  );
+  assert.match(checkSealedLeak("Delta Forecast Notebook", names, open)!.deny, /Delta Forecast Notebook/);
+  assert.equal(checkSealedLeak("nothing private here", names, open), null);
+});
+
+test("checkSealedLeak linksOnly ignores prose and catches wikilinks, alias included", () => {
+  const names = [{ t: "Gamma Signal Ledger", al: ["GSL Ledger"], shard: "g1" }];
+  const sealed = () => false;
+  assert.equal(checkSealedLeak("the gamma signal ledger", names, sealed, { linksOnly: true }), null);
+  assert.deepEqual(checkSealedLeak("[[GSL Ledger]]", names, sealed, { linksOnly: true }), { deny: SEALED_LEAK_DENY });
+});
+
+test("scope escalation: the model cannot set COMMONPLACE_OPEN or pass --open", () => {
+  assert.ok(checkScopeEscalation("COMMONPLACE_OPEN=gamma commonplace lint"));
+  assert.ok(checkScopeEscalation("export COMMONPLACE_OPEN='*'; commonplace lint"));
+  assert.ok(checkScopeEscalation("cd /tmp && env COMMONPLACE_OPEN=* commonplace search --query x"));
+  assert.ok(checkScopeEscalation("commonplace note --ref 'Alpha' --open gamma"));
+  assert.ok(checkScopeEscalation("commonplace note --open=gamma --ref x"));
+  assert.equal(checkScopeEscalation("grep -n COMMONPLACE_OPEN scripts/lib/vault.ts"), null);
+  assert.equal(checkScopeEscalation("commonplace search --query 'open questions'"), null);
+  assert.equal(checkScopeEscalation("git commit -m 'add --open flag'"), null);
+});
+
+test("withOpenShards prefixes only commonplace commands, only with safe shard ids", () => {
+  assert.equal(withOpenShards("commonplace lint", []), "commonplace lint");
+  assert.equal(withOpenShards("ls -la", ["gamma"]), "ls -la");
+  assert.equal(withOpenShards("commonplace lint --json", ["gamma", "grouped"]), "export COMMONPLACE_OPEN=gamma,grouped; commonplace lint --json");
+  assert.equal(withOpenShards("commonplace lint", ["bad;rm -rf"]), "commonplace lint");
 });

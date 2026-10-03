@@ -19,7 +19,7 @@
 import { readFileSync, writeFileSync } from "fs";
 import { join, basename, relative } from "path";
 import { parseArgs } from "util";
-import { resolveVault, loadDomainRegistry, findAllNotes, classifyNote } from "./lib/vault.js";
+import { resolveVault, loadDomainRegistry, findAllNotes, classifyNote, readLegacyIndex } from "./lib/vault.js";
 import { inferSourceDomain } from "./lib/domain.js";
 import { linkNoteContent, type LinkTarget } from "./lib/linker.js";
 import { appendLineage } from "./lib/lineage.js";
@@ -50,24 +50,13 @@ const registry = loadDomainRegistry(config.wikiPath);
 
 // ---- Load link targets from indexes ----
 
-function readJsonl<T>(path: string): T[] {
-  try {
-    return readFileSync(path, "utf-8")
-      .split("\n")
-      .filter(Boolean)
-      .map((line) => JSON.parse(line) as T);
-  } catch {
-    return [];
-  }
-}
-
 interface ConceptRecord { name: string; path?: string; isStub?: boolean; domains?: string[] }
 interface SourceRecord { title: string; path: string; domain?: string }
 interface MocRecord { name: string }
 
-const concepts = readJsonl<ConceptRecord>(join(config.wikiPath, "concept-index.jsonl"));
-const sources = readJsonl<SourceRecord>(join(config.wikiPath, "source-index.jsonl"));
-const mocs = readJsonl<MocRecord>(join(config.wikiPath, "moc-index.jsonl"));
+const concepts = readLegacyIndex<ConceptRecord>(config, "concept");
+const sources = readLegacyIndex<SourceRecord>(config, "source");
+const mocs = readLegacyIndex<MocRecord>(config, "moc");
 
 // A concept's scope = the domains whose notes reference it (index `domains`,
 // "unknown" dropped) plus the domain of its own folder. Passing this through

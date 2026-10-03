@@ -23,7 +23,7 @@ import { readFileSync, existsSync, appendFileSync, mkdirSync } from "fs";
 import { join, relative, dirname } from "path";
 import { parseArgs } from "node:util";
 import { execFileSync } from "child_process";
-import { resolveVault, loadIndexes } from "../../scripts/lib/vault.js";
+import { resolveVault, loadIndexes, readLegacyIndex } from "../../scripts/lib/vault.js";
 import { connectPool } from "../../scripts/lib/connect.js";
 import type { BacklinkRecord } from "../../scripts/lib/ppr.js";
 import {
@@ -75,8 +75,7 @@ const rel = (p: string) => relative(config.vaultPath, p);
 for (const s of indexes.sources) s.path = rel(s.path);
 for (const c of indexes.concepts) c.path = rel(c.path);
 for (const m of indexes.mocs) m.path = rel(m.path);
-const backlinkPath = join(config.wikiPath, "backlink-index.jsonl");
-const backlinks: BacklinkRecord[] = existsSync(backlinkPath) ? readJsonl<BacklinkRecord>(backlinkPath) : [];
+const backlinks = readLegacyIndex<BacklinkRecord>(config, "backlink");
 const input = { ...indexes, backlinks };
 
 const poolOf = (q: string): string[] =>

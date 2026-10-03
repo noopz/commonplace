@@ -83,7 +83,7 @@ test("post-write accepts a PostToolUse payload, not only a flat file_path", () =
         process.execPath,
         ["--import", "tsx", join(import.meta.dirname!, "post-write.ts"), "--vault", root],
         { encoding: "utf-8", input: JSON.stringify(payload),
-          env: { ...env, COMMONPLACE_HOOK_CHILD: "1" } },
+          env },
       );
 
     const nested = run({ tool_input: { file_path: note } });

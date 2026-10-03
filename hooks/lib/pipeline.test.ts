@@ -31,6 +31,7 @@ import {
   type SessionState,
 } from "./pipeline.js";
 import type { Status } from "./status.js";
+import { recordLines } from "./index/records.js";
 
 // ---------------------------------------------------------------------------
 // Fixtures (invented)
@@ -230,8 +231,9 @@ function makeFake(): Fake {
     },
     readText: async (path): Promise<string> => {
       rec("readText", path);
-      if (path.endsWith("/.wiki/concept-index.jsonl")) return jsonl(fake.indexRecords);
-      if (path.endsWith("/.wiki/source-index.jsonl")) return "";
+      // An empty record set is served as an unparseable file, not a missing one:
+      // a missing file falls back to the v1 layout, which readSeedRecords tests cover.
+      if (path.endsWith("/.wiki/graph/records.jsonl")) return recordLines("source", fake.indexRecords) || "{not json\n";
       return fake.noteBody;
     },
     runCommand: async (argv) => {
@@ -328,14 +330,13 @@ describe("runConnectionPass", () => {
     const out = await runConnectionPass(fake.ports, answerInput());
     assert.deepEqual(out, { text: `⟡ vault · [[Alpha Lattice]] — ${VERDICT}` });
 
-    // Order of spend: vault resolve, two index reads, classify, note read, judge.
+    // Order of spend: vault resolve, the records read, classify, note read, judge.
     const spend = fake.calls
       .filter((c) => EXPENSIVE.includes(c.name))
       .map((c) => `${c.name}:${String(c.args[0]).split("/").pop()}`);
     assert.deepEqual(spend, [
       "runCommand:vault-path",
-      "readText:concept-index.jsonl",
-      "readText:source-index.jsonl",
+      "readText:records.jsonl",
       `classify:${ANSWER.slice(0, 800).split("/").pop()}`,
       "readText:Alpha Lattice.md",
       "complete:[object Object]",
@@ -494,7 +495,7 @@ describe("runConnectionPass", () => {
       fake.turn = i;
       fake.reset();
       await runConnectionPass(fake.ports, answerInput());
-      assert.equal(fake.count("readText"), 2, "re-read each turn: nothing was cached");
+      assert.equal(fake.count("readText"), 1, "re-read each turn: nothing was cached");
       assert.equal(fake.sessionRecord()?.failures, i);
     }
     assert.equal(fake.status.paused, true);
@@ -542,8 +543,8 @@ describe("runConnectionPass", () => {
     assert.equal(await runConnectionPass(fake.ports, answerInput()), null);
     assert.equal(fake.count("classify"), 1);
     assert.equal(fake.count("complete"), 0, "judge never runs after a classify rejection");
-    // Note read is the third readText; only the two index reads should exist.
-    assert.equal(fake.count("readText"), 2);
+    // Note read would be the second readText; only the records read should exist.
+    assert.equal(fake.count("readText"), 1);
     assert.deepEqual(fake.sessionRecord(), {
       id: "session-one",
       lastTurn: 1,
@@ -683,7 +684,7 @@ describe("runConnectionPass", () => {
     fake.indexRecords = [UNRELATED_RECORD];
     assert.equal(await runConnectionPass(fake.ports, answerInput()), null);
     assert.equal(fake.count("complete"), 0, "the expensive judge is never reached");
-    assert.equal(fake.count("readText"), 2, "only the two index reads");
+    assert.equal(fake.count("readText"), 1, "only the records read");
     assert.equal(fake.status.lastOutcome, "no candidates");
     // The classify and the walk were both SPENT, so the rate limit has to
     // count this turn or a session that never seeds pays on every turn.
@@ -828,8 +829,8 @@ describe("runConnectionPass", () => {
   test("the index cache is not re-read within its TTL", async () => {
     fake.turn = 1;
     await runConnectionPass(fake.ports, answerInput());
-    assert.equal(fake.count("readText"), 3, "two index reads + the note");
-    assert.equal(fake.status.concepts, 2);
+    assert.equal(fake.count("readText"), 2, "the records read + the note");
+    assert.equal(fake.status.sources, 2);
 
     fake.clock += INDEX_TTL_MS - 1;
     fake.turn = 1 + MIN_TURN_GAP;
@@ -851,7 +852,7 @@ describe("runConnectionPass", () => {
     const rereads = fake.calls.filter(
       (c) => c.name === "readText" && String(c.args[0]).includes("/.wiki/"),
     );
-    assert.equal(rereads.length, 2, "past TTL: both indexes re-read");
+    assert.equal(rereads.length, 1, "past TTL: the records file is re-read");
   });
 
   test("the index cache is keyed by vault path, so a vault switch re-reads", async () => {
@@ -867,8 +868,7 @@ describe("runConnectionPass", () => {
     const reads = fake.calls
       .filter((c) => c.name === "readText")
       .map((c) => String(c.args[0]));
-    assert.ok(reads.includes("/fake/vault-gamma/.wiki/concept-index.jsonl"));
-    assert.ok(reads.includes("/fake/vault-gamma/.wiki/source-index.jsonl"));
+    assert.ok(reads.includes("/fake/vault-gamma/.wiki/graph/records.jsonl"));
   });
 
   });
@@ -883,23 +883,26 @@ describe("ensureRecords", () => {
   const CONCEPTS = '{"name":"Gamma Term","path":"c/Gamma Term.md","scope":"private"}\n';
   const SOURCES = '{"title":"Acme Report","path":"s/Acme Report.md","scope":"public"}\n';
 
+  const tag = (kind: string, lines: string) =>
+    lines.split("\n").filter(Boolean).map((l) => `{"k":"${kind}",${l.slice(1)}\n`).join("");
+
   function reader(log: string[], concepts = CONCEPTS, sources = SOURCES) {
     return async (path: string): Promise<string> => {
       log.push(path);
-      return path.includes("concept") ? concepts : sources;
+      return path.endsWith("/graph/records.jsonl") ? tag("concept", concepts) + tag("source", sources) : "";
     };
   }
 
-  test("reads both indexes once and serves the rest from cache", async () => {
+  test("reads the records file once and serves the rest from cache", async () => {
     const log: string[] = [];
     const first = await ensureRecords("/v", reader(log), () => 1000);
     assert.equal(first.length, 2);
-    assert.equal(log.length, 2);
+    assert.equal(log.length, 1);
 
     // Same vault, inside the TTL: no further reads. This is the property the
     // leak guard depends on — it runs on every Write outside the vault.
     const second = await ensureRecords("/v", reader(log), () => 1000 + INDEX_TTL_MS - 1);
-    assert.equal(log.length, 2);
+    assert.equal(log.length, 1);
     assert.deepEqual(second, first);
   });
 
@@ -907,9 +910,9 @@ describe("ensureRecords", () => {
     const log: string[] = [];
     await ensureRecords("/v", reader(log), () => 1000);
     await ensureRecords("/v", reader(log), () => 1000 + INDEX_TTL_MS + 1);
-    assert.equal(log.length, 4);
+    assert.equal(log.length, 2);
     await ensureRecords("/other", reader(log), () => 1000 + INDEX_TTL_MS + 1);
-    assert.equal(log.length, 6);
+    assert.equal(log.length, 3);
   });
 
   test("returns [] rather than throwing on an empty path, empty index, or a throwing reader", async () => {
@@ -928,6 +931,18 @@ describe("ensureRecords", () => {
     await ensureRecords("/v", async () => { throw new Error("no"); }, () => 1000);
     const recovered = await ensureRecords("/v", reader(log), () => 1000);
     assert.equal(recovered.length, 2);
+  });
+
+  test("a vault indexed before records.jsonl is read from the v1 index files", async () => {
+    const log: string[] = [];
+    const v1 = async (path: string): Promise<string> => {
+      log.push(path);
+      if (path.endsWith("/concept-index.jsonl")) return CONCEPTS;
+      if (path.endsWith("/source-index.jsonl")) return SOURCES;
+      return "";
+    };
+    assert.equal((await ensureRecords("/v", v1, () => 1000)).length, 2);
+    assert.deepEqual(log.map((p) => p.split("/").pop()), ["records.jsonl", "concept-index.jsonl", "source-index.jsonl"]);
   });
 });
 

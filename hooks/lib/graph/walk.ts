@@ -18,7 +18,7 @@
  * Sandbox-safe; deterministic (FIFO queue, ids visited in insertion order).
  */
 
-import { type Csr, forEachNeighbour } from "./csr.js";
+import { type Csr, type Adjacency, adj } from "./csr.js";
 
 export type PushOptions = {
   /** Restart (teleport) probability. 0.15 ≡ scripts/lib/ppr.ts alpha 0.85. */
@@ -47,7 +47,7 @@ export type PushResult = {
 };
 
 export function pushPpr(
-  g: Csr,
+  graph: Csr | Adjacency,
   seeds: ReadonlyMap<number, number>,
   opts: PushOptions = {},
 ): PushResult {
@@ -55,6 +55,7 @@ export function pushPpr(
   const eps = opts.epsilon ?? 1e-5;
   const maxPushes = opts.maxPushes ?? 200_000;
   const blocked = opts.blocked ?? new Set<number>();
+  const g = adj(graph);
 
   const p = new Map<number, number>();
   const r = new Map<number, number>();
@@ -69,7 +70,7 @@ export function pushPpr(
   const queue: number[] = [];
   const queued = new Set<number>();
   const enqueue = (u: number) => {
-    if (!queued.has(u) && (r.get(u) ?? 0) > eps * Math.max(g.wdeg[u], 1)) {
+    if (!queued.has(u) && (r.get(u) ?? 0) > eps * Math.max(g.wdegOf(u), 1)) {
       queued.add(u);
       queue.push(u);
     }
@@ -91,7 +92,7 @@ export function pushPpr(
     const u = queue[head++];
     queued.delete(u);
     const ru = r.get(u) ?? 0;
-    const du = g.wdeg[u];
+    const du = g.wdegOf(u);
     if (ru <= eps * Math.max(du, 1)) continue;
     pushes++;
     p.set(u, (p.get(u) ?? 0) + restart * ru);
@@ -103,7 +104,7 @@ export function pushPpr(
       continue;
     }
     const spread = (1 - restart) * ru;
-    forEachNeighbour(g, u, (v, w) => {
+    const visit = (v: number, w: number) => {
       const share = (spread * w) / du;
       if (blocked.has(v)) {
         absorbed += share;
@@ -115,7 +116,9 @@ export function pushPpr(
         via.set(v, u);
       }
       enqueue(v);
-    });
+    };
+    g.eachOut(u, visit);
+    g.eachIn(u, visit);
     if (head > 4096 && head * 2 > queue.length) {
       queue.splice(0, head);
       head = 0;

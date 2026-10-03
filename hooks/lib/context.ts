@@ -1,7 +1,7 @@
 /**
  * First-message context block for the `prompt.context` function hook.
  *
- * Replaces `scripts/prompt-context.ts` (a `UserPromptSubmit` shell hook that
+ * Replaced v1's `prompt-context` script (a `UserPromptSubmit` shell hook that
  * spawned node on every prompt and re-counted three indexes each time).
  * `prompt.context` fires once per conversation and is cached, so the block is
  * computed once and can be read like a briefing rather than a reminder.
@@ -92,17 +92,15 @@ export function buildVaultBlock(v: VaultFacts): ContextBlock | null {
     ``,
     `Routing: use the plugin's skills for structural operations (new source/concept notes, ` +
       `domains, indexes); editing an existing note's body directly is fine. Questions whose ` +
-      `answer may live in notes go through wiki-query; direct Grep is fine for a narrow lookup ` +
-      `(a known title or path).`,
+      `answer may live in notes go through wiki-query.`,
     ``,
-    `Indexes at ${wiki}/ — one JSON record per line, so Grep returns whole records:`,
-    `- source-index.jsonl {title, path, domain, scope, tags, concepts, mocs}`,
-    `- concept-index.jsonl {name, path, domains, backlinkCount, isStub}`,
-    `- moc-index.jsonl {name, path, sourceCount, sources}`,
-    `- domain-index.jsonl {domain, scope, sourceCount, conceptCount}`,
+    `Finding and following notes: vault_search (pointers), vault_note (read, with links), ` +
+      `vault_links / vault_path / vault_neighbourhood (follow the graph), vault_list. ` +
+      `Do not grep or parse ${wiki}/ — its graph and records are the plugin's, and private ` +
+      `domains are filtered only through the tools.`,
     ``,
     `Toolchain: \`commonplace paper:*\` for research papers (not pdftotext); \`commonplace\` ` +
-      `commands plus Grep/Read for any vault analysis (never ad-hoc Python/shell parsing); ` +
+      `commands and the vault tools for any vault analysis (never ad-hoc Python/shell parsing); ` +
       `files under raw/ are permanent originals — never modify, rename, or delete them.`,
   ];
 
@@ -149,7 +147,7 @@ export function mergeBlocks(
 
 /*
  * VAULT_SIGNALS / vaultIntent used to live here — a port of
- * `scripts/lib/vault-signals.ts`, which gated the OLD shell hook so it only
+ * v1's `scripts/lib/vault-signals.ts`, which gated the OLD shell hook so it only
  * injected context when the user's prompt mentioned the vault. It was never
  * called from `register.tsx` and is deleted rather than kept as ballast.
  *
@@ -164,5 +162,5 @@ export function mergeBlocks(
  * rebuild, which is real ordering complexity to save one short paragraph once.
  *
  * If the block ever grows back toward its original size, restore the gate —
- * `scripts/lib/vault-signals.ts` still has the regexes and their rationale.
+ * the regexes and their rationale are in git history (`vault-signals.ts`, v1).
  */

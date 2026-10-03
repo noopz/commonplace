@@ -34,7 +34,7 @@ text from it.
 
 ## How to split
 
-1. Read the target MOC file and `$VAULT/.wiki/source-index.jsonl`.
+1. Read the target MOC file, and list source records with `commonplace records --kind source` (one JSON record per line; add `--match <text>` to narrow).
 2. Collect the sources that list this MOC in their `mocs` array. Read their
    index records — `abstraction`, `concepts`, and `tags` are your grouping
    signal; Read the actual notes where the record leaves a theme ambiguous.

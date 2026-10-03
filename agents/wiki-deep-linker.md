@@ -14,6 +14,8 @@ You receive semantic similarity candidates from `commonplace deep-link` — pair
 
 The vault path is provided in the prompt that dispatched you. Use it directly in all file operations — do not run `commonplace vault-path`.
 
+To see what a note already links (and so skip candidates that are already connected), run `commonplace links --ref "<note>" --direction out` instead of grepping the indexes. Never add a link from a public note into a private domain — links run one way, private → public only.
+
 ## Critical: Edit only, never Write
 
 **NEVER use the Write tool.** Every change must be a targeted Edit — replace the exact unlinked mention with the wikilinked version. The old_string and new_string should differ only by the addition of `[[` and `]]` (plus optional `|display text`). If you use Write, you will destroy frontmatter and structured metadata.

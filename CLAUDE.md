@@ -9,52 +9,122 @@ LLM-maintained knowledge base for any folder of notes. Transforms raw sources in
 - **Haiku agents** handle mechanical fixes (cheap)
 - **Main model** handles synthesis only (expensive, used sparingly)
 
-## In-process function hooks (EARLY ACCESS)
+## The module is the plugin
 
-`hooks/register.tsx` is an in-process plugin module, loaded into a sandboxed
-worker when `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1` **or** the account is in the
-`tengu_plugin_hooks_modules` rollout. It runs **beside** the shell hooks in
-`hooks/hooks.json`, not instead of them — without either gate the file is inert
-and the shell hooks are the whole plugin. Both wirings live in the same
-`hooks.json` (`modules` alongside `hooks`), so a broken module degrades to
-current behaviour rather than to nothing.
+`hooks/register.tsx` is an in-process plugin module (Claude Code mods,
+2.1.288+). As of v2 it is the **whole** runtime plugin: the guards, the context
+block, the vault tools, post-write, the band and the connection pass all live
+there. `hooks/hooks.json` keeps exactly one shell hook, `SessionStart` →
+`commonplace session-check`, which does three things a module cannot:
 
-Because both wirings load, each job must run on exactly one of them. The shell
-hooks used to decide by reading the env var, which **misses the flag-based
-rollout entirely** — a session there ran both, giving two context blocks per
-prompt and two concurrent index rebuilds per vault write. So the module now
-announces itself: at `session.start` it writes its session id to
-`<vault>/.wiki/hooks-module.json`, and `scripts/lib/module-gate.ts` stands a
-shell hook down when that id matches the one on its own stdin payload. Comparing
-ids, not timestamps, means there is no staleness window to tune. The marker
-filename is **duplicated** in `hooks/register.tsx` because the sandbox cannot
-import from `scripts/`; `scripts/module-gate.test.ts` asserts the two agree.
+- rebuilds `dist/` (the esbuild bundle) when a source is newer than its stamp;
+- runs cache cleanup;
+- **watchdog**: it increments `<plugin>/.runtime/shell-sessions`; the module's
+  `session.start` resets it to 0 and writes `.runtime/module-alive.json`. Two
+  sessions in a row without the module (modules disabled by settings or policy)
+  print a systemMessage, because otherwise the plugin silently does nothing.
 
-`plugin.json` declares one `userConfig` field, `ambientConnections`, which turns
-the connection pass off. Everything else the module does is either a guard
-(which must not be optional) or free. Declaring it is also what silences the
-host's "options requested but its manifest declares no userConfig" warning —
-that fires for any plugin shipping a module, verified against a bare probe
-plugin, not just this one.
+The module gates itself on `$.session.version().base >= MIN_BUILD` (2.1.288);
+an older engine gets a toast, `tooOld: true` in `module-alive.json`, and no
+registrations. There is no shell fallback to keep in step any more, so the v1
+`hooks-module.json` marker and `module-gate` are gone.
 
-It registers eleven hooks. **`ui.render{component=AbovePrompt}`** draws a one-line
-status band above the prompt: a dim heartbeat (`⟡ vault · N sources · N concepts
-· N surfaced · last: <outcome>`) when healthy, and a yellow warning when the
-circuit breaker has stopped surfacing.
-The breaker is deliberately silent in the transcript, so this band is the only
-place a failure becomes visible — do not remove it without replacing it.
+`plugin.json` declares three `userConfig` fields: `ambientConnections` (the
+connection pass, default on), `primeContext` (prime, default **off** until
+`eval:prime` passes its gate on the user's vault) and `showBand` (the status
+band; a paused breaker still shows when off). Everything else the module does
+is either a guard (which must not be optional) or free. Declaring userConfig is
+also what silences the host's "options requested but its manifest declares no
+userConfig" warning.
 
-The band is a **receipt, not a dashboard**: `turn.complete` raises it only when
-the vault was actually consulted, and **`prompt.submit`** lowers it as soon as
-the user types again. A line that persists across turns becomes furniture and
-stops being read. A paused breaker therefore re-announces itself every turn
-rather than noting once.
+### What the module holds
+
+- **The graph index** (`hooks/lib/index/*`, `hooks/lib/graph/*`). `commonplace
+  index` is the single artefact writer (mkdir lock, atomic renames, manifest
+  last). The module loads `.wiki/graph/` lazily per vault (`VaultIndex`),
+  overlays its own patches, and re-checks the manifest version at most every
+  5 s. After a vault Write/Edit it parses the file in-module, patches the view
+  and appends ONE line to `.wiki/graph/journal.jsonl` (~1–3 ms), then runs
+  `commonplace post-write --no-index` for analysis and debounces a CLI rebuild.
+  A 60 s sweep (`find -newer manifest`) patches notes changed outside Claude;
+  sealed changes, bursts over 200 files and due compactions go to the CLI.
+- **Layout.** `.wiki/graph/` is public only: `manifest.json`, `main.csr.json`
+  (packed CSR + sentinel ids), `names.json`, `scores.json`,
+  `main.postings.jsonl`, `files.jsonl`, `cards/`, `linkctx/`, `journal.jsonl`,
+  `records.jsonl`. `.wiki/sealed/` holds everything private: per-shard
+  `shard.json`/journal/`records.jsonl`, `names.json` (the leak guard's input),
+  `sentinels.json`, `overrides.json`. **Records** are the CLI tools' per-note
+  facts (v1's five `*-index.jsonl` files, which v2 no longer writes), one typed
+  line per record (`{"k":"source",…}`, hooks/lib/index/records.ts). Readers go
+  through `scripts/lib/vault.ts readLegacyIndex`, which merges a sealed shard's
+  records only when it is named in `COMMONPLACE_OPEN`; agents and skills use
+  `commonplace records --kind …`. A vault not yet rebuilt by v2 still has v1
+  files, and the loader reads those instead.
+  Ids are stable across rebuilds and never reused; a public→private edge points
+  at an opaque per-shard sentinel that walks absorb.
+- **Scope.** Links are one-way: private notes may link to public ones, never
+  the reverse. A note's scope comes from where it lives (plus a note-level
+  `scope: private`), never from who links to it. A private shard (its
+  `linkGroup`, else the domain id; note-level privates → `loose`; folders that
+  appear after the first v2 index → `quarantine`) is **sealed** unless opened
+  by one of exactly two signals: the session starting inside its folder, or the
+  person typing `/vault open <domain>`. Scope truth lives in module memory only
+  (`$.state.commonplace.scope` is a display mirror); `/clear`, a reload and a
+  new session re-seal. A typed prompt naming a sealed domain gets a band
+  *proposal*, never an unseal. The model cannot widen scope: the Bash guard
+  denies `COMMONPLACE_OPEN=` and `commonplace … --open`, and injects the
+  session's open shards into `commonplace` commands itself.
+- **The vault tools** (`hooks/lib/tools/*`, served by one regex `tool.call`
+  hook): `vault_search`, `vault_note` (pinned), `vault_links`, `vault_path`,
+  `vault_neighbourhood`, `vault_list`, `vault_skill` (deferred). No numeric
+  score ever reaches the model. Sealed titles in returned text are masked to
+  `[[…]]`. Each has a CLI twin on the same code: `commonplace search|note|
+  links|path|neighbourhood`.
+- **`$.commonplace`** — a noun other plugins can call (`engine.create` adds the
+  stubs; `on("commonplace.<method>")` hooks answer). The contract is
+  `types/index.d.ts`. Internal callers use the `impl_*`/`noun.*` functions
+  directly so a foreign hook on our noun never sits between the model and our
+  data.
+- **Vault skills** — prompt-only `SKILL.md` files in `<vault>/.wiki/skills/`,
+  delivered through the static `vault-skill` skill (its text is swapped in
+  `skill.prompt`; `$.prompt.submit` is refused inside `command.run`). Loadable
+  only after the person runs `/vault skills trust <name>`, which pins the exact
+  content hash; any edit untrusts it. The model can never write there.
+- **`/vault`** — `status · list · use · open · close · reindex · skills ·
+  domain`, answered by `command.run`.
+- **Prime** (`hooks/lib/core/prime.ts`, off by default): the sync lane in
+  `prompt.submit` picks at most one strong, clearly-leading postings hit per
+  segment with no model call; the async lane judges it with haiku and appends
+  `<commonplace-prime unverified="true">` mid-turn via `$.session.append`, or
+  drops it if the turn already ended. ≤1 vault touch per segment across prime
+  and the ambient pass.
+
+### The band and other surfaces
+
+**`ui.render{component=AbovePrompt}`** draws one line: a receipt of what the
+vault just did (`⟡ vault · following links …`, `primed`, `reindexed N notes`),
+the heartbeat, a magenta `🔒 vault · open: …` while a private domain is open,
+a one-turn proposal, or the yellow breaker warning. The breaker is
+deliberately silent in the transcript, so this band is the only place a
+failure becomes visible — do not remove it without replacing it. Band TEXT
+lives in module memory (it can name an open private note); `$.state` carries
+only the kind.
+
+The band is a **receipt, not a dashboard**: it is raised only when the vault
+was actually consulted, and **`prompt.submit`** lowers it as soon as the user
+types again — except the `open` band and a paused breaker, which re-announce
+every turn while they are true. Also: a `ToolUse` row for vault tools
+(`⟡ vault_links [[X]] · 13 links · 6 ms`), the Spinner message "Reading the
+vault" while one runs, toasts, and `$.ui.status("⟡ <vault>")` only when more
+than one vault is registered.
 
 **`turn.complete` ambient connection surfacing**.
 At the end of a turn a cheap classify decides whether the answer is technical
 substance at all; if it is, the pass seeds lexically against the JSONL indexes
-and, **when that free tier's best hit is weak**, runs `commonplace connect` for
-a PPR pool over the content graph. Either way it then reads the candidate note
+and, **when that free tier's best hit is weak**, asks for a PPR pool over the
+content graph — answered in-module by `connectPool` over the loaded view (so it
+sees exactly the session's scope, in ~2 ms), with the `commonplace connect` CLI
+as the fallback while no index is loaded. Either way it then reads the candidate note
 and asks a model whether the connection is real, rendering at most one line
 beneath the answer. This replaces asking the model, in prompt text, to remember
 to look for connections.
@@ -95,20 +165,23 @@ v1.61.0 shipped unverifiable. `session.start` trims the file to the last 2000
 lines (`tail` then `tee`, two execs — `$.process.run` runs no shell, so there is
 no pipe and no `>`).
 
-**Two enforcement hooks turn CLAUDE.md rules into mechanisms.**
-`tool.call{tool: "Bash"}` denies parsing `.wiki/*.jsonl` with `python3`/`jq`/
-`node -e` and denies manual `npx tsx scripts/*`, naming the right
-`commonplace <cmd>` in the deny reason. A second `tool.call` refuses to write
-private-domain vault titles into a code repository. Both fail open — a thrown
+**Enforcement hooks turn CLAUDE.md rules into mechanisms.**
+`tool.call{tool: "Bash"}` denies parsing `.wiki/*.json(l)` with `python3`/`jq`/
+`node -e`, denies manual `npx tsx scripts/*` (naming the right
+`commonplace <cmd>`), and denies scope escalation. The guard hook on the
+built-in file tools denies any path into a sealed folder or `.wiki/sealed`, a
+recursive scan rooted above one, and model writes into `.wiki/skills|agents`;
+it refuses private titles (and every title of an `isPrivate` vault) written
+into a code repo or another vault, and strips remote embeds from source notes
+on the way down. Both fail open — a thrown
 guard never blocks a tool call — and both are **global**, so a false positive
 blocks unrelated work in any repo. Treat widening their match patterns as a
 high-risk change and see `hooks/lib/guard.ts` for the documented failure modes.
 
 Only **one matcher-less hook per event** is permitted; a second is a validation
-error naming both lines. The private-leak guard and the vault-tool handler share
-one `tool.call` registration for that reason. They need not: matchers accept a
-one-of array and a RegExp (`{ tool: ["Write","Edit"] }`, `{ tool: /^mcp__.*__vault_/ }`),
-so this could be split into two hooks whenever it earns the change.
+error naming both lines. Matchers accept a one-of array and a RegExp
+(`{ tool: ["Write","Edit"] }`, `{ tool: /^mcp__commonplace__vault_/ }`), which
+is how the guard, post-write and vault-tool hooks stay separate.
 
 **Unwrap tool results explicitly.** `$.tool.call({tool: "Read"})` answers
 `{result: {file: {content, ...}}}` (note the `file` level) and Bash answers
@@ -118,11 +191,11 @@ yields `undefined`, coerces to `""`, and the feature simply never finds anything
 Hard constraints of this API, verified rather than assumed:
 
 - **No Node in the module.** It may import only its own files by relative path
-  and the types-only `claude-code` module. `scripts/lib/*` cannot be imported —
-  do not try to port them.
-- **`$.fs` is confined to the session project**; the vault is normally outside
-  it. Reach vault files with **`$.process.run`** — a direct host exec, no shell:
-  `cat` on a 149KB index is ~2ms and `commonplace vault-path` ~46ms.
+  and the types-only `claude-code` module. `scripts/lib/*` cannot be imported;
+  shared logic lives in `hooks/lib/` and the CLI imports IN from there.
+- **`$.fs.read` works on absolute paths** (probe P1; 4 MiB cap, no rename,
+  delete or append) and is faster than `cat`. Appends use `$.process.run(["tee",
+  "-a", …])` — a direct host exec, no shell.
 - **Do NOT use `$.tool.call({tool: "Read"})` for indexes.** It caps a result
   near **48KB** — measured: 114 of 347 concept records — and the truncation is
   silent, so seeding ran against a third of the vault for several versions. The
@@ -151,9 +224,17 @@ Hard constraints of this API, verified rather than assumed:
 - **Diagnose with `claude --plugin-dir . --debug-file <path>`.** It logs every
   hook that loads, fires, and how long it settled, and says why a render tree
   failed validation. It is the only way to see any of that.
-- **A module reload does not re-fire `session.start`.** Module scope is
-  re-instantiated, so anything cached there is silently empty mid-session. Cache
-  lazily, never only eagerly.
+- **A reload is a fresh load (2.1.288):** `register` runs again and
+  `session.start` fires again; `$.state` and `$.store` survive, module memory
+  does not — which is why a reload re-seals every private domain. A `/clear`
+  does NOT re-run `session.start` and module memory survives it, so
+  `session.end{reason:"clear"}` re-seals explicitly. Cache lazily as well as
+  eagerly.
+
+**`hook-log.jsonl` stage vocabulary** (beyond the connection pass's own):
+`tool:vault_*`, `index:patch|sweep|build|built`, `guard:*`, `scope:proposed`,
+`skill:delivered`, `prime:sync|skip-cold|appended|judged-no|late-drop|no-turn|error`,
+`skip:segment-budget`. A private note's path is never logged.
 
 **Measure it with `commonplace eval:connection`.** It drives real `claude -p`
 sessions and scores the trace log, because the pass is a chain of guards, a
@@ -183,6 +264,34 @@ the direction that flatters the eval. `--repeat N` scores self-agreement, and
 reliability and correctness are different things, and a judge can have plenty
 of the first with none of the second.
 
+**`commonplace eval:prime` is prime's gate** (precision ≥ 80%, false-prime
+≤ 5% over ≥ 40 distinct `none` cases, recall ≥ 30% or "inert", skip-cold < 5%,
+p95 sync < 30 ms, late-drop < 10%, frequency ≤ 20%). Gold at
+`$VAULT/.wiki/evals/prime-gold.jsonl`, never committed. Below the gate,
+`primeContext` stays off. `eval:judge --prime` isolates the prime judge and
+`--used` scores used-in-answer on stored answers.
+
+**`commonplace eval:scale`** times rebuild, patch, sweep, journal replay and
+the tool p50s on synthetic 1×/10×/50× vaults (invented text only). Cards and
+link contexts are chunked small (128 / 64 ids per file) because a tool call's
+lookups scatter across ids and each one parses its whole chunk: at 2000 / 500
+the 50× `vault_links` / `vault_neighbourhood` p50s were 13 / 17 ms, at the
+current sizes 1 / 3 ms. The manifest records the sizes it was cut at
+(`chunks.cardsPer`, `chunks.linkctxPer`) and the loader treats a mismatch as
+absent, so changing either constant forces a rebuild instead of misreading.
+
+**`commonplace test:ui`** runs `ui-tests/*.test.tsx` under `claude plugin
+test` on terminal and desktop: the band, the vault tool's transcript row, the
+spinner text, and `/vault open`, each driven through a real vault tool call
+against an invented vault served from memory (`ui-tests/fixture.tsx` answers
+`process.run`, `fs.read`, `fs.stat` beneath the plugin). The kit runs every
+`*.test.ts(x)` under the folder it is given, and the node:test suites cannot
+load in its sandbox, so the runner stages the module (manifest, `hooks/`
+minus node tests, `types/`) with only the UI tests beside it. Op hooks a test
+answers return `{ value }`; anything the module calls that the test does not
+answer throws, which the module's own try/catch then swallows — so when a UI
+test fails, read the kit's "the engine reported" lines first.
+
 **Precision and recall are reported apart on purpose.** An ambient feature that
 interrupts must protect precision first, because low precision is alert fatigue
 and alert fatigue kills the feature; recall can be raised afterwards. A single
@@ -198,28 +307,19 @@ user's content.
 
 ## Parallel agents over vault content
 
-Two mechanisms, depending on whether the in-process module is loaded.
+A general-purpose dispatch that a classify judges to be vault **research** has
+its prompt REWRITTEN by `agent.spawn`, not refused — it gains instructions to
+use `vault_search`/`vault_note` and the doctrine that a pointer is not a
+finding. Nothing is blocked, so nothing needs an escape hatch (v1's
+`agent-guard` deny and its `ALLOW_VAULT_AGENT` marker are gone). Orchestrated
+**work** (`vault-work`) and unrelated dispatches pass untouched. Forks and
+named agents (`commonplace:*`, `code-reviewer`, `Explore`) are never steered.
 
-**With the module (`agent.spawn`)**: a general-purpose dispatch that a classify
-judges to be vault **research** has its prompt REWRITTEN, not refused — it gains
-instructions to use `vault_search`/`vault_note` and the doctrine that a pointer
-is not a finding. Nothing is blocked, so nothing needs an escape hatch.
-Orchestrated **work** (`vault-work`) and unrelated dispatches pass untouched, and
-telling those apart is the thing a regex could not do. Forks and named agents
-(`commonplace:*`, `code-reviewer`, `Explore`) are never steered.
-
-**Without it (`agent-guard`, the shell PreToolUse hook)**: the older behaviour —
-a vault-research dispatch is DENIED and redirected to wiki-query. Because a
-regex cannot separate research from work, orchestrated work must carry the
-marker `ALLOW_VAULT_AGENT` in each dispatch prompt to bypass it. If a dispatch
-is blocked, don't fall back to doing the whole job inline — pick the right path:
-wiki-query for a lookup, the marker for orchestrated work.
-
-## No RAG — grep finds, reading connects
+## No RAG — search finds, links follow, reading connects
 
 commonplace is not a RAG system. Never substitute keyword/concept-string matching for an actual relevance judgment — that's exactly the blind spot RAG has: it misses real connections that don't share a literal string, and manufactures false confidence in the ones that happen to match.
 
-**Mental model:** `Grep` against the JSONL indexes is a jumping-off point, not an answer. It tells you which few notes are worth reading. The relevance judgment itself comes from `Read`ing those notes and reasoning about whether they actually connect — not from whether a keyword or concept name matched.
+**Mental model:** `vault_search` (or `commonplace search`) is a jumping-off point, not an answer. It tells you which few notes are worth reading; `vault_links`/`vault_path`/`vault_neighbourhood` follow the graph from there. The relevance judgment itself comes from reading those notes (`vault_note`) and reasoning about whether they actually connect — not from whether a keyword, concept name or graph proximity matched.
 
 This applies anywhere a "does X relate to Y" decision gets made — cross-domain bridging, deep-linking, pre-ingest triage, wiki-query. A note can be highly relevant to another with zero shared concept names or strings (e.g. an export-control story bearing on an IPO thesis's "Government Contract Dependency" angle without ever naming the company). If a check only compares index fields and stops there, it isn't finished — it must follow the grep hit to the real file and read it before concluding anything. Seeding itself is tiered-lexical (`commonplace seed`): abstraction → cue anchors → names/titles → whole-record grep as a gated fallback. Better jumping-off points, same rule — the tier tells you where to start reading, never whether something is relevant.
 
@@ -232,7 +332,8 @@ cat file.json | python3 -c "import json,sys; data=json.load(sys.stdin); ..."
 ```
 
 Instead:
-- **To search an index**: use `Grep` — e.g. `Grep "pattern" "$VAULT/.wiki/concept-index.jsonl"`
+- **To find or follow notes**: use the vault tools (`vault_search`, `vault_links`, …) or their CLI twins; never parse `.wiki/graph/*` or the jsonl yourself
+- **To look up maintenance records**: `commonplace records --kind source|concept|moc|domain|backlink [--match <text>] [--path <rel>]`
 - **To read a file**: use the `Read` tool — never `cat`
 - **Script output**: assign to a variable and read it directly — scripts output valid JSON, trust it
 
@@ -250,23 +351,30 @@ Command hooks (shell subprocesses) don't inherit the Bash tool PATH, so they use
 
 All commands auto-discover the vault via cwd (`.obsidian/` or `.wiki/` marker) or `.vault-path` fallback. The `--vault <path>` flag is optional — only needed for `init` or when overriding auto-discovery.
 
-- `commonplace vault-path` — Print the configured vault path (no tsx spawn, instant). "Instant" is the script itself; reaching it from an in-process hook via `$.tool.call({tool:"Bash"})` measured **7.3s** of tool + shell overhead, which is why the hooks cache the resolved path rather than re-asking.
+- `commonplace vault-path` — Print the configured vault path (no tsx spawn, instant).
+- `commonplace records --kind <kind> [--match <text>] [--path <rel>]` — Maintenance records as JSONL (public + `COMMONPLACE_OPEN` shards)
+- `commonplace vault [show|list|use <id> [--default]|unpin]` — Show or choose the active vault from a terminal (in a session: `/vault`)
+- `commonplace search --query "<text>"` · `note --ref "<title|path>"` · `links --ref "<…>" [--direction out|in|both]` · `path --from <ref> --to <ref>` · `neighbourhood --seed <ref>…` — CLI twins of the vault tools: same code, same output, `--json` for the structured result. Private domains stay sealed unless the PERSON passes `--open <domain>` (the guard denies it from the model).
+- `commonplace session-check` — The one shell hook (SessionStart): dist rebuild, cache cleanup, module watchdog
+- `commonplace synthetic --scale N --out <dir>` / `commonplace eval:scale` — Synthetic vaults and the scale benchmark
+- `commonplace test:ui` — Module UI tests under `claude plugin test` (terminal + desktop); also `npm run test:ui`
+- `commonplace eval:prime [--repeat 3] [--init]` — Prime's gate (live `claude -p` sessions)
 - `commonplace vaults [--match "<phrase>"] [--json]` — List registered vaults, or match one by name (used by wiki-query to resolve "search in <name>")
 - `commonplace config` — Print `.wiki/config.json` contents (no tsx spawn, instant)
-- `commonplace index [--incremental]` — Build/update `.wiki/*.jsonl` indexes: `source-index`, `concept-index`, `moc-index`, `domain-index`, `backlink-index` (human-readable output by default)
+- `commonplace index [--incremental] [--json]` — The single index writer: `.wiki/graph/` (v2 graph artefacts), `.wiki/sealed/`, and the per-shard records files (v1's `*-index.jsonl` are no longer written; stale ones are deleted). `--incremental` is a no-op when no note is newer than the last build.
 - `commonplace lint [--check <name>] [--json] [--rank-by-traffic]` — Vault health audit (human-readable summary by default, `--json` for machine-parseable; `--rank-by-traffic` sorts stub findings by backlink count, descending). Checks include `unresolved`, `stubs`, `orphans`, `frontmatter`, `moc-staleness`, `moc-size`, `scope-violations`, `duplicates`, `malformed-dates`, `filename-h1-mismatch`, `near-duplicate-names`, `near-duplicate-content`, `malformed-concept-names`, `underlinked`, `cluster-cohesion`, `bridge-thinness`, `weak-summary`, `cross-scope-bridge`, `concept-density-without-source-links`.
 - `commonplace validate <file>` — Single file frontmatter validation
 - `commonplace scope-check [<file>]` — Domain scope enforcement
 - `commonplace score [--json]` — Compute vault quality score (human-readable by default, `--json` for machine-parseable)
 - `commonplace prune` — Remove low-value stubs
 - `commonplace init --vault <path>` — Initialize plugin for a vault (requires explicit path)
-- `commonplace post-write` — Post-write hook pipeline (reads stdin)
+- `commonplace post-write [--no-index]` — Post-write analysis (reads stdin); the module passes `--no-index` because it patches the graph itself
 - `commonplace raw [--instruct]` — Scan raw/ for uningested files; `--instruct` prints human-readable summary
 - `commonplace freshen [--sample <n>] [--min-age-days <n>]` — Sample oldest-unchecked live source URLs for freshness checking
 - `commonplace freshen --record` — Record a check result (reads JSON from stdin, merges into `.wiki/freshness.json`)
 - `commonplace freshen --clear <relative-path>` — Clear stale flag after re-ingesting a note
 - `commonplace deep-link [--mode concepts|notes] [--threshold <n>] [--top <n>] [--note <path>]` — Find implicit concept connections via semantic similarity (requires Ollama + nomic-embed-text)
-- `commonplace hub-score [--top <n>] [--json]` — HITS hub/authority scoring over `backlink-index.jsonl`; ranks top hubs and authorities, flags high-hub-low-authority nodes as likely administrative aggregators (MOCs/index pages) vs. genuine topical authorities
+- `commonplace hub-score [--top <n>] [--json]` — HITS hub/authority scoring over the backlink records; ranks top hubs and authorities, flags high-hub-low-authority nodes as likely administrative aggregators (MOCs/index pages) vs. genuine topical authorities
 - `commonplace eval:retrieval [--gold <path>] [--seed-mode flat|tiered] [--no-abstraction] [--no-authority] [--answers <dir>] [--history] [--json]` — Deterministic retrieval eval: seed recall over a gold question set (default `$VAULT/.wiki/evals/gold.jsonl`, never committed — the committed fixture set is CI-only), optional answer-transcript citation/groundedness scoring, optional history append to `.wiki/eval-history.jsonl`. Reports seed recall and mean reciprocal rank (position-sensitive, for ranking ablations).
 - `commonplace abstract [--dry-run] [--json]` — Backfill `abstraction:` frontmatter (deterministic derivation from Summary/definition text) across source + concept notes; on completion sets the vault's `abstractions: true` adoption flag (switches `isStub` to also key on missing abstractions and makes validation require the field). Run `commonplace index` afterwards.
 - `commonplace seed --query "<text>" [--mode tiered|flat] [--no-abstraction] [--no-authority] [--json]` — Deterministic tiered seed helper for wiki-query: matches query terms against explicit key spaces in order (A `abstraction`, B cue anchors = tags/MOC names/wikilink display texts, C names/titles, D whole-record grep only when A–C yield <3 seeds); prints candidates with tier + matched terms. Seeds are jumping-off points — read the notes before judging relevance. Tiered hits are ordered by HITS authority within each tier (`--no-authority` disables the ordering).
@@ -289,8 +397,8 @@ Paper commands:
 
 ## Vault Location
 
-The set of vaults lives in `vaults.json` under `CLAUDE_PLUGIN_DATA` (a registry of `{id, path, label, aliases}` plus a `default`). `commonplace init` appends to it; `.vault-path` is kept as a back-compat mirror of the default vault for instant `bin/commonplace` lookups. Selection precedence is: explicit `--vault <id|path>` → cwd walk-up (`.obsidian/`/`.wiki/`) → registry default. Per-vault `.wiki/` config/indexes are unchanged. The vault's own CLAUDE.md defines the schema and conventions.
+The set of vaults lives in `vaults.json` under `CLAUDE_PLUGIN_DATA` (a registry of `{id, path, label, aliases, isPrivate?}` plus a `default`). An `isPrivate` vault never appears in another vault's listings and none of its titles may be written outside it. `/vault use <id>` pins a vault for the project (`--default` for every project). `commonplace init` appends to it; `.vault-path` is kept as a back-compat mirror of the default vault for instant `bin/commonplace` lookups. Selection precedence is: explicit `--vault <id|path>` → cwd walk-up (`.obsidian/`/`.wiki/`) → registry default. Per-vault `.wiki/` config/indexes are unchanged. The vault's own CLAUDE.md defines the schema and conventions.
 
 ## Domain System
 
-Domains are inferred from file paths, never stored in frontmatter. The domain registry lives in the vault's CLAUDE.md between sentinel comments.
+Domains are inferred from file paths, never stored in frontmatter. The registry is `<vault>/.wiki/domains.json`: `{path, scope, linkGroup?, aliases?}` per domain. A private domain's shard is its `linkGroup` (else its id), so opening one domain opens its group. `aliases` are other names the user calls it, used by `/vault open` and prompt proposals. Folders that appear after the first v2 index are quarantined (sealed) until `/vault domain public|private <id>`.

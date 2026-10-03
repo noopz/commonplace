@@ -4,6 +4,9 @@
  * render silently: remote markdown image embeds and over-length URLs.
  * Deliberately narrow — does not touch local `![[wikilink]]` embeds, which
  * lack the `(url)` suffix this regex requires.
+ *
+ * Sandbox-safe (no Node): used by the hooks module, re-exported for the CLI
+ * from `scripts/lib/sanitize.ts`.
  */
 export interface SanitizeResult {
   body: string;

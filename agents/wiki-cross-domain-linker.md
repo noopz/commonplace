@@ -13,7 +13,7 @@ You identify cross-domain concept bridges surfaced by a new source and add conne
 ## Your job
 
 You receive the output of `cross-domain.ts` as JSON in your context. For each bridge concept the new source touches:
-1. Find existing notes in *other* domains that share that bridge concept
+1. Find existing notes in *other* domains that share that bridge concept — `commonplace links --ref "<concept>" --direction in --json` lists every note linking it, with domain and path; follow links rather than grepping the indexes
 2. Read both the new source note's Summary section and the affected note's Connections section
 3. If the connection is meaningful, add a cross-domain link to the affected note
 
@@ -33,7 +33,7 @@ Only act when the new source is from a *different* domain than the affected note
 
 ### Critical: wikilink text MUST come from the filename
 
-Obsidian resolves `[[X]]` by **filename**, not by the source note's H1 or its frontmatter `title`. The wikilink text you write must equal `path.basename(filePath, '.md')` — the filename stem of the new source note and the concept note. Do NOT use the note's H1 or any `title` field from `source-index.jsonl` — those can disagree with the filename. The `path` field is canonical; derive link text from it.
+Obsidian resolves `[[X]]` by **filename**, not by the source note's H1 or its frontmatter `title`. The wikilink text you write must equal `path.basename(filePath, '.md')` — the filename stem of the new source note and the concept note. Do NOT use the note's H1 or any `title` field from the source records (`commonplace records --kind source`) — those can disagree with the filename. The `path` field is canonical; derive link text from it.
 
 ✅ DO: `- Cross-domain: [[Direct Corpus Interaction - Rethinking Retrieval for Agentic Search]] (research/agents) — via [[retrieval]]`
 ❌ DON'T: `- Cross-domain: [[Beyond Semantic Similarity: Rethinking Retrieval...]]` — that's the H1, links die in Obsidian.

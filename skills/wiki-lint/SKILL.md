@@ -15,7 +15,9 @@ The vault accumulates entropy over time — broken links from renamed notes, sta
 
 ### Step 0: Resolve vault path
 
-Run `commonplace vault-path` to get the vault path. Use it in all commands below.
+The plugin states the vault path above this skill's text; use it directly. Only if it is missing, run `commonplace vault-path`. Use it in all commands below.
+
+Findings about notes in a private domain the user has not opened this session are omitted by the CLI; do not go looking for them.
 
 ### Step 1: Rebuild indexes
 
@@ -72,10 +74,7 @@ After fixes:
 After the mechanical report, surface actionable intelligence from the vault's shape:
 
 **High-value stubs** — concept stubs with high `backlinkCount` are the most-referenced unknown concepts in the corpus. For the top 3-5:
-```
-Grep "isStub.*true" in concept-index.jsonl (path set to $VAULT_PATH/.wiki/concept-index.jsonl)
-```
-Sort by `backlinkCount` descending. For each, suggest: *"[[ConceptName]] is referenced N times but has no definition. Suggested search: ..."*
+`vault_list what:"stubs"` lists them, most-linked first (CLI twin: `commonplace lint --check stubs --rank-by-traffic`). For each, suggest: *"[[ConceptName]] is referenced N times but has no definition. Suggested search: ..."*
 
 **Bridge concepts** — concepts appearing in 2+ domains (`domains` array length > 1) are cross-domain connectors worth deepening. Mention the top 2-3 and which domains they bridge.
 
