@@ -108,7 +108,7 @@ function resolveRef(ctx: NounCtx, ref: string): number | null {
 
 export async function search(
   ctx: NounCtx,
-  args: { query: string; limit?: number; kinds?: CommonplaceNodeKind[]; domain?: string },
+  args: { query: string; limit?: number; offset?: number; kinds?: CommonplaceNodeKind[]; domain?: string },
 ): Promise<CommonplaceSearchResult | CommonplaceError> {
   const t0 = ctx.now();
   const v = ctx.index.view;
@@ -117,19 +117,28 @@ export async function search(
     return { error: "No such domain" };
   }
   const limit = Math.max(1, Math.min(25, Number(args.limit ?? 8) || 8));
-  // Over-fetch when filtering by kind/domain (cards decide those).
-  const raw = v.search(args.query, { limit: args.kinds || args.domain ? limit * 6 : limit });
+  const offset = Math.max(0, Math.min(200, Math.floor(Number(args.offset ?? 0)) || 0));
+  // Fetch one past the page to know whether another exists; over-fetch when
+  // filtering by kind/domain (cards decide those).
+  const want = offset + limit + 1;
+  const raw = v.search(args.query, { limit: args.kinds || args.domain ? want * 6 : want });
   const cards = await cardsFor(ctx, raw.map((h) => h.id));
   const hits = [];
+  let seen = 0;
+  let more = false;
   for (const h of raw) {
     const c = cards.get(h.id);
     if (!c) continue;
     if (args.kinds && !args.kinds.includes(c.kind)) continue;
     if (args.domain && c.domain !== args.domain) continue;
-    hits.push({ ...c, rank: hits.length + 1, matched: h.matched });
-    if (hits.length >= limit) break;
+    if (seen++ < offset) continue;
+    if (hits.length >= limit) {
+      more = true;
+      break;
+    }
+    hits.push({ ...c, rank: offset + hits.length + 1, matched: h.matched });
   }
-  return { hits, vault: ctx.vaultId, tookMs: ctx.now() - t0 };
+  return { hits, vault: ctx.vaultId, tookMs: ctx.now() - t0, ...(more ? { nextOffset: offset + limit } : {}) };
 }
 
 // ----------------------------------------------------------------- links

@@ -45,6 +45,7 @@ export function formatSearch(r: CommonplaceSearchResult, query: string): string 
     lines.push(`   links: in ${h.inDegree} / out ${h.outDegree} · matched: ${h.matched.join(", ")}`);
     if (h.isPrivate) lines.push(`   ${PRIVATE_CAUTION}`);
   }
+  if (r.nextOffset !== undefined) lines.push(`More pointers exist: repeat with offset ${r.nextOffset}.`);
   lines.push("Pointers only — a lexical match is not relevance. Read with vault_note; follow with vault_links.");
   return lines.join("\n");
 }

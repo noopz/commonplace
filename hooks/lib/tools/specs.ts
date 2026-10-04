@@ -24,6 +24,7 @@ export const VAULT_SEARCH_SPEC = {
     properties: {
       query: { type: "string", description: "What to look for, in the user's own words and distinctive terms." },
       limit: { type: "number", description: "Maximum pointers (default 8, max 25)." },
+      offset: { type: "number", description: "Skip this many ranked pointers — the next page when the last one said more exist." },
       domain: { type: "string", description: "Restrict to one domain id (see vault_list domains)." },
       vault: VAULT_ARG,
     },

@@ -15,6 +15,7 @@ import { parseNote } from "../index/parse.ts";
 import { buildIndex, type IndexNote } from "../index/model.ts";
 import { serializeIndex } from "../index/layout.ts";
 import { VaultIndex, type IndexPorts } from "../index/load.ts";
+import { RANK_LINEAR } from "../index/postings.ts";
 
 const T = (s: string) => promptTokens(s);
 
@@ -103,7 +104,7 @@ async function syncLane() {
   const idx = new VaultIndex(ports, DOMAINS);
   await idx.load();
   return async (prompt: string) => {
-    const hits = idx.view!.search(prompt, { limit: 8 });
+    const hits = idx.view!.search(prompt, { limit: 8, rank: RANK_LINEAR }); // as register.tsx
     const cards = await idx.cards(hits.map((h) => h.id));
     const pick = pickPrimeCandidate(hits, (id) => {
       const c = cards.get(id);

@@ -23,7 +23,7 @@ import type { ParsedNote, NoteKind, LinkKind } from "./parse.js";
 import { buildNames, type Names, type NameNode } from "../graph/resolver.js";
 import { buildCsr, packCsr, KIND_INDEX, type Csr, type CsrPacked, type EdgeInput } from "../graph/csr.js";
 import { hitsCsr } from "../graph/hits.js";
-import { buildPostings, type PostingsInput, type PostingsRow } from "./postings.js";
+import { buildPostings, type PostingsInput, type PostingsRow, type TermConfig } from "./postings.js";
 import { makeCard, type Card } from "./cards.js";
 import { MAIN, isPrivate, shardOfDomain, type DomainMap } from "../core/scope.js";
 
@@ -104,6 +104,8 @@ export type BuildOptions = {
   knownLoose?: ReadonlySet<string>;
   /** Folders that hold concepts/MOCs — never quarantined. */
   structureDirs?: readonly string[];
+  /** Postings term shape (default TERMS; `eval:search --tune` overrides it in memory). */
+  terms?: TermConfig;
 };
 
 export type BuildResult = {
@@ -337,7 +339,7 @@ export function buildIndex(notes: readonly IndexNote[], opts: BuildOptions): Bui
     const al = byId.get(id)!.parsed.aliases;
     if (al.length) pubAliases[String(id)] = al;
   }
-  const pubPostings = buildPostings(pubIds.map((id) => postingsFor(id, isPub)));
+  const pubPostings = buildPostings(pubIds.map((id) => postingsFor(id, isPub)), { terms: opts.terms });
   const filterNames = (keep: (id: number) => boolean) => {
     const out: Record<string, number[]> = {};
     for (const [k, ids] of names) {
@@ -438,7 +440,7 @@ export function buildIndex(notes: readonly IndexNote[], opts: BuildOptions): Bui
       foreign: { sentinels: foreignSentinels, nodes: foreignNodes },
       names: filterNames(inShard),
       unresolved: filterUnresolved(inShard),
-      postings: buildPostings(ids.map((id) => postingsFor(id, visibleWhenOpen))),
+      postings: buildPostings(ids.map((id) => postingsFor(id, visibleWhenOpen)), { terms: opts.terms }),
       linkctx: linkctxAll.filter(
         (c) => (inShard(c.s) && visibleWhenOpen(c.t)) || (isPub(c.s) && inShard(c.t)),
       ),

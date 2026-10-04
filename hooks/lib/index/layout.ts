@@ -23,6 +23,7 @@
 
 import { CARDS_PER_CHUNK, cardChunk, cardChunkName, type Card } from "./cards.js";
 import type { BuildResult, LinkCtx } from "./model.js";
+import { TERMS, termSig } from "./postings.js";
 
 export const GRAPH_DIR = "graph";
 export const SEALED_DIR = "sealed";
@@ -63,6 +64,8 @@ export type Manifest = {
   /** Chunk counts, and the ids per chunk they were cut at (a reader built for another size must not use them). */
   chunks: { cards: number; linkctx: number; cardsPer: number; linkctxPer: number };
   knownLoose: string[];
+  /** `termSig(TERMS)` the postings were cut with; a reader with another shape treats the index as absent. */
+  terms?: string;
 };
 
 export type NamesFile = {
@@ -142,6 +145,7 @@ export function serializeIndex(r: BuildResult, meta: { version: number; builtAt:
     shards: { main: { nodes: r.stats.publicNodes, edges: r.stats.publicEdges } },
     chunks: { cards: nCardChunks, linkctx: nCtxChunks, cardsPer: CARDS_PER_CHUNK, linkctxPer: LINKCTX_PER_CHUNK },
     knownLoose: r.knownLoose,
+    terms: termSig(TERMS),
   };
   // Key order is fixed so `head -c 256` yields `{"v":2,"version":N,"journalSeq":S,`.
   out.push([P.manifest, JSON.stringify(manifest)]);

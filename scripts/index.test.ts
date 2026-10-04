@@ -139,3 +139,21 @@ test("concept records carry a scope derived from their domains", () => {
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("--incremental rebuilds a graph cut with another postings term shape, even with no note changed", () => {
+  const root = makeVault();
+  try {
+    const run = (...extra: string[]) =>
+      execFileSync(process.execPath, ["--import", "tsx", CLI, "--vault", root, ...extra], { encoding: "utf-8" });
+    run();
+    const mPath = join(root, ".wiki", "graph", "manifest.json");
+    const fresh = JSON.parse(readFileSync(mPath, "utf-8"));
+    assert.ok(typeof fresh.terms === "string" && fresh.terms.length > 0, "manifest records its term shape");
+    assert.match(run("--incremental"), /up to date/, "same shape, nothing changed: no-op");
+    writeFileSync(mPath, JSON.stringify({ ...fresh, terms: "stem=none;phr=0;w=4,4,3,2,1" }));
+    assert.doesNotMatch(run("--incremental"), /up to date/);
+    assert.equal(JSON.parse(readFileSync(mPath, "utf-8")).terms, fresh.terms);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});

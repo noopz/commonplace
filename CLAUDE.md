@@ -76,7 +76,8 @@ userConfig" warning.
   session's open shards into `commonplace` commands itself.
 - **The vault tools** (`hooks/lib/tools/*`, served by one regex `tool.call`
   hook): `vault_search`, `vault_note` (pinned), `vault_links`, `vault_path`,
-  `vault_neighbourhood`, `vault_list`, `vault_skill` (deferred). No numeric
+  `vault_neighbourhood`, `vault_list`, `vault_skill` (deferred). `vault_search`
+  pages (`offset`; the reply says when more exist). No numeric
   score ever reaches the model. Sealed titles in returned text are masked to
   `[[…]]`. Each has a CLI twin on the same code: `commonplace search|note|
   links|path|neighbourhood`.
@@ -277,6 +278,25 @@ p95 sync < 30 ms, late-drop < 10%, frequency ≤ 20%). Gold at
 `primeContext` stays off. `eval:judge --prime` isolates the prime judge and
 `--used` scores used-in-answer on stored answers.
 
+**`commonplace eval:search` measures what the model actually calls.**
+`eval:retrieval` and `eval:connect` drive the v1 CLI seed/connect code;
+this one scores `vault_search` (postings) on `gold.jsonl` and the in-module
+Connect pool on `connect-gold.jsonl`, rebuilding the index IN MEMORY from the
+vault (read-only, `scripts/lib/index-notes.ts`) so build-time knobs can vary.
+Postings have two kinds of knob: `TERMS` (stemming, phrase keys, field
+weights) is baked into the artefact, so the manifest records `termSig(TERMS)`
+and a mismatch loads as absent and rebuilds (`--incremental` too); `RANK`
+(BM25 saturation `k1`, coverage exponent, phrase weight) is query-time.
+`--tune` runs coordinate ascent over both plus Connect's `seedK`/`restart`/
+`docSeed`/`lambda`, with a 2-fold held-out check — with ~50 gold questions
+the folds disagree on exact values, so pick defaults that win on BOTH folds,
+not the full-set optimum. `--cfg '<json>'` scores overrides, `--show "<q>"`
+prints top hits. Prime ranks with `RANK_LINEAR` because its absolute
+thresholds were pinned on the old scale; re-pin them with `eval:prime` before
+moving it. Measured and rejected so far: phrase keys (no gain) and
+HippoRAG-style down-weighting of source seeds (`docSeed` < 1 lowered Connect
+MRR — sources are the targets here and many concepts are stubs).
+
 **`commonplace eval:scale`** times rebuild, patch, sweep, journal replay and
 the tool p50s on synthetic 1×/10×/50× vaults (invented text only). Cards and
 link contexts are chunked small (128 / 64 ids per file) because a tool call's
@@ -365,6 +385,7 @@ All commands auto-discover the vault via cwd (`.obsidian/` or `.wiki/` marker) o
 - `commonplace synthetic --scale N --out <dir>` / `commonplace eval:scale` — Synthetic vaults and the scale benchmark
 - `commonplace test:ui` — Module UI tests under `claude plugin test` (terminal + desktop); also `npm run test:ui`
 - `commonplace eval:prime [--repeat 3] [--init]` — Prime's gate (live `claude -p` sessions)
+- `commonplace eval:search [--tune] [--cfg '<json>'] [--show "<q>"] [--json] [--history]` — `vault_search` + Connect pool over the vault's gold sets, in-memory build, zero tokens
 - `commonplace vaults [--match "<phrase>"] [--json]` — List registered vaults, or match one by name (used by wiki-query to resolve "search in <name>")
 - `commonplace config` — Print `.wiki/config.json` contents (no tsx spawn, instant)
 - `commonplace index [--incremental] [--json]` — The single index writer: `.wiki/graph/` (v2 graph artefacts), `.wiki/sealed/`, and the per-shard records files (v1's `*-index.jsonl` are no longer written; stale ones are deleted). `--incremental` is a no-op when no note is newer than the last build.

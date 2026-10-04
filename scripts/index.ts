@@ -62,6 +62,7 @@ import { discoverGenres, loadGenreSamples } from "./lib/genre-discovery.js";
 import { parseNote as parseIndexNote } from "../hooks/lib/index/parse.js";
 import { buildIndex, type IndexNote, type PrevIds } from "../hooks/lib/index/model.js";
 import { serializeIndex, P, type Manifest } from "../hooks/lib/index/layout.js";
+import { TERMS, termSig } from "../hooks/lib/index/postings.js";
 import { recordLines, RECORD_KINDS, type RecordKind } from "../hooks/lib/index/records.js";
 import { shardOfDomain, MAIN, type DomainMap } from "../hooks/lib/core/scope.js";
 import type { SourceNote, ConceptNote, MocNote, DomainSummary } from "./lib/types.js";
@@ -94,7 +95,13 @@ if (values.incremental) {
   // v1 semantics: nothing newer than the last build → nothing to do. The
   // hooks module asks for a FULL build when the graph is absent or due for
   // compaction, so this shortcut never strands a vault without artefacts.
-  if (!allFiles.some((f) => getFileMtime(f) > last)) {
+  // A v2 graph cut with another postings term shape is stale even when no
+  // note moved. (No manifest at all keeps the v1 semantics above.)
+  let termsStale = false;
+  try {
+    termsStale = (JSON.parse(readFileSync(W(P.manifest), "utf-8")) as Manifest).terms !== termSig(TERMS);
+  } catch {}
+  if (!termsStale && !allFiles.some((f) => getFileMtime(f) > last)) {
     console.log("Indexes up to date, 0 files changed");
     process.exit(0);
   }

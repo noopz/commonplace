@@ -81,12 +81,20 @@ export type CommonplaceCard = {
 export type CommonplaceSearchArgs = {
   query: string;
   limit?: number;
+  /** Skip this many ranked hits (paging: pass the previous offset + limit). */
+  offset?: number;
   vault?: string;
   kinds?: CommonplaceNodeKind[];
   domain?: string;
 };
 export type CommonplaceSearchHit = CommonplaceCard & { rank: number; matched: string[] };
-export type CommonplaceSearchResult = { hits: CommonplaceSearchHit[]; vault: string; tookMs: number };
+export type CommonplaceSearchResult = {
+  hits: CommonplaceSearchHit[];
+  vault: string;
+  tookMs: number;
+  /** Offset of the next page, when more hits exist past this one. */
+  nextOffset?: number;
+};
 
 export type CommonplaceNoteArgs = { ref: string; vault?: string; maxChars?: number };
 

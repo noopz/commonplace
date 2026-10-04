@@ -162,6 +162,25 @@ test("search output carries no numeric score", async () => {
   assert.equal(s.hits[0].title, "Alpha Report");
 });
 
+test("search pages with offset and says when more exist", async () => {
+  const { index, ctx } = setup();
+  await index.load();
+  const all = await noun.search(ctx(), { query: "drift", limit: 25 });
+  assert.ok(!("error" in all) && all.hits.length >= 2);
+  const first = await noun.search(ctx(), { query: "drift", limit: 1 });
+  assert.ok(!("error" in first));
+  assert.equal(first.nextOffset, 1);
+  assert.match(formatSearch(first, "drift"), /repeat with offset 1/);
+  const second = await noun.search(ctx(), { query: "drift", limit: 1, offset: 1 });
+  assert.ok(!("error" in second));
+  assert.equal(second.hits[0].title, all.hits[1].title);
+  assert.equal(second.hits[0].rank, 2);
+  const last = await noun.search(ctx(), { query: "drift", limit: 25, offset: all.hits.length - 1 });
+  assert.ok(!("error" in last));
+  assert.equal(last.hits.length, 1);
+  assert.equal(last.nextOffset, undefined);
+});
+
 test("path draws a hop walked against its link as ←kind— and ends at the target", async () => {
   const { index, ctx } = setup();
   await index.load();

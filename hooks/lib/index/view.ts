@@ -26,9 +26,8 @@
 
 import { type Csr, type Adjacency, type EdgeKind, KIND_INDEX, KIND_WEIGHT, EDGE_KINDS } from "../graph/csr.js";
 import { stemOf, normalizeKey, type Names } from "../graph/resolver.js";
-import { tokenize, GENERIC } from "../core/text.js";
 import { makeCard, type Card } from "./cards.js";
-import { noteTerms, type PostingsRow } from "./postings.js";
+import { noteTerms, queryKeys, keyScore, rankHits, TERMS, RANK, type PostingsRow, type TermConfig, type RankConfig } from "./postings.js";
 import { domainOf, type ShardArtefact } from "./model.js";
 import type { JournalNote } from "./journal.js";
 import { MAIN, type DomainMap } from "../core/scope.js";
@@ -49,6 +48,9 @@ export type ViewInput = {
   domains: DomainMap;
   hub?: ArrayLike<number>;
   auth?: ArrayLike<number>;
+  /** Term shape the postings were built with (eval only; the loader checks the manifest). */
+  terms?: TermConfig;
+  rank?: RankConfig;
 };
 
 export type SearchHit = { id: number; score: number; matched: string[] };
@@ -60,6 +62,8 @@ export class VaultView implements Adjacency {
   readonly domains: DomainMap;
   readonly hub?: ArrayLike<number>;
   readonly auth?: ArrayLike<number>;
+  readonly terms: TermConfig;
+  rank: RankConfig;
 
   private baseNames: Map<string, number[]>;
   private baseAliases: Map<number, string[]>;
@@ -100,6 +104,8 @@ export class VaultView implements Adjacency {
     this.domains = inp.domains;
     this.hub = inp.hub;
     this.auth = inp.auth;
+    this.terms = inp.terms ?? TERMS;
+    this.rank = inp.rank ?? RANK;
     this.baseNames = new Map(Object.entries(inp.names));
     this.baseAliases = new Map(Object.entries(inp.aliases).map(([k, v]) => [Number(k), v]));
     this.baseUnresolved = new Map(Object.entries(inp.unresolved));
@@ -278,41 +284,40 @@ export class VaultView implements Adjacency {
   /**
    * Field-weighted search over the visible notes: base postings (minus
    * patched/deleted docs) + open shard postings + patched docs, scored
-   * Σ fieldScore · ln(1 + N/df) exactly as `searchPostings`.
+   * exactly as `searchPostings` (key scores, phrase boost, coverage).
    */
-  search(query: string, opts: { limit?: number; filter?: (id: number) => boolean } = {}): SearchHit[] {
+  search(query: string, opts: { limit?: number; filter?: (id: number) => boolean; rank?: RankConfig } = {}): SearchHit[] {
     const limit = opts.limit ?? 8;
-    const raw = [...new Set(tokenize(query))];
-    const terms = raw.filter((t) => !GENERIC.has(t));
-    const use = terms.length ? terms : raw;
+    const r = opts.rank ?? this.rank;
+    const q = queryKeys(query, this.terms);
     const N = this.baseN + this.shardN;
     const acc = new Map<number, { score: number; matched: string[] }>();
-    const add = (id: number, fs: number, idf: number, t: string) => {
-      if (!this.visible(id) || (opts.filter && !opts.filter(id))) return;
-      const a = acc.get(id) ?? { score: 0, matched: [] };
-      a.score += fs * idf;
-      if (!a.matched.includes(t)) a.matched.push(t);
-      acc.set(id, a);
-    };
-    for (const t of use) {
+    const run = (t: string, mul: number, word: boolean) => {
+      if (!(mul > 0)) return;
       const b = this.basePostings.get(t);
       const s = this.shardPostings.get(t);
       let ovDf = 0;
       for (const m of this.postOv.values()) if (m.has(t)) ovDf++;
       const df = (b?.df ?? 0) + (s?.df ?? 0) + ovDf;
-      if (df === 0) continue;
-      const idf = Math.log(1 + Math.max(N, 1) / df);
-      for (const [id, fs] of b?.n ?? []) if (!this.postOv.has(id)) add(id, fs, idf, t);
-      for (const [id, fs] of s?.n ?? []) if (!this.postOv.has(id)) add(id, fs, idf, t);
+      if (df === 0) return;
+      const add = (id: number, fs: number) => {
+        if (!this.visible(id) || (opts.filter && !opts.filter(id))) return;
+        if (!word && !acc.has(id)) return; // a phrase only boosts a note a word already found
+        const a = acc.get(id) ?? { score: 0, matched: [] };
+        a.score += mul * keyScore(fs, df, N, r);
+        if (word && !a.matched.includes(t)) a.matched.push(t);
+        acc.set(id, a);
+      };
+      for (const [id, fs] of b?.n ?? []) if (!this.postOv.has(id)) add(id, fs);
+      for (const [id, fs] of s?.n ?? []) if (!this.postOv.has(id)) add(id, fs);
       for (const [id, m] of this.postOv) {
         const fs = m.get(t);
-        if (fs) add(id, fs, idf, t);
+        if (fs) add(id, fs);
       }
-    }
-    return [...acc.entries()]
-      .sort((x, y) => y[1].score - x[1].score || y[1].matched.length - x[1].matched.length || x[0] - y[0])
-      .slice(0, limit)
-      .map(([id, a]) => ({ id, score: a.score, matched: a.matched }));
+    };
+    for (const t of q.words) run(t, 1, true);
+    for (const t of q.phrases) run(t, r.phrase, false);
+    return rankHits(acc, q.words.length, r, limit);
   }
 
   // --------------------------------------------------------------- refresh
@@ -451,7 +456,7 @@ export class VaultView implements Adjacency {
           anchors: note.links.filter((l) => l.k === "body" && l.d).map((l) => l.d!),
           tags: note.tags,
           mocs: note.links.filter((l) => l.k === "moc").map((l) => l.d ?? l.t),
-        }),
+        }, this.terms),
       );
     }
     // Links waiting on a key a patch just claimed start resolving.

@@ -10,7 +10,7 @@
  * standing as `/vault open` — never something a pointer or a prompt can set.
  *
  * Usage:
- *   commonplace search --query "<text>" [--limit N] [--domain d]
+ *   commonplace search --query "<text>" [--limit N] [--offset N] [--domain d]
  *   commonplace note --ref "<title|path>" [--max-chars N]
  *   commonplace links --ref "<title|path>" [--direction out|in|both] [--limit N]
  *   commonplace path --from "<ref>" --to "<ref>" [--max-hops N] [--no-avoid-hubs]
@@ -42,6 +42,7 @@ const { values } = parseArgs({
     json: { type: "boolean", default: false },
     query: { type: "string" },
     limit: { type: "string" },
+    offset: { type: "string" },
     domain: { type: "string" },
     ref: { type: "string" },
     "max-chars": { type: "string" },
@@ -140,7 +141,7 @@ let text: string;
 switch (cmd) {
   case "search": {
     const q = need(values.query, "query");
-    const r = await noun.search(ctx, { query: q, limit: num(values.limit), domain: values.domain });
+    const r = await noun.search(ctx, { query: q, limit: num(values.limit), offset: num(values.offset), domain: values.domain });
     if ("error" in r) fail(r.error);
     result = r;
     text = formatSearch(r, q);

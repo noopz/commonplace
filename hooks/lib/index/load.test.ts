@@ -98,6 +98,19 @@ test("a manifest cut at other chunk sizes loads as absent, so the caller rebuild
   assert.equal(await new VaultIndex(fakePorts(old), DOMAINS).load(), "absent", "a pre-chunk-size manifest");
 });
 
+test("a manifest cut with another postings term shape loads as absent", async () => {
+  const files = art(BASE);
+  const m = JSON.parse(files.get(P.manifest)!);
+  m.terms = "stem=none;phr=0;w=4,4,3,2,1";
+  files.set(P.manifest, JSON.stringify(m));
+  assert.equal(await new VaultIndex(fakePorts(files), DOMAINS).load(), "absent");
+  const old = art(BASE);
+  const m2 = JSON.parse(old.get(P.manifest)!);
+  delete m2.terms;
+  old.set(P.manifest, JSON.stringify(m2));
+  assert.equal(await new VaultIndex(fakePorts(old), DOMAINS).load(), "absent", "a pre-terms manifest");
+});
+
 test("opening a shard splices its notes and the public→private edges", async () => {
   const ports = fakePorts(art(BASE));
   const idx = new VaultIndex(ports, DOMAINS);

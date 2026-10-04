@@ -64,3 +64,83 @@ test("cards fit the byte budget and clip on word boundaries", () => {
   assert.equal(cardChunk(CARDS_PER_CHUNK - 1), 0);
   assert.equal(cardChunkName("main", cardChunk(CARDS_PER_CHUNK * 2)), "main.002.jsonl");
 });
+
+// ---------------------------------------------------------------------------
+// Term shape (stemming, phrases) and query-time ranking (saturation, coverage)
+// ---------------------------------------------------------------------------
+
+import { stemS, queryKeys, termSig, TERMS, RANK, RANK_LINEAR, type TermConfig } from "./postings.ts";
+
+test("S-stemmer folds plurals only", () => {
+  assert.equal(stemS("memories"), "memory");
+  assert.equal(stemS("agents"), "agent");
+  assert.equal(stemS("caches"), "cache");
+  assert.equal(stemS("analysis"), "analysis", "-is kept");
+  assert.equal(stemS("status"), "status", "-us kept");
+  assert.equal(stemS("glass"), "glass", "-ss kept");
+  assert.equal(stemS("gas"), "gas", "too short");
+  assert.equal(stemS("retrieval"), "retrieval");
+});
+
+const PLAIN: TermConfig = { stem: "none", phrases: false, weights: TERMS.weights };
+const STEMMED: TermConfig = { ...PLAIN, stem: "s" };
+
+test("stemming lets a plural query meet a singular title", () => {
+  const notes: PostingsInput[] = [
+    { id: 0, title: "Kestrel Memory Architecture" },
+    { id: 1, title: "Lantern Queue" },
+  ];
+  const plain = indexPostings(buildPostings(notes, { terms: PLAIN }), 2);
+  const stemmed = indexPostings(buildPostings(notes, { terms: STEMMED }), 2);
+  assert.deepEqual(searchPostings(plain, "kestrel memories", { terms: PLAIN }).map((h) => h.matched), [["kestrel"]]);
+  assert.deepEqual(searchPostings(stemmed, "kestrel memories", { terms: STEMMED })[0].matched.sort(), ["kestrel", "memory"]);
+});
+
+test("coverage: matching more of the query beats one rare title word", () => {
+  // One note shares a single rare word in its title; the other matches
+  // three query words in weaker fields. Linear scoring ranks the rare word
+  // first; coverage ranks the broader match first.
+  const notes: PostingsInput[] = [
+    { id: 0, title: "Long-Term Orchard Trust" },
+    { id: 1, title: "Sensor Report", abstraction: "memory", tags: ["kestrel", "architecture"] },
+    ...Array.from({ length: 6 }, (_, i) => ({ id: 2 + i, title: `Filler ${i}`, abstraction: `sensor memory note ${i}` })),
+  ];
+  const idx = indexPostings(buildPostings(notes, { terms: PLAIN }), notes.length);
+  const q = "long-term kestrel memory architecture";
+  const linear = searchPostings(idx, q, { terms: PLAIN, rank: RANK_LINEAR });
+  const covered = searchPostings(idx, q, { terms: PLAIN, rank: { k1: 4, coverage: 2, phrase: 0 } });
+  assert.ok(linear.findIndex((h) => h.id === 0) < linear.findIndex((h) => h.id === 1), "linear: rare title word first");
+  assert.equal(covered[0].id, 1, "coverage: broader match first");
+});
+
+test("phrase keys only boost notes a word already found", () => {
+  const PHR: TermConfig = { ...PLAIN, phrases: true };
+  const notes: PostingsInput[] = [
+    { id: 0, title: "Drift Budget" },
+    { id: 1, title: "Budget Drift Notes" },
+  ];
+  const idx = indexPostings(buildPostings(notes, { terms: PHR }), 2);
+  assert.deepEqual(queryKeys("drift budget", PHR).phrases, ["drift budget"]);
+  const hits = searchPostings(idx, "drift budget", { terms: PHR, rank: { k1: Infinity, coverage: 0, phrase: 1 } });
+  assert.equal(hits[0].id, 0, "the exact phrase ranks first");
+  assert.deepEqual(hits[0].matched.sort(), ["budget", "drift"], "phrases never appear in matched");
+  assert.equal(searchPostings(idx, "budget", { terms: PHR }).length, 2);
+});
+
+test("generic query words are dropped on the typed form and the stem", () => {
+  assert.deepEqual(queryKeys("agents for kestrel", STEMMED).words, ["kestrel"]);
+  assert.deepEqual(queryKeys("agents", STEMMED).words, ["agent"], "all generic: keep them");
+});
+
+test("termSig changes with every build-time knob; defaults are the measured ones", () => {
+  const sigs = new Set([
+    termSig(PLAIN),
+    termSig(STEMMED),
+    termSig({ ...PLAIN, phrases: true }),
+    termSig({ ...PLAIN, weights: { ...PLAIN.weights, title: 5 } }),
+  ]);
+  assert.equal(sigs.size, 4);
+  assert.equal(TERMS.stem, "s");
+  assert.ok(RANK.coverage > 0 && Number.isFinite(RANK.k1));
+  assert.ok(!Number.isFinite(RANK_LINEAR.k1) && RANK_LINEAR.coverage === 0);
+});

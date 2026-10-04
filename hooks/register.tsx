@@ -80,6 +80,7 @@ import {
 } from "./lib/tools/format.js";
 import * as noun from "./lib/core/noun.js";
 import { connectPool } from "./lib/core/connect.js";
+import { RANK_LINEAR } from "./lib/index/postings.js";
 import { VaultIndex, type IndexPorts } from "./lib/index/load.js";
 import { parseNote as parseIndexNote } from "./lib/index/parse.js";
 import { journalNote } from "./lib/index/journal.js";
@@ -1542,7 +1543,12 @@ export const register: Register = (on, options) => {
       let summary = "";
       if (name === "vault_search") {
         const query = String(arg("query") ?? "");
-        const r = await noun.search(ctx, { query, limit: Number(arg("limit") ?? 8), domain: arg("domain") as string | undefined });
+        const r = await noun.search(ctx, {
+          query,
+          limit: Number(arg("limit") ?? 8),
+          offset: Number(arg("offset") ?? 0),
+          domain: arg("domain") as string | undefined,
+        });
         result = "error" in r ? `ERROR: ${r.error}` : formatSearch(r, query);
         summary = "error" in r ? "error" : `${r.hits.length} pointers`;
       } else if (name === "vault_note") {
@@ -2038,7 +2044,8 @@ export const register: Register = (on, options) => {
             segment = remember(segment, tokens, seg.shift);
             if (segment.touches >= 1) decision = "skip-budget";
             else {
-              const hits = view.search(e.text, { limit: 8 });
+              // Prime thresholds were pinned on the linear scale (RANK_LINEAR).
+              const hits = view.search(e.text, { limit: 8, rank: RANK_LINEAR });
               const cards = await idx.cards(hits.map((h) => h.id));
               const pick = pickPrimeCandidate(
                 hits,
