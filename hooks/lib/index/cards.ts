@@ -29,10 +29,13 @@ export type Card = {
   tags: string[];
   stub: boolean;
   ret: boolean;
+  /** When the knowledge was produced (`published:`/`date:`), when it entered the vault (`created:`). */
+  pub?: string;
+  cr?: string;
 };
 
 export const CARD_ABSTRACTION_MAX = 120;
-export const CARD_MAX_BYTES = 250;
+export const CARD_MAX_BYTES = 290;
 /** Small on purpose: a card lookup parses its whole chunk, and lookups scatter across ids. */
 export const CARDS_PER_CHUNK = 128;
 
@@ -51,6 +54,8 @@ export function clip(s: string, max: number): string {
 export function makeCard(c: Omit<Card, "a"> & { a: string }): Card {
   const card: Card = { ...c, a: clip(c.a, CARD_ABSTRACTION_MAX), tags: c.tags.slice(0, 5), nb: c.nb.slice(0, 3) };
   if (!c.af) delete card.af;
+  if (!c.pub) delete card.pub;
+  if (!c.cr) delete card.cr;
   const size = () => new TextEncoder().encode(JSON.stringify(card)).length;
   while (size() > CARD_MAX_BYTES && card.tags.length > 0) card.tags.pop();
   while (size() > CARD_MAX_BYTES && card.nb.length > 0) card.nb.pop();

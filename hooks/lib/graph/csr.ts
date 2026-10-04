@@ -18,6 +18,7 @@ export const EDGE_KINDS = [
   "comparesWith",
   "usesMethod",
   "supersedes",
+  "contests",
 ] as const;
 export type EdgeKind = (typeof EDGE_KINDS)[number];
 export const KIND_INDEX: Record<EdgeKind, number> = Object.fromEntries(
@@ -33,6 +34,7 @@ export const KIND_WEIGHT: Record<EdgeKind, number> = {
   comparesWith: 3,
   usesMethod: 3,
   supersedes: 3,
+  contests: 3,
 };
 
 export type EdgeInput = { from: number; to: number; kind: EdgeKind; w?: number };

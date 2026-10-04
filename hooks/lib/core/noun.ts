@@ -59,8 +59,27 @@ const KIND_RANK: Record<string, number> = Object.fromEntries(
   Object.entries(KIND_WEIGHT).map(([k, w]) => [k, -w * 10 + KIND_INDEX[k as EdgeKind]]),
 );
 
+/**
+ * Titles of visible notes linking here with `kind` (`supersedes`/`contests`
+ * point from the newer note at the one it replaces or disputes). Titles come
+ * from paths: a note's title is its filename.
+ */
+function inboundTitles(view: VaultIndex["view"], id: number, kind: EdgeKind): string[] {
+  if (!view) return [];
+  const k = KIND_INDEX[kind];
+  const out = new Set<string>();
+  view.eachIn(id, (v, _w, ki) => {
+    if (ki !== k || !view.visible(v)) return;
+    const rel = view.relOfId(v);
+    if (rel) out.add(rel.split("/").pop()!.replace(/\.md$/, ""));
+  });
+  return [...out].sort();
+}
+
 export function toCard(c: Card, ctx: Pick<NounCtx, "vaultId" | "index">): CommonplaceCard {
   const shard = ctx.index.view?.shard(c.id) ?? MAIN;
+  const sup = inboundTitles(ctx.index.view, c.id, "supersedes");
+  const con = inboundTitles(ctx.index.view, c.id, "contests");
   return {
     id: c.id,
     vault: ctx.vaultId,
@@ -74,6 +93,10 @@ export function toCard(c: Card, ctx: Pick<NounCtx, "vaultId" | "index">): Common
     tags: c.tags,
     isStub: c.stub,
     isRetired: c.ret,
+    ...(c.pub ? { published: c.pub } : {}),
+    ...(c.cr ? { added: c.cr } : {}),
+    ...(sup.length ? { supersededBy: sup } : {}),
+    ...(con.length ? { contestedBy: con } : {}),
     ...(shard !== MAIN ? { isPrivate: true as const } : {}),
   };
 }

@@ -67,6 +67,7 @@ $VAULT_PATH/{structure.sources}/{Domain Name}/{Paper Title}.md
 tags: [paper, topic1, topic2]
 cssclasses: []
 created: 'YYYY-MM-DD'
+published: 'YYYY-MM'   # when the source itself came out (arXiv id 2502.x → 2025-02); omit if unknown
 abstraction: 'Six-to-twelve word noun-phrase-first descriptor of the core claim'
 concepts:
   - '[[Concept Name]]'
@@ -78,8 +79,16 @@ compares_with:    # optional — papers this is compared against
   - '[[Paper]]'
 uses_method:      # optional — methods employed
   - '[[Method]]'
+supersedes:       # optional — sources whose finding this one replaces (confirmed with the user)
+  - '[[Paper]]'
+contests:         # optional — sources this one disputes without settling (confirmed with the user)
+  - '[[Paper]]'
 ---
 ```
+
+**`published` vs `created`:** `created` is when the note entered the vault; `published` is when the knowledge was produced. Both are shown beside every search pointer, and neither decays a note — an old paper can still be the key one. Never guess `published`: take it from the arXiv id, the publication's own date, or omit it.
+
+**`supersedes` / `contests`:** only from the impact checker's `frontmatter proposal:` lines (or the user saying so), and only after the user confirms each one. Search then labels the older note `⚠ superseded by …` or `⚠ contested by …`; it is never retired, renamed or deleted for this — that is `wiki-supersede`, for entities the user switched away from.
 
 **`abstraction` (required):** one canonical descriptor, ~6–12 words, noun-phrase-first (e.g. 'staged ledger index that separates writes from lookups'), no citations, no dates. Derive it from the Summary's core claim. It is indexed as the note's primary retrieval key, so favor distinctive content words over generic ones — an abstraction that merely repeats the title gets lint-flagged.
 
@@ -178,9 +187,9 @@ After writing the source note and any new concept stubs:
    ```bash
    grep -nE '(supersedes|replaces|replaced|migrated from|formerly|previously known as|in place of)\s+\[\[' "<new source note path>"
    ```
-   If any match, the new note declares it supersedes an existing vault entity. Stop and route to `wiki-supersede` — pass the matched predecessor wikilink as `--old` and the new note path as `--new`. Without this, the predecessor's siblings will keep treating it as live. This is non-optional: a declared supersession that doesn't propagate is exactly the failure mode `wiki-supersede` exists to fix.
+   If any match, the new note declares it supersedes something. If the predecessor is a **research source or finding**, add it to the new note's `supersedes:` frontmatter after the user confirms, and stop there — the older note stays, labelled. If it is an **entity** (a tool, project, product or practice the user switched away from), stop and route to `wiki-supersede` — pass the matched predecessor wikilink as `--old` and the new note path as `--new`. Without this, the predecessor's siblings will keep treating it as live. This is non-optional: a declared supersession that doesn't propagate is exactly the failure mode `wiki-supersede` exists to fix.
 
-6. **Consolidation awareness**: the post-write hook compares the new note's `abstraction` against existing sources and surfaces consolidation candidates when they substantially overlap. If it does, follow its instructions (dispatch `commonplace:wiki-impact-checker`). Flag-and-link only — **never merge source notes**; genuine replacements route through `wiki-supersede`.
+6. **Consolidation awareness**: the post-write hook compares the new note's `abstraction` against existing sources and surfaces consolidation candidates when they substantially overlap. If it does, follow its instructions (dispatch `commonplace:wiki-impact-checker`). Flag-and-link only — **never merge source notes**. The checker's `frontmatter proposal:` lines (`supersedes` / `contests`) go to the user to confirm; write each confirmed one into the NEW note's frontmatter.
 
 7. **Log**: append to `$VAULT_PATH/.wiki/log.md`:
    ```bash

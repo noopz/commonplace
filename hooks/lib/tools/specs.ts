@@ -52,7 +52,7 @@ export const VAULT_LINKS_SPEC = {
   name: "vault_links",
   description:
     "Follow wikilinks: list a note's outgoing and incoming links (backlinks) in the user's vault graph, with " +
-    "edge kind (body, concept, MOC, buildsOn, comparesWith, usesMethod, supersedes) and the sentence around each link.",
+    "edge kind (body, concept, MOC, buildsOn, comparesWith, usesMethod, supersedes, contests) and the sentence around each link.",
   inputSchema: {
     type: "object",
     properties: {
@@ -60,7 +60,7 @@ export const VAULT_LINKS_SPEC = {
       direction: { type: "string", enum: ["out", "in", "both"], description: "Default both." },
       kinds: {
         type: "array",
-        items: { type: "string", enum: ["body", "concept", "moc", "buildsOn", "comparesWith", "usesMethod", "supersedes"] },
+        items: { type: "string", enum: ["body", "concept", "moc", "buildsOn", "comparesWith", "usesMethod", "supersedes", "contests"] },
         description: "Only these edge kinds.",
       },
       limit: { type: "number", description: "Maximum links (default 20, max 100)." },

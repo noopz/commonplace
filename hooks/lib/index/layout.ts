@@ -66,7 +66,12 @@ export type Manifest = {
   knownLoose: string[];
   /** `termSig(TERMS)` the postings were cut with; a reader with another shape treats the index as absent. */
   terms?: string;
+  /** Card/edge field schema (SCHEMA); a reader built for another treats the index as absent. */
+  schema?: number;
 };
+
+/** Bump when cards or edge kinds gain fields an old artefact lacks (2: dates on cards, `contests` edges). */
+export const SCHEMA = 2;
 
 export type NamesFile = {
   v: 2;
@@ -146,6 +151,7 @@ export function serializeIndex(r: BuildResult, meta: { version: number; builtAt:
     chunks: { cards: nCardChunks, linkctx: nCtxChunks, cardsPer: CARDS_PER_CHUNK, linkctxPer: LINKCTX_PER_CHUNK },
     knownLoose: r.knownLoose,
     terms: termSig(TERMS),
+    schema: SCHEMA,
   };
   // Key order is fixed so `head -c 256` yields `{"v":2,"version":N,"journalSeq":S,`.
   out.push([P.manifest, JSON.stringify(manifest)]);

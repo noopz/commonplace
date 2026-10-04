@@ -21,7 +21,8 @@ export type LinkKind =
   | "buildsOn"
   | "comparesWith"
   | "usesMethod"
-  | "supersedes";
+  | "supersedes"
+  | "contests";
 
 export interface ParsedLink {
   /** Inner text as written: `Target#h|display` (table `\|` unescaped). */
@@ -46,6 +47,10 @@ export interface ParsedNote {
   tags: string[];
   abstraction: string;
   abstractionFallback?: true;
+  /** `created:` — when the note entered the vault (YYYY-MM-DD). */
+  created?: string;
+  /** `published:` (else `date:`) — when the knowledge itself was produced (YYYY, YYYY-MM or YYYY-MM-DD). */
+  published?: string;
   /** `cues:` — other phrasings a reader would search for this note by (≤8, ≤80 chars each). */
   cues?: string[];
   headings: string[];
@@ -85,6 +90,7 @@ const FM_LINK_FIELDS: Array<[string, LinkKind]> = [
   ["uses_method", "usesMethod"],
   ["usesMethod", "usesMethod"],
   ["supersedes", "supersedes"],
+  ["contests", "contests"],
 ];
 
 export function classify(relPath: string, fm: YamlMap, opts: ParseOptions = {}): NoteKind {
@@ -253,6 +259,20 @@ function fmLinkStrings(v: YamlValue | undefined): string[] {
   return out;
 }
 
+/**
+ * A frontmatter date as `YYYY`, `YYYY-MM` or `YYYY-MM-DD`, else undefined.
+ * gray-matter hands the CLI a Date for an unquoted date; the subset parser
+ * hands the module a string — both land on the same text.
+ */
+export function normDate(v: unknown): string | undefined {
+  if (v instanceof Date) return Number.isNaN(v.getTime()) ? undefined : v.toISOString().slice(0, 10);
+  if (typeof v === "number" && v >= 1000 && v <= 9999) return String(v);
+  if (typeof v !== "string") return undefined;
+  const m = /^\s*(\d{4})(?:-(\d{2})(?:-(\d{2}))?)?/.exec(v);
+  if (!m) return undefined;
+  return [m[1], m[2], m[3]].filter(Boolean).join("-");
+}
+
 function strList(v: YamlValue | undefined): string[] {
   return Array.isArray(v) ? v.filter((x) => x !== null && typeof x !== "object").map(String) : [];
 }
@@ -353,6 +373,8 @@ export function parseNote(path: string, text: string, opts: ParseOptions = {}): 
     abstraction,
     ...(abstractionFallback ? { abstractionFallback } : {}),
     ...(cues.length ? { cues } : {}),
+    ...(normDate(fm.created) ? { created: normDate(fm.created) } : {}),
+    ...(normDate(fm.published ?? fm.date) ? { published: normDate(fm.published ?? fm.date) } : {}),
     headings,
     links,
     ...(body.includes(STUB_SENTINEL) ? { stubSentinel: true as const } : {}),

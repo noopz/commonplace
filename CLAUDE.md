@@ -308,6 +308,24 @@ the rest first-page reshuffles, and a Connect regression — so cues stay
 dormant until a larger paraphrase gold set and a rephrase-once eval say
 otherwise (then: wiki-ingest writes them for new notes, not a bulk backfill).
 
+**Note age is shown, never decayed.** Every card carries two clocks —
+`published` (`published:`, else `date:`: when the knowledge was produced) and
+`added` (`created:`: when it entered the vault) — and a status read from
+incoming `supersedes:` / `contests:` frontmatter links on NEWER notes. Search
+pointers and `vault_note` print them (`published 2019-03 · added 2026-01-05`,
+`⚠ superseded by [[X]]`); ranking ignores all three. The research says why:
+time since publication predicts badly both ways (late-recognised papers are a
+continuous spectrum, Ke et al. 2015), a global recency boost overwhelms
+relevance, and overtaken knowledge should be invalidated and labelled, not
+decayed or evicted (Zep's bi-temporal edges; eviction lost recall over 9 weeks).
+The impact checker PROPOSES `supersedes`/`contests` at ingest and the person
+confirms; `wiki-supersede` stays for entities the user switched away from.
+`commonplace dates` backfills `published:` from labelled source lines only.
+Not built yet, and only behind a time-aware gold set: CiteRank over the vault
+graph (PageRank with recency-biased restarts, so an old note stays "current"
+exactly while new notes keep citing it) as a displayed signal or tiebreak.
+`layout.ts SCHEMA` bumps force one rebuild when cards or edge kinds gain fields.
+
 **`commonplace eval:scale`** times rebuild, patch, sweep, journal replay and
 the tool p50s on synthetic 1×/10×/50× vaults (invented text only). Cards and
 link contexts are chunked small (128 / 64 ids per file) because a tool call's
@@ -397,6 +415,7 @@ All commands auto-discover the vault via cwd (`.obsidian/` or `.wiki/` marker) o
 - `commonplace test:ui` — Module UI tests under `claude plugin test` (terminal + desktop); also `npm run test:ui`
 - `commonplace eval:prime [--repeat 3] [--init]` — Prime's gate (live `claude -p` sessions)
 - `commonplace eval:search [--tune] [--cfg '<json>'] [--cues <draft>] [--show "<q>"] [--json] [--history]` — `vault_search` + Connect pool over the vault's gold sets, in-memory build, zero tokens
+- `commonplace dates [--dry-run] [--json]` — Backfill `published:` on source notes from their labelled source line (`**Published:**`, `**arXiv:**`, `**Source:**`…); never guesses; a note with `published:`/`date:` is left alone
 - `commonplace cues [--limit N] [--match <text>] [--concurrency N] | --filter-only | --write [--dry-run]` — Draft `cues:` (other phrasings a reader would search by) with haiku, public notes only, filtered by self-retrieval; `--write` inserts them as the last frontmatter line
 - `commonplace vaults [--match "<phrase>"] [--json]` — List registered vaults, or match one by name (used by wiki-query to resolve "search in <name>")
 - `commonplace config` — Print `.wiki/config.json` contents (no tsx spawn, instant)

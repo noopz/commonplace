@@ -19,7 +19,7 @@
 
 import { unpackCsr } from "../graph/csr.js";
 import { cardChunk, CARDS_PER_CHUNK, type Card } from "./cards.js";
-import { P, peekManifestVersion, linkctxChunk, LINKCTX_PER_CHUNK, type Manifest, type CsrFile, type NamesFile } from "./layout.js";
+import { P, peekManifestVersion, linkctxChunk, LINKCTX_PER_CHUNK, SCHEMA, type Manifest, type CsrFile, type NamesFile } from "./layout.js";
 import { TERMS, termSig, type PostingsRow } from "./postings.js";
 import type { LinkCtx, ShardArtefact, FileEntry } from "./model.js";
 import { parseJournal, pendingLines, type JournalNote, type JournalLine, COMPACT_BYTES, COMPACT_LINES } from "./journal.js";
@@ -95,7 +95,7 @@ export class VaultIndex {
     const manifest = json<Manifest>(await this.ports.read(P.manifest));
     // A manifest cut at other chunk sizes addresses cards and link contexts
     // differently: treat it as absent so the caller rebuilds.
-    if (!manifest || manifest.v !== 2 || manifest.chunks?.cardsPer !== CARDS_PER_CHUNK || manifest.chunks?.linkctxPer !== LINKCTX_PER_CHUNK || manifest.terms !== termSig(TERMS)) {
+    if (!manifest || manifest.v !== 2 || manifest.chunks?.cardsPer !== CARDS_PER_CHUNK || manifest.chunks?.linkctxPer !== LINKCTX_PER_CHUNK || manifest.terms !== termSig(TERMS) || manifest.schema !== SCHEMA) {
       this.state = "absent";
       this.view = null;
       return this.state;

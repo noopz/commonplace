@@ -59,7 +59,8 @@ export type CommonplaceEdgeKind =
   | "buildsOn"
   | "comparesWith"
   | "usesMethod"
-  | "supersedes";
+  | "supersedes"
+  | "contests";
 
 export type CommonplaceCard = {
   id: number;
@@ -74,6 +75,14 @@ export type CommonplaceCard = {
   tags: string[];
   isStub: boolean;
   isRetired: boolean;
+  /** When the knowledge was produced (`published:`/`date:`): YYYY, YYYY-MM or YYYY-MM-DD. */
+  published?: string;
+  /** When the note entered the vault (`created:`). */
+  added?: string;
+  /** Titles of visible notes whose `supersedes:` names this one (it is replaced, kept for history). */
+  supersededBy?: string[];
+  /** Titles of visible notes whose `contests:` names this one (disputed, not replaced). */
+  contestedBy?: string[];
   /** Present only for an OPEN private note; a sealed note never appears. */
   isPrivate?: true;
 };

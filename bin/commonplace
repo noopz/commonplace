@@ -52,6 +52,7 @@ const SCRIPTS = {
   'synthetic':           'scripts/synthetic.ts',
   'abstract':            'scripts/abstract.ts',
   'cues':                'scripts/cues.ts',
+  'dates':               'scripts/dates.ts',
   'seed':                'scripts/seed.ts',
   // CLI twins of the vault tools (same hooks/lib code and formatters)
   'records':             'scripts/records.ts',
@@ -217,6 +218,7 @@ if (!cmd || cmd === '--help' || cmd === '-h') {
   console.error('  test:ui       Module UI tests (band, tool row, spinner) under `claude plugin test`, terminal + desktop');
   console.error('  eval:prime    Gate for primeContext: live claude -p sessions over $VAULT/.wiki/evals/prime-gold.jsonl [--repeat 3] [--init]');
   console.error('  eval:search   vault_search + Connect pool over the gold sets (in-memory build) [--tune] [--cues draft] [--json]');
+  console.error('  dates         Backfill published: on sources from their labelled source line [--dry-run]');
   console.error('  cues          Draft cues: (other phrasings) for notes with haiku, filtered by self-retrieval; writes no note');
   console.error('  eval:scale    Benchmark index/seed/connect on synthetic 1x/10x/50x vaults [--scales 1,10,50] [--json] [--keep]');
   console.error('');

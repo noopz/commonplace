@@ -39,6 +39,20 @@ You check whether a newly ingested source note changes or extends conclusions in
   > [!update] {Month Year} — [[<new-source-filename-stem>]] changes this analysis
   > {One sentence describing what changed}
   ```
+- Then classify it, and PROPOSE (never write) a frontmatter link on the NEW
+  source note — the index reads it, and search shows the affected note as
+  `⚠ superseded by …` / `⚠ contested by …` from then on:
+  - **supersedes** — the new source replaces the affected note's finding
+    (corrected result, newer edition, a later study that overturns it).
+    Propose `supersedes: ['[[<affected filename stem>]]']`.
+  - **contests** — the new source disagrees but does not settle it (a
+    competing result, a failed replication, a different benchmark verdict).
+    Propose `contests: ['[[<affected filename stem>]]']`.
+  Report each as `frontmatter proposal: <new stem> → supersedes|contests →
+  [[<affected stem>]] — <one-line reason>`. The person confirms; the caller
+  writes it. When unsure between the two, propose `contests`.
+- Age is never the reason: an older paper is not superseded for being older,
+  and a newer one does not supersede anything unless its content does.
 
 ### Critical: wikilink text MUST come from the filename
 
@@ -71,7 +85,7 @@ The same rule applies to `[[X]]` targets inside supersession-candidate reports.
 
 ## Supersession candidates
 
-While reading the new source note's body, scan for supersession declarations: phrases like `supersedes [[X]]`, `replaces [[X]]`, `replaced [[X]]`, `migrated from [[X]]`, `formerly [[X]]`, `previously known as [[X]]`, `in place of [[X]]`. If found, include a "supersession candidate detected: [[X]] → [[New Source Title]]" line in your report and recommend the user run `wiki-supersede`. Do not attempt the retirement yourself — that is `wiki-supersede`'s job.
+While reading the new source note's body, scan for supersession declarations: phrases like `supersedes [[X]]`, `replaces [[X]]`, `replaced [[X]]`, `migrated from [[X]]`, `formerly [[X]]`, `previously known as [[X]]`, `in place of [[X]]`. If found, include a "supersession candidate detected: [[X]] → [[New Source Title]]" line in your report. When X is an entity (a tool, project, product or practice that was switched away from), recommend the user run `wiki-supersede`, which retires it. When X is a research finding or source, recommend the `supersedes:` frontmatter proposal above instead — the older note stays as it is, labelled, never retired or renamed. Do not attempt either yourself.
 
 ## Consolidation candidates
 

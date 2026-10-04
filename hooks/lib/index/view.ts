@@ -523,6 +523,8 @@ export class VaultView implements Adjacency {
           tags: note.tags,
           stub: note.stub,
           ret: note.tags.some((t) => t.toLowerCase() === "retired") || /^\(retired\)/i.test(note.title),
+          pub: note.published,
+          cr: note.created,
         }),
       );
     }

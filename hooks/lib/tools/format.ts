@@ -24,6 +24,21 @@ export const PRIVATE_CAUTION =
 const t = (c: CommonplaceCard) => `[[${c.title}]]`;
 const priv = (c: CommonplaceCard) => (c.isPrivate ? " 🔒" : "");
 
+/**
+ * The note's two clocks and its status, as facts for the reader to weigh — no
+ * age decay is applied anywhere. Old is not stale (a paper can matter more
+ * years later) and new is not current (it can be superseded); only an explicit
+ * `supersedes:`/`contests:` link says a note was overtaken.
+ */
+export function timeLines(c: CommonplaceCard): string[] {
+  const out: string[] = [];
+  const clock = [c.published ? `published ${c.published}` : "", c.added ? `added ${c.added}` : ""].filter(Boolean);
+  if (clock.length) out.push(clock.join(" · "));
+  if (c.supersededBy?.length) out.push(`⚠ superseded by ${c.supersededBy.map((x) => `[[${x}]]`).join(", ")} — kept for history; read the newer note before relying on this one`);
+  if (c.contestedBy?.length) out.push(`⚠ contested by ${c.contestedBy.map((x) => `[[${x}]]`).join(", ")} — read both before relying on either`);
+  return out;
+}
+
 function whyLine(l: CommonplaceLink, direction: "out" | "in"): string {
   const count = l.kind === "body" && l.weight > 1 ? ` ×${Math.round(l.weight)}` : "";
   const where = l.heading ? `${l.heading}: ` : "";
@@ -42,6 +57,7 @@ export function formatSearch(r: CommonplaceSearchResult, query: string): string 
     lines.push(`${h.rank}. ${h.title}${priv(h)}`);
     lines.push(`   ${meta}`);
     if (h.abstraction) lines.push(`   ${h.abstraction}`);
+    for (const l of timeLines(h)) lines.push(`   ${l}`);
     lines.push(`   links: in ${h.inDegree} / out ${h.outDegree} · matched: ${h.matched.join(", ")}`);
     if (h.isPrivate) lines.push(`   ${PRIVATE_CAUTION}`);
   }
@@ -51,7 +67,7 @@ export function formatSearch(r: CommonplaceSearchResult, query: string): string 
 }
 
 export function formatNote(n: CommonplaceNote): string {
-  const parts = [n.card.path];
+  const parts = [n.card.path, ...timeLines(n.card)];
   if (n.card.isPrivate) parts.push(PRIVATE_CAUTION);
   parts.push("", n.text.trimEnd());
   if (n.truncated) parts.push("", "…(truncated; pass a larger maxChars to read more)");

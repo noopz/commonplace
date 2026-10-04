@@ -315,6 +315,8 @@ export function buildIndex(notes: readonly IndexNote[], opts: BuildOptions): Bui
       tags: p.tags,
       stub: note.stub,
       ret: isRetired(p),
+      pub: p.published,
+      cr: p.created,
     });
   };
   const postingsFor = (id: number, visible: (t: number) => boolean): PostingsInput => {
