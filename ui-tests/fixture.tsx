@@ -49,15 +49,19 @@ function files(): Map<string, string> {
 
 /** Answer the module's reads of the fixture vault, and its registry CLI call. */
 /**
- * `hold` names a vault-relative file whose read waits until the returned
+ * `registryDown` fails `commonplace vaults` (a fresh install before npm
+ * install finishes). `hold` names a vault-relative file whose read waits until the returned
  * `release` is called: how a test looks at the module mid-call.
  */
-export function serveVault(on: On, opts: { hold?: string } = {}): { release: () => void } {
+export function serveVault(on: On, opts: { hold?: string; registryDown?: boolean } = {}): { release: () => void } {
   const fs = files();
   let release = () => {};
   const gate = new Promise<void>((r) => (release = r));
   on("process.run", async (_$, e) => {
     const argv = e.argv.join(" ");
+    if (argv.includes(" vaults --json") && opts.registryDown) {
+      return { value: { exitCode: 1, stdout: "", stderr: "Cannot find module tsx", isStdoutTruncated: false, isStderrTruncated: false } };
+    }
     if (argv.includes(" vaults --json")) {
       return { value: { exitCode: 0, stdout: JSON.stringify({ matches: [{ path: VAULT, id: "acme", label: "Acme", aliases: [] }] }), stderr: "", isStdoutTruncated: false, isStderrTruncated: false } };
     }

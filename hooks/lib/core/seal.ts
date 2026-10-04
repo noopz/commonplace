@@ -88,6 +88,41 @@ export function shellWords(cmd: string): string[] {
   return words;
 }
 
+/** Commands that would EXECUTE a heredoc body rather than store it. */
+const RUNS_STDIN = /(?:^|[\s;|&(])(?:bash|sh|zsh|dash|ksh|fish|python3?|node|deno|bun|perl|ruby|php|osascript|eval|source|xargs|env)(?=[\s;|&)]|$)/;
+
+/**
+ * Drop heredoc bodies (`<<EOF … EOF`, `<<-`, quoted delimiters): they are
+ * data on stdin, not arguments, and code written through one (a `/**`
+ * comment reads as a glob rooted at `/`) was denied as a scan above every
+ * sealed folder. Kept when the command could execute stdin — `bash <<EOF`
+ * runs its body, so the body must still be judged.
+ */
+export function stripHeredocs(cmd: string): string {
+  if (!cmd.includes("<<")) return cmd;
+  const lines = cmd.split("\n");
+  const out: string[] = [];
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i++];
+    out.push(line);
+    const m = /<<(-?)\s*(['"]?)([A-Za-z_][A-Za-z0-9_]*)\2/.exec(line);
+    if (!m || line.includes("<<<")) continue;
+    const strip = m[1] === "-";
+    const end = i + lines.slice(i).findIndex((l) => (strip ? l.replace(/^\t+/, "") : l) === m[3]);
+    // Unterminated: keep the rest and judge it, rather than trust it.
+    if (end < i) {
+      out.push(...lines.slice(i));
+      break;
+    }
+    const body = lines.slice(i, end).join("\n");
+    if (RUNS_STDIN.test(line)) out.push(body);
+    out.push(lines[end]);
+    i = end + 1;
+  }
+  return out.join("\n");
+}
+
 const RECURSIVE_CMDS = new Set(["rg", "find", "fd", "ag", "ack", "tree", "du", "fzf", "locate"]);
 const RECURSE_FLAG = /^-[a-zA-Z]*[rR]/;
 const looksLikePath = (w: string) => w.startsWith("/") || w.startsWith("~") || w.startsWith(".") || w.includes("/");
@@ -117,7 +152,7 @@ export function candidatePaths(
     return out;
   }
   if (tool === "Bash") {
-    const words = shellWords(str("command"));
+    const words = shellWords(stripHeredocs(str("command")));
     // Judge each simple command (split on ; | & and parens) separately.
     let cmd: string[] = [];
     const flush = () => {

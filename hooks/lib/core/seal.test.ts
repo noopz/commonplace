@@ -67,3 +67,20 @@ test("helpers: path normalisation and shell word split", () => {
   assert.equal(normalizePath("a/./b//", "/c"), "/c/a/b");
   assert.deepEqual(shellWords(`grep -r "a b" 'c d' e\\ f;ls`), ["grep", "-r", "a b", "c d", "e f", ";", "ls"]);
 });
+
+test("a heredoc body is data: code written through one is not a scan above sealed folders", () => {
+  const doc = ["cat > src/a.ts <<'EOF'", "/**", " * A comment.", " */", "export const a = 1;", "EOF", "npm test"].join("\n");
+  assert.equal(check("Bash", { command: doc }), null);
+  const dash = ["cat <<-END > b.ts", "\t/** x */", "\tEND"].join("\n");
+  assert.equal(check("Bash", { command: dash }), null);
+});
+
+test("a heredoc a shell or interpreter would run is still judged, and so is an unterminated one", () => {
+  const run = (head: string) => [head, `cat "${GAMMA}/Gamma Term.md"`, "EOF"].join("\n");
+  assert.deepEqual(check("Bash", { command: run("bash <<'EOF'") }), { deny: SEALED_DENY });
+  assert.deepEqual(check("Bash", { command: run("cat <<EOF | sh") }), { deny: SEALED_DENY });
+  assert.deepEqual(check("Bash", { command: run("python3 - <<EOF") }), { deny: SEALED_DENY });
+  assert.deepEqual(check("Bash", { command: ["cat <<EOF", `see "${GAMMA}/x.md"`].join("\n") }), { deny: SEALED_DENY });
+  // Paths outside the heredoc are judged as before.
+  assert.deepEqual(check("Bash", { command: ["cat > a.txt <<EOF", "hi", "EOF", `cat "${GAMMA}/y.md"`].join("\n") }), { deny: SEALED_DENY });
+});

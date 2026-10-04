@@ -259,10 +259,24 @@ let guardRefreshing = false;
 const buildGuard = async ($: EngineInterface, now: number): Promise<{ vaults: GuardVault[]; names: SealedName[] }> => {
   const res = await $.process.run(["node", `${$.plugin.root}/bin/commonplace`, "vaults", "--json"]);
   let entries: { path?: unknown; id?: unknown; label?: unknown; aliases?: unknown; isPrivate?: unknown }[] = [];
+  let registryOk = res.exitCode === 0;
   try {
     entries = JSON.parse(String(res.stdout ?? "") || "{}")?.matches ?? [];
   } catch {
     entries = [];
+    registryOk = false;
+  }
+  // `vaults` runs through dist/ or tsx, and on the first session after an
+  // install neither exists yet (the SessionStart shell hook is still running
+  // npm install). An empty registry turns every guard off, so fall back to
+  // the default vault from `vault-path`, a bin built-in that needs neither.
+  if (!registryOk) {
+    try {
+      const vp = (await $.process.run(["node", `${$.plugin.root}/bin/commonplace`, "vault-path"])).stdout.trim();
+      if (vp) entries = [{ path: vp }];
+    } catch {
+      /* no vault at all */
+    }
   }
   const vaults: GuardVault[] = [];
   const names: SealedName[] = [];
@@ -317,8 +331,11 @@ const buildGuard = async ($: EngineInterface, now: number): Promise<{ vaults: Gu
       names.push(...namesFromLegacy(legacy, domains, path));
     }
   }
-  guardCache = { at: now, vaults, names };
-  return guardCache;
+  // A degraded read is used for this call but not cached: the next call
+  // retries the registry instead of holding the fallback for GUARD_TTL_MS.
+  const built = { at: now, vaults, names };
+  guardCache = registryOk ? built : null;
+  return built;
 };
 
 /**
