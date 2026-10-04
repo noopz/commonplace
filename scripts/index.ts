@@ -61,7 +61,7 @@ import { hitsCsr } from "../hooks/lib/graph/hits.js";
 import { discoverGenres, loadGenreSamples } from "./lib/genre-discovery.js";
 import { parseNote as parseIndexNote } from "../hooks/lib/index/parse.js";
 import { buildIndex, type IndexNote, type PrevIds } from "../hooks/lib/index/model.js";
-import { serializeIndex, P, type Manifest } from "../hooks/lib/index/layout.js";
+import { serializeIndex, P, SCHEMA, type Manifest } from "../hooks/lib/index/layout.js";
 import { TERMS, termSig } from "../hooks/lib/index/postings.js";
 import { recordLines, RECORD_KINDS, type RecordKind } from "../hooks/lib/index/records.js";
 import { shardOfDomain, MAIN, type DomainMap } from "../hooks/lib/core/scope.js";
@@ -99,7 +99,8 @@ if (values.incremental) {
   // note moved. (No manifest at all keeps the v1 semantics above.)
   let termsStale = false;
   try {
-    termsStale = (JSON.parse(readFileSync(W(P.manifest), "utf-8")) as Manifest).terms !== termSig(TERMS);
+    const m = JSON.parse(readFileSync(W(P.manifest), "utf-8")) as Manifest;
+    termsStale = m.terms !== termSig(TERMS) || m.schema !== SCHEMA;
   } catch {}
   if (!termsStale && !allFiles.some((f) => getFileMtime(f) > last)) {
     console.log("Indexes up to date, 0 files changed");
