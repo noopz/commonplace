@@ -154,11 +154,25 @@ export function stripFrontmatter(text: string): string {
  * The judge's verdict is one line: either SKIP, or a sentence naming the
  * connection. Anything else (a refusal, a preamble, an empty string) is treated
  * as SKIP — surfacing nothing is always the safe failure.
+ *
+ * Haiku often answers yes before the sentence it was asked for: `YES. The
+ * note…` on one line, or `YES` alone with the sentence a paragraph below. The
+ * second shape read as a SKIP (a 3-char line) and silently dropped half of the
+ * notes the prime judge had accepted; both now yield the sentence alone.
  */
+const BARE_YES = /^[*_\s]*yes[*_\s]*[.!:—–-]*[*_\s]*$/i;
+const YES_LEAD = /^[*_\s]*yes[*_]*\s*[.!:,—–-]+\s*/i;
+
 export function parseVerdict(reply: string): string | null {
-  const line = String(reply ?? "").trim().split("\n")[0]?.trim() ?? "";
+  const lines = String(reply ?? "")
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean);
+  let line = lines[0] ?? "";
   if (!line) return null;
   if (/^skip\b/i.test(line)) return null;
+  line = BARE_YES.test(line) ? (lines[1] ?? "") : line.replace(YES_LEAD, "");
+  if (!line || /^skip\b/i.test(line)) return null;
   // The model is told to answer SKIP, but a plain-English refusal is at least
   // as likely — and rendering "⟡ vault · [[X]] — No connection here." under an
   // answer is worse than saying nothing. Treat any negative opener as a skip.

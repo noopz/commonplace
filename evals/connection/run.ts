@@ -20,7 +20,8 @@
  * attributes lines by byte offset. Concurrency would interleave them.
  */
 
-import { readFileSync, existsSync, mkdirSync, writeFileSync, statSync } from "fs";
+import { readFileSync, existsSync, mkdirSync, writeFileSync } from "fs";
+import { logLinesSince } from "../hook-log.js";
 import { join, dirname, resolve } from "path";
 import { parseArgs } from "node:util";
 import { spawnSync } from "child_process";
@@ -104,35 +105,8 @@ if (gold.length === 0) {
   process.exit(1);
 }
 
-/** Byte length of the log right now; new lines are everything past it. */
-function logSize(): number {
-  try {
-    return statSync(logPath).size;
-  } catch {
-    return 0;
-  }
-}
-
-/** Lines appended to the log since `from` bytes. */
-function linesSince(from: number): LogLine[] {
-  try {
-    const buf = readFileSync(logPath);
-    return buf
-      .subarray(from)
-      .toString("utf-8")
-      .split("\n")
-      .filter((l) => l.trim())
-      .map((l) => {
-        try {
-          return JSON.parse(l) as LogLine;
-        } catch {
-          return {};
-        }
-      });
-  } catch {
-    return [];
-  }
-}
+/** Lines the log gained since `sinceIso` (by timestamp; see ../hook-log.ts). */
+const linesSince = (sinceIso: string): LogLine[] => logLinesSince(logPath, sinceIso) as LogLine[];
 
 const timeoutMs = Math.max(30, Number(args.timeout ?? 240)) * 1000;
 const pluginDir = args["plugin-dir"] ? resolve(args["plugin-dir"]) : "";
@@ -143,7 +117,7 @@ for (const [i, c] of gold.entries()) {
   if (!args.json) {
     process.stderr.write(`[${i + 1}/${gold.length}] ${c.id} ... `);
   }
-  const before = logSize();
+  const before = new Date().toISOString();
 
   const argv = ["-p", c.prompt];
   if (pluginDir) argv.push("--plugin-dir", pluginDir);

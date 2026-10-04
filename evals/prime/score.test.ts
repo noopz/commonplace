@@ -43,3 +43,12 @@ test("p95", () => {
   assert.equal(p95([]), null);
   assert.equal(p95([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 100]), 19);
 });
+
+test("an unanswered judge call is its own outcome, never a judged-no", () => {
+  const o = observePrime([line("prime:sync", { ms: 3, decision: "candidate" }), line("prime:unanswered", { reason: "aborted", ms: 15000 })]);
+  assert.equal(o.outcome, "unanswered");
+  const judgedNo = observePrime([line("prime:sync", { ms: 3, decision: "candidate" }), line("prime:judged-no", { path: "A/Alpha Report.md" })]);
+  const s = summarizePrime([scorePrimeCase(P, o), scorePrimeCase(P, judgedNo), scorePrimeCase(P, appended("A/Alpha Report.md")), scorePrimeCase(N(1), silent)]);
+  assert.equal(s.unansweredRate, 1 / 3, "of the three judged candidates; the silent case never reached the judge");
+  assert.match(formatPrimeSummary(s), /unanswered 33%/);
+});

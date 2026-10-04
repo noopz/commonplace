@@ -57,8 +57,15 @@ export const PRIME_MIN_SCORE = 24;
 export const PRIME_MIN_MARGIN = 3;
 /** Distinct query terms the top candidate must match. */
 export const PRIME_MIN_MATCHED = 2;
-/** Note text handed to the judge. */
+/** Note text handed to the judge (body only: frontmatter is stripped first, as eval:judge does). */
 export const PRIME_NOTE_CHARS = 2200;
+/**
+ * How long the judge may take. Generous on purpose: a slow verdict costs
+ * nothing, because a prime whose turn already ended is late-dropped anyway.
+ * At 6 s, timeouts were logged as `judged-no` and read as the judge refusing
+ * notes it accepts 3/3 when called on its own.
+ */
+export const PRIME_JUDGE_TIMEOUT_MS = 15000;
 
 /** Significant tokens of a prompt: tokenized, generic vocabulary dropped, de-duplicated. */
 export function promptTokens(text: string): string[] {

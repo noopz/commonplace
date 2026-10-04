@@ -172,6 +172,19 @@ test("parseVerdict keeps a single-sentence verdict and drops trailing lines", ()
   assert.equal(v, "Your Alpha Method note records the same drift failure discussed here.");
 });
 
+test("parseVerdict takes the sentence after a leading YES, on the same line or below it", () => {
+  const sentence = "Your Alpha Method note records the same drift failure discussed here.";
+  assert.equal(parseVerdict(`YES\n\n${sentence}`), sentence, "bare YES line, sentence below");
+  assert.equal(parseVerdict(`**YES**\n${sentence}`), sentence);
+  assert.equal(parseVerdict(`YES. ${sentence}`), sentence);
+  assert.equal(parseVerdict(`YES — ${sentence}`), sentence);
+  assert.equal(parseVerdict(`YES—${sentence}`), sentence);
+  assert.equal(parseVerdict(`YES: ${sentence}`), sentence);
+  assert.equal(parseVerdict("YES"), null, "a yes with no sentence says nothing to show");
+  assert.equal(parseVerdict("YES\nSKIP"), null);
+  assert.equal(parseVerdict("Yesterday's Gamma Report covers the same outage."), "Yesterday's Gamma Report covers the same outage.", "a word starting with yes is not a yes");
+});
+
 test("renderConnection produces one wikilinked line", () => {
   const line = renderConnection("Alpha Method", "records the same drift failure.");
   assert.equal(line, "⟡ vault · [[Alpha Method]] — records the same drift failure.");

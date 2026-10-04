@@ -23,7 +23,7 @@ export type PrimeObserved = {
   sync: string;
   syncMs: number | null;
   /** The async lane's outcome, or "none" when the sync lane picked nothing. */
-  outcome: "appended" | "judged-no" | "late-drop" | "skip-cold" | "no-turn" | "error" | "none";
+  outcome: "appended" | "judged-no" | "unanswered" | "late-drop" | "skip-cold" | "no-turn" | "error" | "none";
   path: string | null;
   readInTurn: boolean | null;
 };
@@ -48,6 +48,9 @@ export function observePrime(lines: readonly LogLine[]): PrimeObserved {
       case "prime:judged-no":
         o.outcome = "judged-no";
         o.path = typeof l.path === "string" ? l.path : null;
+        break;
+      case "prime:unanswered":
+        o.outcome = "unanswered";
         break;
       case "prime:late-drop":
         o.outcome = "late-drop";
@@ -80,7 +83,6 @@ export const GATE = {
   skipCold: 0.05,
   p95SyncMs: 30,
   lateDrop: 0.1,
-  frequency: 0.2,
 } as const;
 
 export type PrimeSummary = {
@@ -94,7 +96,16 @@ export type PrimeSummary = {
   skipColdRate: number;
   p95SyncMs: number | null;
   lateDropRate: number | null;
+  /** Judge calls that returned no verdict (timeout, API error), of all judged candidates. */
+  unansweredRate: number | null;
   readInTurnRate: number | null;
+  /**
+   * Primes per case. Reported, NOT gated: on a gold set it is fixed by the
+   * share of `prime` cases (24 of 69 makes a perfect prime 35%), so a ceiling
+   * here measured the gold mix, not interruption. Interruption on prompts with
+   * no matching note is `falsePrimeRate`; real frequency comes from the
+   * hook-log of real sessions.
+   */
   frequency: number;
   verdict: "passed" | "below-gate" | "inert" | "insufficient-n";
   failures: string[];
@@ -124,6 +135,10 @@ export function summarizePrime(results: readonly PrimeCaseResult[]): PrimeSummar
     skipColdRate: ratio(results.filter((r) => r.observed.outcome === "skip-cold").length, results.length) ?? 0,
     p95SyncMs: p95(results.map((r) => r.observed.syncMs).filter((x): x is number => x !== null)),
     lateDropRate: ratio(late.length, appended.length + late.length),
+    unansweredRate: ratio(
+      results.filter((r) => r.observed.outcome === "unanswered").length,
+      results.filter((r) => ["appended", "judged-no", "unanswered", "late-drop"].includes(r.observed.outcome)).length,
+    ),
     readInTurnRate: ratio(appended.filter((r) => r.observed.readInTurn).length, appended.length),
     frequency: ratio(appended.length, results.length) ?? 0,
     verdict: "passed",
@@ -135,7 +150,6 @@ export function summarizePrime(results: readonly PrimeCaseResult[]): PrimeSummar
   if (s.skipColdRate >= GATE.skipCold) f.push(`skip-cold ${s.skipColdRate.toFixed(2)} ≥ ${GATE.skipCold}`);
   if (s.p95SyncMs !== null && s.p95SyncMs >= GATE.p95SyncMs) f.push(`p95 sync ${s.p95SyncMs} ms ≥ ${GATE.p95SyncMs}`);
   if (s.lateDropRate !== null && s.lateDropRate >= GATE.lateDrop) f.push(`late-drop ${s.lateDropRate.toFixed(2)} ≥ ${GATE.lateDrop}`);
-  if (s.frequency > GATE.frequency) f.push(`frequency ${s.frequency.toFixed(2)} > ${GATE.frequency}`);
   if (s.appended === 0 && s.primeCases > 0) f.push("nothing primed");
   // N counts distinct gold cases; repeats measure stability, not breadth.
   if (new Set(none.map((r) => r.id)).size < GATE.minNoneCases) s.verdict = "insufficient-n";
@@ -149,7 +163,7 @@ export function formatPrimeSummary(s: PrimeSummary): string {
   const lines = [
     `cases ${s.cases} (prime ${s.primeCases}, none ${s.noneCases}) · appended ${s.appended}`,
     `precision ${pct(s.precision)} · false-prime ${pct(s.falsePrimeRate)} · recall ${pct(s.recall)}`,
-    `skip-cold ${pct(s.skipColdRate)} · p95 sync ${s.p95SyncMs ?? "—"} ms · late-drop ${pct(s.lateDropRate)} · read-in-turn ${pct(s.readInTurnRate)} · frequency ${pct(s.frequency)}`,
+    `skip-cold ${pct(s.skipColdRate)} · p95 sync ${s.p95SyncMs ?? "—"} ms · late-drop ${pct(s.lateDropRate)} · unanswered ${pct(s.unansweredRate)} · read-in-turn ${pct(s.readInTurnRate)} · frequency ${pct(s.frequency)}`,
     "",
   ];
   if (s.verdict === "passed") lines.push("GATE PASSED — primeContext may default on for this vault.");

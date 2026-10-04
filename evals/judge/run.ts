@@ -31,6 +31,7 @@ import { readFileSync, existsSync, writeFileSync, mkdirSync, readdirSync } from 
 import { join, dirname } from "path";
 import { parseArgs } from "node:util";
 import { spawnSync } from "child_process";
+import { PLUGIN_OFF_SETTINGS } from "../plugin-ids.js";
 import { resolveVault } from "../../scripts/lib/vault.js";
 import { JUDGE_SYSTEM, ANSWER_EXCERPT, NOTE_EXCERPT } from "../../hooks/lib/pipeline.js";
 import { PRIME_JUDGE_SYSTEM, PRIME_JUDGE_PROMPT, PRIME_NOTE_CHARS, USED_JUDGE_SYSTEM, USED_JUDGE_PROMPT } from "../../hooks/lib/core/prime.js";
@@ -182,6 +183,11 @@ for (let t = 0; t < repeat; t++) {
         model,
         "--system-prompt",
         mode === "prime" ? PRIME_JUDGE_SYSTEM : mode === "used" ? USED_JUDGE_SYSTEM : JUDGE_SYSTEM,
+        // A bare model call: no tools, and commonplace off so it neither hooks nor logs.
+        "--tools",
+        "",
+        "--settings",
+        PLUGIN_OFF_SETTINGS(),
       ],
       { timeout: 120_000, encoding: "utf-8", maxBuffer: 4 * 1024 * 1024, stdio: ["ignore", "pipe", "ignore"] },
     );

@@ -240,7 +240,7 @@ Hard constraints of this API, verified rather than assumed:
 
 **`hook-log.jsonl` stage vocabulary** (beyond the connection pass's own):
 `tool:vault_*`, `index:patch|sweep|build|built`, `guard:*`, `scope:proposed`,
-`skill:delivered`, `prime:sync|skip-cold|appended|judged-no|late-drop|no-turn|error`,
+`skill:delivered`, `prime:sync|skip-cold|appended|judged-no|unanswered|late-drop|no-turn|error`,
 `skip:segment-budget`. A private note's path is never logged.
 
 **Measure it with `commonplace eval:connection`.** It drives real `claude -p`
@@ -273,7 +273,10 @@ of the first with none of the second.
 
 **`commonplace eval:prime` is prime's gate** (precision ≥ 80%, false-prime
 ≤ 5% over ≥ 40 distinct `none` cases, recall ≥ 30% or "inert", skip-cold < 5%,
-p95 sync < 30 ms, late-drop < 10%, frequency ≤ 20%). Gold at
+p95 sync < 30 ms, late-drop < 10%). Frequency is reported, not gated: on a
+gold set it only reflects the share of `prime` cases; interruption on prompts
+with no matching note is the false-prime rate, and real frequency is read from
+`hook-log.jsonl` (`prime:appended` per `prime:sync`). Gold at
 `$VAULT/.wiki/evals/prime-gold.jsonl`, never committed. Below the gate,
 `primeContext` stays off. `eval:judge --prime` isolates the prime judge and
 `--used` scores used-in-answer on stored answers.

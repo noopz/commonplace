@@ -17,10 +17,12 @@
  */
 
 import { parseArgs } from "node:util";
-import { readFileSync, writeFileSync, existsSync, mkdirSync, statSync } from "fs";
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
 import { join, dirname, resolve } from "path";
 import { spawnSync } from "child_process";
 import { resolveVault } from "../../scripts/lib/vault.js";
+import { logLinesSince } from "../hook-log.js";
+import { commonplaceIds } from "../plugin-ids.js";
 import { observePrime, scorePrimeCase, summarizePrime, formatPrimeSummary, type PrimeGold, type PrimeCaseResult, type LogLine } from "./score.js";
 
 const { values: args } = parseArgs({
@@ -82,38 +84,18 @@ if (gold.length === 0) {
   process.exit(1);
 }
 
-const logSize = () => {
-  try {
-    return statSync(logPath).size;
-  } catch {
-    return 0;
-  }
-};
-const linesSince = (from: number): LogLine[] => {
-  try {
-    return readFileSync(logPath)
-      .subarray(from)
-      .toString("utf-8")
-      .split("\n")
-      .filter((l) => l.trim())
-      .map((l) => {
-        try {
-          return JSON.parse(l) as LogLine;
-        } catch {
-          return {};
-        }
-      });
-  } catch {
-    return [];
-  }
-};
+const linesSince = (sinceIso: string): LogLine[] => logLinesSince(logPath, sinceIso);
 
 // Prime is off by default; the eval turns it on for its own sessions only.
+const override = { options: { primeContext: true, ambientConnections: false } };
+const pluginDirArg = args["plugin-dir"];
+// With --plugin-dir the working tree loads as `commonplace@inline`; the
+// installed copy is switched off so its hooks do not fire beside it.
 const settings = JSON.stringify({
-  pluginConfigs: {
-    commonplace: { options: { primeContext: true, ambientConnections: false } },
-    "commonplace@inline": { options: { primeContext: true, ambientConnections: false } },
-  },
+  pluginConfigs: Object.fromEntries(commonplaceIds().map((id) => [id, override])),
+  ...(pluginDirArg
+    ? { enabledPlugins: Object.fromEntries(commonplaceIds().filter((id) => id.includes("@") && id !== "commonplace@inline").map((id) => [id, false])) }
+    : {}),
 });
 const timeoutMs = Math.max(30, Number(args.timeout ?? 180)) * 1000;
 const pluginDir = args["plugin-dir"] ? resolve(args["plugin-dir"]) : "";
@@ -126,8 +108,10 @@ let sawSync = false;
 for (let r = 0; r < repeat; r++) {
   for (const [i, c] of gold.entries()) {
     if (!args.json) process.stderr.write(`[run ${r + 1}/${repeat} · ${i + 1}/${gold.length}] ${c.id} ... `);
-    const before = logSize();
-    const argv = ["-p", c.prompt, "--settings", settings];
+    const before = new Date().toISOString();
+    // The session runs inside the vault: reads stay (turns keep a realistic
+    // length for the late-drop race), anything that can change files does not.
+    const argv = ["-p", c.prompt, "--settings", settings, "--disallowedTools", "Write", "Edit", "NotebookEdit", "Bash"];
     if (pluginDir) argv.push("--plugin-dir", pluginDir);
     const proc = spawnSync("claude", argv, {
       timeout: timeoutMs,

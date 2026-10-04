@@ -44,7 +44,7 @@
 import { atom, read, update } from "claude-code";
 import type { Register, EngineInterface, ToolCallInput } from "claude-code";
 import type { CommonplaceBand, Commonplace, CommonplaceIndexStatus } from "../types/index.js";
-import { parseJsonl } from "./lib/seed.js";
+import { parseJsonl, stripFrontmatter } from "./lib/seed.js";
 import { runConnectionPass, type CompletionRequest } from "./lib/pipeline.js";
 import { statusLine, type Status } from "./lib/status.js";
 import { buildVaultBlock, mergeBlocks } from "./lib/context.js";
@@ -91,6 +91,7 @@ import {
   PRIME_JUDGE_SYSTEM,
   PRIME_JUDGE_PROMPT,
   PRIME_NOTE_CHARS,
+  PRIME_JUDGE_TIMEOUT_MS,
   parsePrimeVerdict,
   promptTokens,
   segmentShift,
@@ -1126,20 +1127,32 @@ const primeAsync = async (
     const card = (await idx.cards([p.id])).get(p.id);
     const rel = idx.view?.relOfId(p.id);
     if (!card || !rel || !isSafeVaultPath(rel)) return;
-    const text = String(await $.fs.read(`${vp}/${rel}`)).slice(0, PRIME_NOTE_CHARS);
+    const text = stripFrontmatter(String(await $.fs.read(`${vp}/${rel}`))).slice(0, PRIME_NOTE_CHARS);
+    const shown = idx.view?.shard(p.id) === "main" ? rel : "private";
     // 3. Judge.
+    const judgeStart = Date.now();
     const r = await $.model.complete({
       model: "haiku",
       maxTokens: 80,
-      timeoutMs: 6000,
+      timeoutMs: PRIME_JUDGE_TIMEOUT_MS,
       system: PRIME_JUDGE_SYSTEM,
       prompt: PRIME_JUDGE_PROMPT(p.task, { title: card.t, abstraction: card.a }, text),
     } as CompletionRequest);
+    const judgeMs = Date.now() - judgeStart;
+    // No verdict is not a NO: logged apart, and the note stays eligible. An API
+    // error counts toward the breaker; a timeout does not.
+    if (!r.isAnswered) {
+      if (r.reason === "api-error") primeFailures++;
+      traceTo($, vp, "prime:unanswered", { reason: r.reason, ms: judgeMs });
+      return;
+    }
     primeFailures = 0;
-    const why = r.isAnswered ? parsePrimeVerdict(r.text) : null;
+    const why = parsePrimeVerdict(r.text);
     seenOf(vp).add(p.id);
     if (!why) {
-      traceTo($, vp, "prime:judged-no", { path: idx.view?.shard(p.id) === "main" ? rel : "private" });
+      // The reply head is what tells a real NO from a parse miss; a private
+      // note's is never logged.
+      traceTo($, vp, "prime:judged-no", { path: shown, ms: judgeMs, ...(shown === "private" ? {} : { reply: String(r.text ?? "").slice(0, 60) }) });
       return;
     }
     // 4. Late? The turn ended, or the person already moved on.
@@ -1156,8 +1169,7 @@ const primeAsync = async (
     segment = { ...segment, touches: segment.touches + 1 };
     setBand($, { kind: "primed", text: `primed [[${card.t}]] — ${why}` });
     // The path is what eval:prime scores precision against; a private note's
-    // is never written, even to the vault's own log.
-    const shown = idx.view?.shard(p.id) === "main" ? rel : "private";
+    // is never written, even to the vault's own log (`shown`, above).
     traceTo($, vp, "prime:appended", { path: shown, readInTurn: !completedTurns.has(turnId) });
   } catch (err) {
     primeFailures++;
