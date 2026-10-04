@@ -84,3 +84,15 @@ test("a heredoc a shell or interpreter would run is still judged, and so is an u
   // Paths outside the heredoc are judged as before.
   assert.deepEqual(check("Bash", { command: ["cat > a.txt <<EOF", "hi", "EOF", `cat "${GAMMA}/y.md"`].join("\n") }), { deny: SEALED_DENY });
 });
+
+test("interpreter heredocs are judged as code: comments are not scans, named sealed paths still are", () => {
+  const py = (body: string[]) => ["python3 - <<'EOF'", ...body, "EOF"].join("\n");
+  // Source that writes TypeScript doc comments through Python.
+  assert.equal(check("Bash", { command: py([`s = '''/**`, " * Doc.", ` */'''`, "open('src/a.ts','w').write(s)"]) }), null);
+  assert.equal(check("Bash", { command: py(["# /* a C-style note */", "x = 1 /2"]) }), null);
+  assert.deepEqual(check("Bash", { command: py([`open("${GAMMA}/Gamma Term.md").read()`]) }), { deny: SEALED_DENY });
+  assert.deepEqual(check("Bash", { command: py([`import glob; glob.glob("${V}/**/*.md")`]) }), { deny: SEALED_DENY });
+  assert.deepEqual(check("Bash", { command: ["node <<EOF", `require("fs").readdirSync('${V}/.wiki/sealed')`, "EOF"].join("\n") }), { deny: SEALED_DENY });
+  // A shell heredoc keeps shell judging: a bare /** there is still a scan of /.
+  assert.deepEqual(check("Bash", { command: ["bash <<'EOF'", "ls /**", "EOF"].join("\n") }), { deny: SEALED_DENY });
+});

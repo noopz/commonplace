@@ -38,6 +38,7 @@ async function view() {
 
 test("a concept seed outweighs a source seed when docSeed < 1, pulling in what cites it", async () => {
   const { v, kindOf } = await view();
+  v.rank = { ...v.rank, authority: 0 }; // isolate docSeed: authority alone already favours the cited concept
   const lantern = v.resolve("Lantern Study")!;
   const pprOf = (docSeed: number) => connectPool(v, "kestrel", { k: 10, kindOf, docSeed }).find((c) => c.id === lantern)?.ppr ?? 0;
   assert.ok(pprOf(0.05) > pprOf(1), `${pprOf(0.05)} vs ${pprOf(1)}`);

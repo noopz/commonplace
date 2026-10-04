@@ -182,3 +182,13 @@ test("no frontmatter at all", () => {
   assert.equal(n.links.length, 1);
   assert.equal(n.links[0].heading, "");
 });
+
+test("cues: a list of strings, trimmed, capped at 8 × 80 chars; absent when empty", () => {
+  const long = "x".repeat(120);
+  const text = `---\ncues:\n  - "  ledger drift fixes "\n  - ""\n  - ${long}\n---\n# Kappa Note\n`;
+  const p = parseNote("Concepts/Kappa Note.md", text, OPTS);
+  assert.deepEqual(p.cues, ["ledger drift fixes", "x".repeat(80)]);
+  const many = `---\ncues: [${Array.from({ length: 12 }, (_, i) => `c${i}`).join(", ")}]\n---\n# Kappa\n`;
+  assert.equal(parseNote("Concepts/Kappa.md", many, OPTS).cues?.length, 8);
+  assert.equal(parseNote("Concepts/Kappa.md", "# Kappa\n", OPTS).cues, undefined);
+});

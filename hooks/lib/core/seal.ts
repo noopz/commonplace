@@ -88,20 +88,25 @@ export function shellWords(cmd: string): string[] {
   return words;
 }
 
-/** Commands that would EXECUTE a heredoc body rather than store it. */
-const RUNS_STDIN = /(?:^|[\s;|&(])(?:bash|sh|zsh|dash|ksh|fish|python3?|node|deno|bun|perl|ruby|php|osascript|eval|source|xargs|env)(?=[\s;|&)]|$)/;
+/** Commands that run a heredoc body AS SHELL: judged word by word like the command line. */
+const RUNS_SHELL = /(?:^|[\s;|&(])(?:bash|sh|zsh|dash|ksh|fish|eval|source|xargs|env)(?=[\s;|&)]|$)/;
+/** Commands that run a heredoc body as CODE in another language. */
+const RUNS_CODE = /(?:^|[\s;|&(])(?:python3?|node|deno|bun|perl|ruby|php|osascript)(?=[\s;|&)]|$)/;
 
 /**
- * Drop heredoc bodies (`<<EOF … EOF`, `<<-`, quoted delimiters): they are
- * data on stdin, not arguments, and code written through one (a `/**`
- * comment reads as a glob rooted at `/`) was denied as a scan above every
- * sealed folder. Kept when the command could execute stdin — `bash <<EOF`
- * runs its body, so the body must still be judged.
+ * Separate heredoc bodies (`<<EOF … EOF`, `<<-`, quoted delimiters) from the
+ * command line. A body stored to a file is data and dropped: code written
+ * through one (a `/**` comment reads as a glob rooted at `/`) was denied as a
+ * scan above every sealed folder. A body a shell would run stays in the
+ * command text. A body an interpreter would run is returned as `code`, judged
+ * by `codePaths` — shell-splitting Python or JS source finds globs in its
+ * comments and strings. An unterminated heredoc keeps the rest as shell.
  */
-export function stripHeredocs(cmd: string): string {
-  if (!cmd.includes("<<")) return cmd;
+export function splitHeredocs(cmd: string): { shell: string; code: string[] } {
+  if (!cmd.includes("<<")) return { shell: cmd, code: [] };
   const lines = cmd.split("\n");
   const out: string[] = [];
+  const code: string[] = [];
   let i = 0;
   while (i < lines.length) {
     const line = lines[i++];
@@ -116,11 +121,30 @@ export function stripHeredocs(cmd: string): string {
       break;
     }
     const body = lines.slice(i, end).join("\n");
-    if (RUNS_STDIN.test(line)) out.push(body);
+    if (RUNS_SHELL.test(line)) out.push(body);
+    else if (RUNS_CODE.test(line)) code.push(body);
     out.push(lines[end]);
     i = end + 1;
   }
-  return out.join("\n");
+  return { shell: out.join("\n"), code };
+}
+
+/** The command line with stored heredoc bodies dropped (interpreter bodies too: see splitHeredocs). */
+export const stripHeredocs = (cmd: string): string => splitHeredocs(cmd).shell;
+
+/**
+ * Paths named in interpreter source: string literals and bare tokens that
+ * start with `/` or `~`. A literal path under a sealed root is still caught,
+ * and so is a glob with a real root (`<vault>/**`). A glob whose fixed part is
+ * only `/` is skipped — in source that is a comment (`/**`, `/*`), and a real
+ * scan of `/` would have to be written as one with no fixed segment at all.
+ * Code can always build a path at runtime; this catches what it names.
+ */
+export function codePaths(body: string): string[] {
+  const out: string[] = [];
+  for (const m of body.matchAll(/(['"`])((?:\\.|(?!\1)[^\\\n])*)\1/g)) out.push(m[2]);
+  for (const m of body.matchAll(/(?:^|[\s(=,:[{])((?:~|\/)[^\s'"`(),;[\]{}]*)/g)) out.push(m[1]);
+  return out.map((t) => t.trim()).filter((t) => t.startsWith("/") || t.startsWith("~"));
 }
 
 const RECURSIVE_CMDS = new Set(["rg", "find", "fd", "ag", "ack", "tree", "du", "fzf", "locate"]);
@@ -152,7 +176,17 @@ export function candidatePaths(
     return out;
   }
   if (tool === "Bash") {
-    const words = shellWords(stripHeredocs(str("command")));
+    const split = splitHeredocs(str("command"));
+    for (const t of split.code.flatMap(codePaths)) {
+      if (hasGlob(t)) {
+        const fixed = t.split("/").filter((_, i, a) => !a.slice(0, i + 1).some(hasGlob)).join("/");
+        const root = norm(fixed || "/");
+        if (root !== "/") out.push({ path: root, scan: true, write: false });
+      } else {
+        out.push({ path: norm(t), scan: false, write: false });
+      }
+    }
+    const words = shellWords(split.shell);
     // Judge each simple command (split on ; | & and parens) separately.
     let cmd: string[] = [];
     const flush = () => {

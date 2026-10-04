@@ -4,8 +4,11 @@
  * Replaces scoring every index record per query (linear in the vault) with a
  * lookup of the query's terms: a query touches only its postings lists.
  *
- * fieldScore = 4·title + 4·alias + 3·abstraction + 2·heading
+ * fieldScore = 4·title + 4·alias + 3·abstraction + 2·heading + W·cues
  *            + 1·(anchor display text + tags + MOC names)
+ * `cues:` are other phrasings a reader would search by (Doc2Query--, Gospodinov
+ * et al. 2023): written by `commonplace cues`, kept only if each one retrieves
+ * its own note.
  * Body text is NOT indexed — postings are a jumping-off point to notes worth
  * reading, not a substitute for reading them (CLAUDE.md "No RAG").
  *
@@ -31,6 +34,7 @@ export type PostingsInput = {
   aliases?: string[];
   abstraction?: string;
   headings?: string[];
+  cues?: string[];
   anchors?: string[];
   tags?: string[];
   mocs?: string[];
@@ -38,9 +42,9 @@ export type PostingsInput = {
 
 export type PostingsRow = { t: string; df: number; n: [number, number][] };
 
-export type FieldWeights = { title: number; alias: number; abstraction: number; heading: number; other: number };
+export type FieldWeights = { title: number; alias: number; abstraction: number; heading: number; cues: number; other: number };
 
-export const FIELD_WEIGHTS: FieldWeights = { title: 4, alias: 4, abstraction: 3, heading: 2, other: 1 };
+export const FIELD_WEIGHTS: FieldWeights = { title: 4, alias: 4, abstraction: 3, heading: 2, cues: 2, other: 1 };
 
 export type TermConfig = {
   /** "s": the S-stemmer (plural folding only — readable stems, almost no false merges). */
@@ -57,6 +61,11 @@ export type RankConfig = {
   coverage: number;
   /** Weight of a matched phrase key relative to a word key; 0 = ignore phrases. */
   phrase: number;
+  /**
+   * Score × (1 + authority · prior(id)), prior = the note's HITS authority
+   * normalised to [0, 1] (`authorityPrior`); 0 or absent = off.
+   */
+  authority?: number;
 };
 
 /**
@@ -64,9 +73,18 @@ export type RankConfig = {
  * connect gold questions): over v2.0's scoring, Find MRR 0.667 → 0.753 and
  * Connect pool recall 0.81 → 1.00, better on both held-out halves. Phrase keys
  * measured no gain there, so they stay off (the tuner can still try them).
+ * An authority prior of 2 (AUTH_EXP 0.25) lifted the objective 3.101 → 3.157,
+ * better on both halves, moving only paraphrase questions up.
+ *
+ * `cues:` are supported but no vault is expected to have them yet. A
+ * haiku-drafted set on ~480 notes raised Find MRR 0.762 → 0.823 (with
+ * authority 1), but per question that was one rescue (rank 19 → 4) and
+ * first-page reshuffles, while Connect lost a gold note outright — too thin
+ * against 467 note edits and cue upkeep. Revisit with a larger paraphrase gold
+ * set and a rephrase-once eval.
  */
 export const TERMS: TermConfig = { stem: "s", phrases: false, weights: FIELD_WEIGHTS };
-export const RANK: RankConfig = { k1: 4, coverage: 2, phrase: 0 };
+export const RANK: RankConfig = { k1: 4, coverage: 2, phrase: 0, authority: 2 };
 /**
  * v2.0's linear, coverage-blind scale. Prime's absolute thresholds
  * (PRIME_MIN_SCORE, PRIME_MIN_MARGIN) were calibrated on it, so prime ranks
@@ -77,7 +95,7 @@ export const RANK_LINEAR: RankConfig = { k1: Infinity, coverage: 0, phrase: 0 };
 /** Stable signature of a term shape, recorded in the manifest. */
 export function termSig(c: TermConfig): string {
   const w = c.weights;
-  return `stem=${c.stem};phr=${c.phrases ? 1 : 0};w=${w.title},${w.alias},${w.abstraction},${w.heading},${w.other}`;
+  return `stem=${c.stem};phr=${c.phrases ? 1 : 0};w=${w.title},${w.alias},${w.abstraction},${w.heading},${w.other};c=${w.cues}`;
 }
 
 /**
@@ -117,6 +135,7 @@ export function noteTerms(n: PostingsInput, c: TermConfig = TERMS): Map<string, 
   const m = new Map<string, number>();
   const W = c.weights;
   const field = (strings: readonly (string | undefined)[], w: number) => {
+    if (!(w > 0)) return; // a zero-weight field must not create postings (they would inflate df)
     const keys = new Set<string>();
     for (const s of strings) for (const k of [...wordKeys(s, c), ...phraseKeys(s, c)]) keys.add(k);
     for (const k of keys) m.set(k, (m.get(k) ?? 0) + w);
@@ -125,6 +144,7 @@ export function noteTerms(n: PostingsInput, c: TermConfig = TERMS): Map<string, 
   field(n.aliases ?? [], W.alias);
   field([n.abstraction], W.abstraction);
   field(n.headings ?? [], W.heading);
+  field(n.cues ?? [], W.cues);
   field([...(n.anchors ?? []), ...(n.tags ?? []), ...(n.mocs ?? [])], W.other);
   return m;
 }
@@ -195,15 +215,38 @@ export function coverageFactor(matched: number, words: number, r: RankConfig): n
   return Math.pow(matched / words, r.coverage);
 }
 
+/**
+ * HITS authority as a [0, 1] prior: (auth / max)^AUTH_EXP. Authority is
+ * heavy-tailed (a few MOC-cited notes hold most of it), so the root spreads
+ * it out instead of boosting only the top handful.
+ */
+export const AUTH_EXP = 0.25;
+export function authorityPrior(auth: ArrayLike<number> | undefined): ((id: number) => number) | undefined {
+  if (!auth || auth.length === 0) return undefined;
+  let max = 0;
+  for (let i = 0; i < auth.length; i++) if (auth[i] > max) max = auth[i];
+  if (!(max > 0)) return undefined;
+  return (id) => {
+    const a = id < auth.length ? auth[id] : 0;
+    return a > 0 ? Math.pow(a / max, AUTH_EXP) : 0;
+  };
+}
+
 export function rankHits(
   acc: Map<number, { score: number; matched: string[] }>,
   words: number,
   r: RankConfig,
   limit: number,
   min = 0,
+  prior?: (id: number) => number,
 ): SearchHit[] {
+  const w = prior && r.authority ? r.authority : 0;
   return [...acc.entries()]
-    .map(([id, a]) => ({ id, score: a.score * coverageFactor(a.matched.length, words, r), matched: a.matched }))
+    .map(([id, a]) => ({
+      id,
+      score: a.score * coverageFactor(a.matched.length, words, r) * (w > 0 ? 1 + w * prior!(id) : 1),
+      matched: a.matched,
+    }))
     .filter((h) => h.score > min)
     .sort((x, y) => y.score - x.score || y.matched.length - x.matched.length || x.id - y.id)
     .slice(0, limit);
@@ -218,7 +261,14 @@ export function rankHits(
 export function searchPostings(
   idx: PostingsIndex,
   query: string,
-  opts: { limit?: number; visible?: (id: number) => boolean; minScore?: number; terms?: TermConfig; rank?: RankConfig } = {},
+  opts: {
+    limit?: number;
+    visible?: (id: number) => boolean;
+    minScore?: number;
+    terms?: TermConfig;
+    rank?: RankConfig;
+    prior?: (id: number) => number;
+  } = {},
 ): SearchHit[] {
   const r = opts.rank ?? RANK;
   const q = queryKeys(query, opts.terms);
@@ -237,5 +287,5 @@ export function searchPostings(
   };
   for (const t of q.words) run(t, 1, true);
   for (const t of q.phrases) run(t, r.phrase, false);
-  return rankHits(acc, q.words.length, r, opts.limit ?? 8, opts.minScore ?? 0);
+  return rankHits(acc, q.words.length, r, opts.limit ?? 8, opts.minScore ?? 0, opts.prior);
 }

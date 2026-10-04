@@ -22,6 +22,7 @@ export type JournalNote = {
   tags: string[];
   abstraction: string;
   af?: 1;
+  cues?: string[];
   headings: string[];
   links: JournalLink[];
   stub: boolean;
@@ -50,6 +51,7 @@ export function journalNote(p: ParsedNote, stub: boolean): JournalNote {
     tags: p.tags.slice(0, 16),
     abstraction: p.abstraction,
     ...(p.abstractionFallback ? { af: 1 as const } : {}),
+    ...(p.cues ? { cues: p.cues } : {}),
     headings: p.headings.slice(0, MAX_HEADINGS),
     links,
     stub,

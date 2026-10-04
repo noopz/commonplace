@@ -27,7 +27,7 @@
 import { type Csr, type Adjacency, type EdgeKind, KIND_INDEX, KIND_WEIGHT, EDGE_KINDS } from "../graph/csr.js";
 import { stemOf, normalizeKey, type Names } from "../graph/resolver.js";
 import { makeCard, type Card } from "./cards.js";
-import { noteTerms, queryKeys, keyScore, rankHits, TERMS, RANK, type PostingsRow, type TermConfig, type RankConfig } from "./postings.js";
+import { noteTerms, queryKeys, keyScore, rankHits, authorityPrior, TERMS, RANK, type PostingsRow, type TermConfig, type RankConfig } from "./postings.js";
 import { domainOf, type ShardArtefact } from "./model.js";
 import type { JournalNote } from "./journal.js";
 import { MAIN, type DomainMap } from "../core/scope.js";
@@ -64,6 +64,8 @@ export class VaultView implements Adjacency {
   readonly auth?: ArrayLike<number>;
   readonly terms: TermConfig;
   rank: RankConfig;
+  /** HITS authority as a [0, 1] prior; patched notes absent from the base get 0. */
+  private readonly authPrior?: (id: number) => number;
 
   private baseNames: Map<string, number[]>;
   private baseAliases: Map<number, string[]>;
@@ -104,6 +106,7 @@ export class VaultView implements Adjacency {
     this.domains = inp.domains;
     this.hub = inp.hub;
     this.auth = inp.auth;
+    this.authPrior = authorityPrior(inp.auth);
     this.terms = inp.terms ?? TERMS;
     this.rank = inp.rank ?? RANK;
     this.baseNames = new Map(Object.entries(inp.names));
@@ -317,7 +320,7 @@ export class VaultView implements Adjacency {
     };
     for (const t of q.words) run(t, 1, true);
     for (const t of q.phrases) run(t, r.phrase, false);
-    return rankHits(acc, q.words.length, r, limit);
+    return rankHits(acc, q.words.length, r, limit, 0, this.authPrior);
   }
 
   // --------------------------------------------------------------- refresh
@@ -453,6 +456,7 @@ export class VaultView implements Adjacency {
           aliases: note.aliases,
           abstraction: note.af ? "" : note.abstraction,
           headings: note.headings,
+          cues: note.cues,
           anchors: note.links.filter((l) => l.k === "body" && l.d).map((l) => l.d!),
           tags: note.tags,
           mocs: note.links.filter((l) => l.k === "moc").map((l) => l.d ?? l.t),

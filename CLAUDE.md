@@ -286,7 +286,8 @@ vault (read-only, `scripts/lib/index-notes.ts`) so build-time knobs can vary.
 Postings have two kinds of knob: `TERMS` (stemming, phrase keys, field
 weights) is baked into the artefact, so the manifest records `termSig(TERMS)`
 and a mismatch loads as absent and rebuilds (`--incremental` too); `RANK`
-(BM25 saturation `k1`, coverage exponent, phrase weight) is query-time.
+(BM25 saturation `k1`, coverage exponent, phrase weight, and an authority prior —
+the note's HITS authority from `scores.json`, (auth/max)^0.25) is query-time.
 `--tune` runs coordinate ascent over both plus Connect's `seedK`/`restart`/
 `docSeed`/`lambda`, with a 2-fold held-out check — with ~50 gold questions
 the folds disagree on exact values, so pick defaults that win on BOTH folds,
@@ -296,6 +297,14 @@ thresholds were pinned on the old scale; re-pin them with `eval:prime` before
 moving it. Measured and rejected so far: phrase keys (no gain) and
 HippoRAG-style down-weighting of source seeds (`docSeed` < 1 lowered Connect
 MRR — sources are the targets here and many concepts are stubs).
+**`cues:`** (Doc2Query--) are a postings field: `commonplace cues` drafts them
+with haiku into `$VAULT/.wiki/evals/cues-draft.jsonl` (kept only if each cue
+ranks its own note top-3 with every cue indexed), `eval:search --cues <draft>`
+measures the draft in memory, and only `cues --write` touches notes. Measured
+and NOT written on the reference vault: one real rescue in 30 Find questions,
+the rest first-page reshuffles, and a Connect regression — so cues stay
+dormant until a larger paraphrase gold set and a rephrase-once eval say
+otherwise (then: wiki-ingest writes them for new notes, not a bulk backfill).
 
 **`commonplace eval:scale`** times rebuild, patch, sweep, journal replay and
 the tool p50s on synthetic 1×/10×/50× vaults (invented text only). Cards and
@@ -385,7 +394,8 @@ All commands auto-discover the vault via cwd (`.obsidian/` or `.wiki/` marker) o
 - `commonplace synthetic --scale N --out <dir>` / `commonplace eval:scale` — Synthetic vaults and the scale benchmark
 - `commonplace test:ui` — Module UI tests under `claude plugin test` (terminal + desktop); also `npm run test:ui`
 - `commonplace eval:prime [--repeat 3] [--init]` — Prime's gate (live `claude -p` sessions)
-- `commonplace eval:search [--tune] [--cfg '<json>'] [--show "<q>"] [--json] [--history]` — `vault_search` + Connect pool over the vault's gold sets, in-memory build, zero tokens
+- `commonplace eval:search [--tune] [--cfg '<json>'] [--cues <draft>] [--show "<q>"] [--json] [--history]` — `vault_search` + Connect pool over the vault's gold sets, in-memory build, zero tokens
+- `commonplace cues [--limit N] [--match <text>] [--concurrency N] | --filter-only | --write [--dry-run]` — Draft `cues:` (other phrasings a reader would search by) with haiku, public notes only, filtered by self-retrieval; `--write` inserts them as the last frontmatter line
 - `commonplace vaults [--match "<phrase>"] [--json]` — List registered vaults, or match one by name (used by wiki-query to resolve "search in <name>")
 - `commonplace config` — Print `.wiki/config.json` contents (no tsx spawn, instant)
 - `commonplace index [--incremental] [--json]` — The single index writer: `.wiki/graph/` (v2 graph artefacts), `.wiki/sealed/`, and the per-shard records files (v1's `*-index.jsonl` are no longer written; stale ones are deleted). `--incremental` is a no-op when no note is newer than the last build.

@@ -325,6 +325,7 @@ export function buildIndex(notes: readonly IndexNote[], opts: BuildOptions): Bui
       aliases: p.aliases,
       abstraction: p.abstractionFallback ? "" : p.abstraction,
       headings: p.headings,
+      cues: p.cues,
       anchors: anchorsVisible(p, visible),
       tags: p.tags,
       mocs: mocNames(p),

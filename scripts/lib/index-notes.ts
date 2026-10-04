@@ -19,6 +19,8 @@ import { buildIndex, type IndexNote, type BuildResult } from "../../hooks/lib/in
 import { P, type Manifest } from "../../hooks/lib/index/layout.js";
 import type { TermConfig } from "../../hooks/lib/index/postings.js";
 import type { DomainMap } from "../../hooks/lib/core/scope.js";
+import { VaultView } from "../../hooks/lib/index/view.js";
+import { unpackCsr } from "../../hooks/lib/graph/csr.js";
 
 export type LoadedVault = {
   notes: IndexNote[];
@@ -86,4 +88,25 @@ export function buildInMemory(v: LoadedVault, terms?: TermConfig): BuildResult {
     structureDirs: v.structureDirs,
     terms,
   });
+}
+
+/** The public view of an in-memory build, as the module would load it, plus each id's kind. */
+export function viewInMemory(v: LoadedVault, terms?: TermConfig): { view: VaultView; kind: Map<number, string> } {
+  const r = buildInMemory(v, terms);
+  const pub = r.public;
+  const view = new VaultView({
+    base: unpackCsr(pub.csr),
+    sentinels: pub.sentinels,
+    names: pub.names,
+    aliases: pub.aliases,
+    unresolved: pub.unresolved,
+    postings: pub.postings,
+    files: pub.files,
+    nextId: r.nextId,
+    domains: v.domains,
+    hub: pub.hub,
+    auth: pub.auth,
+    terms,
+  });
+  return { view, kind: new Map(pub.cards.map((c) => [c.id, c.k])) };
 }

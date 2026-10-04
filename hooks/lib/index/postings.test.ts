@@ -3,7 +3,7 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildPostings, indexPostings, searchPostings, noteTerms, type PostingsInput } from "./postings.ts";
+import { buildPostings, indexPostings, searchPostings, noteTerms, authorityPrior, type PostingsInput } from "./postings.ts";
 import { makeCard, clip, CARD_MAX_BYTES, CARDS_PER_CHUNK, cardChunk, cardChunkName } from "./cards.ts";
 
 const NOTES: PostingsInput[] = [
@@ -143,4 +143,26 @@ test("termSig changes with every build-time knob; defaults are the measured ones
   assert.equal(TERMS.stem, "s");
   assert.ok(RANK.coverage > 0 && Number.isFinite(RANK.k1));
   assert.ok(!Number.isFinite(RANK_LINEAR.k1) && RANK_LINEAR.coverage === 0);
+});
+
+test("authority prior: normalised to [0, 1], absent or flat authority is no prior", () => {
+  assert.equal(authorityPrior(undefined), undefined);
+  assert.equal(authorityPrior([0, 0]), undefined);
+  const p = authorityPrior([0, 0.5, 1])!;
+  assert.equal(p(0), 0);
+  assert.equal(p(2), 1);
+  assert.ok(p(1) > 0.5 && p(1) < 1, "the root spreads the heavy tail");
+  assert.equal(p(9), 0, "an id past the base (a patched note) has no authority");
+});
+
+test("authority breaks a near-tie toward the cited note, and is off unless weighted", () => {
+  const twins: PostingsInput[] = [
+    { id: 0, title: "Epsilon Ledger" },
+    { id: 1, title: "Epsilon Ledger Notes" },
+  ];
+  const idx = indexPostings(buildPostings(twins), twins.length);
+  const prior = authorityPrior([0, 1]);
+  assert.equal(searchPostings(idx, "epsilon ledger", { rank: RANK_LINEAR, prior })[0].id, 0, "weight 0: prior ignored");
+  const r = { ...RANK_LINEAR, authority: 2 };
+  assert.equal(searchPostings(idx, "epsilon ledger", { rank: r, prior })[0].id, 1);
 });

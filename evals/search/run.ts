@@ -19,9 +19,8 @@ import { readFileSync, existsSync, appendFileSync } from "fs";
 import { join } from "path";
 import { parseArgs } from "node:util";
 import { resolveVault } from "../../scripts/lib/vault.js";
-import { loadIndexNotes, buildInMemory } from "../../scripts/lib/index-notes.js";
-import { VaultView } from "../../hooks/lib/index/view.js";
-import { unpackCsr } from "../../hooks/lib/graph/csr.js";
+import { loadIndexNotes, viewInMemory } from "../../scripts/lib/index-notes.js";
+import type { VaultView } from "../../hooks/lib/index/view.js";
 import { connectPool, CONNECT } from "../../hooks/lib/core/connect.js";
 import { TERMS, RANK, termSig, type TermConfig, type RankConfig } from "../../hooks/lib/index/postings.js";
 import { targetsOf, type ConnectGold } from "../connect/score.js";
@@ -49,6 +48,8 @@ const { values: args } = parseArgs({
     /** Evaluate CURRENT with overrides, e.g. --cfg '{"coverage":2,"seedK":12}'. Repeatable. */
     cfg: { type: "string", multiple: true, default: [] },
     k: { type: "string", default: "20" },
+    /** Overlay `cues:` from a `commonplace cues` draft (JSONL {p, kept}) before building. */
+    cues: { type: "string" },
     history: { type: "boolean", default: false },
     json: { type: "boolean", default: false },
   },
@@ -61,10 +62,12 @@ type Cfg = {
   wAlias: number;
   wAbs: number;
   wHead: number;
+  wCues: number;
   wOther: number;
   k1: number;
   coverage: number;
   phrase: number;
+  authority: number;
   seedK: number;
   restart: number;
   docSeed: number;
@@ -72,14 +75,14 @@ type Cfg = {
 };
 
 const LEGACY: Cfg = {
-  stem: "none", phrases: false, wTitle: 4, wAlias: 4, wAbs: 3, wHead: 2, wOther: 1,
-  k1: Infinity, coverage: 0, phrase: 0, seedK: 5, restart: 0.15, docSeed: 1, lambda: 0.25,
+  stem: "none", phrases: false, wTitle: 4, wAlias: 4, wAbs: 3, wHead: 2, wCues: 0, wOther: 1,
+  k1: Infinity, coverage: 0, phrase: 0, authority: 0, seedK: 5, restart: 0.15, docSeed: 1, lambda: 0.25,
 };
 const CURRENT: Cfg = {
   stem: TERMS.stem, phrases: TERMS.phrases,
   wTitle: TERMS.weights.title, wAlias: TERMS.weights.alias, wAbs: TERMS.weights.abstraction,
-  wHead: TERMS.weights.heading, wOther: TERMS.weights.other,
-  k1: RANK.k1, coverage: RANK.coverage, phrase: RANK.phrase,
+  wHead: TERMS.weights.heading, wCues: TERMS.weights.cues, wOther: TERMS.weights.other,
+  k1: RANK.k1, coverage: RANK.coverage, phrase: RANK.phrase, authority: RANK.authority ?? 0,
   seedK: CONNECT.seedK, restart: CONNECT.restart, docSeed: CONNECT.docSeed, lambda: CONNECT.lambda,
 };
 const GRID: Grid<Cfg> = {
@@ -89,10 +92,12 @@ const GRID: Grid<Cfg> = {
   wAlias: [2, 4],
   wAbs: [2, 3, 4, 6],
   wHead: [0, 1, 2, 3],
+  wCues: [0, 1, 2, 3, 4],
   wOther: [0, 0.5, 1, 2],
   k1: [Infinity, 1, 2, 4, 8],
   coverage: [0, 0.5, 1, 2],
   phrase: [0, 0.5, 1, 2],
+  authority: [0, 0.1, 0.25, 0.5, 1],
   seedK: [3, 5, 8, 12],
   restart: [0.15, 0.3, 0.5],
   docSeed: [0.05, 0.2, 0.5, 1],
@@ -102,9 +107,9 @@ const GRID: Grid<Cfg> = {
 const termsOf = (c: Cfg): TermConfig => ({
   stem: c.stem,
   phrases: c.phrases,
-  weights: { title: c.wTitle, alias: c.wAlias, abstraction: c.wAbs, heading: c.wHead, other: c.wOther },
+  weights: { title: c.wTitle, alias: c.wAlias, abstraction: c.wAbs, heading: c.wHead, cues: c.wCues, other: c.wOther },
 });
-const rankOf = (c: Cfg): RankConfig => ({ k1: c.k1, coverage: c.coverage, phrase: c.phrase });
+const rankOf = (c: Cfg): RankConfig => ({ k1: c.k1, coverage: c.coverage, phrase: c.phrase, authority: c.authority });
 
 const config = resolveVault(args.vault);
 const readJsonl = <T,>(p: string): T[] =>
@@ -121,30 +126,23 @@ if (findGold.length === 0 && connectGold.length === 0) {
 const K = Number(args.k);
 
 const loaded = await loadIndexNotes(config);
+if (args.cues) {
+  const draft = new Map(readJsonl<{ p: string; kept: string[] }>(args.cues).map((d) => [d.p, d.kept]));
+  let n = 0;
+  for (const note of loaded.notes) {
+    const c = draft.get(note.rel);
+    if (c?.length) {
+      note.parsed = { ...note.parsed, cues: c };
+      n++;
+    }
+  }
+  console.error(`cues overlaid on ${n} notes from ${args.cues}`);
+}
 const views = new Map<string, { view: VaultView; kind: Map<number, string> }>();
 function viewFor(t: TermConfig) {
   const sig = termSig(t);
   let v = views.get(sig);
-  if (!v) {
-    const r = buildInMemory(loaded, t);
-    const pub = r.public;
-    const view = new VaultView({
-      base: unpackCsr(pub.csr),
-      sentinels: pub.sentinels,
-      names: pub.names,
-      aliases: pub.aliases,
-      unresolved: pub.unresolved,
-      postings: pub.postings,
-      files: pub.files,
-      nextId: r.nextId,
-      domains: loaded.domains,
-      hub: pub.hub,
-      auth: pub.auth,
-      terms: t,
-    });
-    v = { view, kind: new Map(pub.cards.map((c) => [c.id, c.k])) };
-    views.set(sig, v);
-  }
+  if (!v) views.set(sig, (v = viewInMemory(loaded, t)));
   return v;
 }
 
