@@ -407,6 +407,10 @@ const indexes = new Map<string, VaultIndex>();
 
 /** When a background `commonplace index` was last started, per vault. */
 const buildStarted = new Map<string, number>();
+/** The running build per vault, so a vault tool can wait for it instead of erroring. */
+const building = new Map<string, Promise<boolean>>();
+/** How long a vault tool waits for a first build before giving up on this call. */
+const BUILD_WAIT_MS = 30_000;
 const BUILD_COOLDOWN_MS = 60_000;
 
 /** Notes read with vault_note this session, per vault (the "unread" hint). */
@@ -450,7 +454,7 @@ const startBuild = ($: EngineInterface, vp: string, why: string) => {
   if (now - (buildStarted.get(vp) ?? 0) < BUILD_COOLDOWN_MS) return;
   buildStarted.set(vp, now);
   traceTo($, vp, "index:build", { why });
-  $.process
+  const run = $.process
     .run(
       // Incremental only when a note changed; an absent graph, a compaction or
       // an explicit /vault reindex must rebuild even if no mtime moved.
@@ -461,13 +465,18 @@ const startBuild = ($: EngineInterface, vp: string, why: string) => {
       const ok = r.exitCode === 0;
       if (ok) swept.delete(vp);
       traceTo($, vp, "index:built", { ok });
-      if (ok && why !== "write") {
+      if (ok && why !== "write" && why !== "absent") {
         try {
-          $.ui.toast(`⟡ vault index ${why === "absent" ? "built" : "refreshed"}`);
+          $.ui.toast("⟡ vault index refreshed");
         } catch {}
       }
+      return ok;
     })
-    .catch(() => {});
+    .catch(() => false)
+    .finally(() => {
+      if (building.get(vp) === run) building.delete(vp);
+    });
+  building.set(vp, run);
 };
 
 /** The loaded index for a vault, kept fresh and in step with this session's open shards. */
@@ -557,7 +566,15 @@ const nounCtx = async ($: EngineInterface, vaultRef?: string): Promise<Ctx | { e
   }
   const vp = vault.path;
   const idx = await getIndex($, vp, vault.domains);
-  if (idx.state !== "ready") return { error: "vault index building, retry in a moment" };
+  if (idx.state !== "ready") {
+    // No index yet: the build getIndex just started (or one already running)
+    // usually takes well under a second. Wait for it rather than erroring —
+    // a model told "retry later" tends to answer from memory instead.
+    const run = building.get(vp);
+    if (run) await Promise.race([run, $.clock.sleep(BUILD_WAIT_MS)]);
+    if ((await idx.load()) !== "ready") return { error: "vault index still building (large vault) — retry in a minute" };
+    await getIndex($, vp, vault.domains); // splice this session's open shards into the fresh load
+  }
   const open = openOf(vp);
   const { names } = await loadGuard($);
   const sealedNames = names
@@ -1199,14 +1216,15 @@ export const register: Register = (on, options) => {
     }
     await showVaultStatus($);
     segment = freshSegment();
-    // Warm the graph for prime off the critical path (skip-cold < 5%, §8.1).
-    if (primeOn) {
-      $.clock.after(e.isInteractive === false ? 0 : 1500, () => {
-        pickVault($)
-          .then((v) => (v ? getIndex($, v.path, v.domains) : null))
-          .catch(() => {});
-      });
-    }
+    // Load the active vault's graph off the critical path — and on a vault
+    // with no v2 index yet, start the first build now, so it is usually done
+    // before the first vault tool call (which waits for it if not). Prime
+    // needs a warm graph too (skip-cold < 5%, §8.1).
+    $.clock.after(e.isInteractive === false ? 0 : 1500, () => {
+      pickVault($)
+        .then((v) => (v ? getIndex($, v.path, v.domains) : null))
+        .catch(() => {});
+    });
     // Resolve the vault here, once, before the first turn. At Bash-tool prices
     // this was unthinkable and every hook had to lazily cache the answer; at
     // $.process.run prices it is ~46ms of session setup, so the later hooks

@@ -49,12 +49,18 @@ function files(): Map<string, string> {
 
 /** Answer the module's reads of the fixture vault, and its registry CLI call. */
 /**
+ * `unbuilt` withholds the index until the module runs `commonplace index`,
+ * which then waits on `buildDelay` (a mocked clock's `sleep`).
  * `registryDown` fails `commonplace vaults` (a fresh install before npm
  * install finishes). `hold` names a vault-relative file whose read waits until the returned
  * `release` is called: how a test looks at the module mid-call.
  */
-export function serveVault(on: On, opts: { hold?: string; registryDown?: boolean } = {}): { release: () => void } {
+export function serveVault(on: On, opts: { hold?: string; registryDown?: boolean; unbuilt?: boolean; buildDelay?: () => Promise<void> } = {}): { release: () => void; builds: () => number } {
   const fs = files();
+  // `unbuilt`: the graph is not there until the module runs `commonplace index`.
+  const pending = new Map<string, string>();
+  if (opts.unbuilt) for (const [k, v] of fs) if (k.startsWith(`${VAULT}/.wiki/graph/`) || k.startsWith(`${VAULT}/.wiki/sealed/`)) { pending.set(k, v); fs.delete(k); }
+  let builds = 0;
   let release = () => {};
   const gate = new Promise<void>((r) => (release = r));
   on("process.run", async (_$, e) => {
@@ -64,6 +70,14 @@ export function serveVault(on: On, opts: { hold?: string; registryDown?: boolean
     }
     if (argv.includes(" vaults --json")) {
       return { value: { exitCode: 0, stdout: JSON.stringify({ matches: [{ path: VAULT, id: "acme", label: "Acme", aliases: [] }] }), stderr: "", isStdoutTruncated: false, isStderrTruncated: false } };
+    }
+    if (e.argv.includes("index") && e.argv.includes("--vault")) {
+      builds++;
+      // A real build takes time: the module must WAIT for it, not just look again.
+      if (opts.buildDelay) await opts.buildDelay();
+      for (const [k, v] of pending) fs.set(k, v);
+      pending.clear();
+      return { value: { exitCode: 0, stdout: "", stderr: "", isStdoutTruncated: false, isStderrTruncated: false } };
     }
     if (e.argv[e.argv.length - 1] === "vault-path") return { value: { exitCode: 0, stdout: `${VAULT}\n`, stderr: "", isStdoutTruncated: false, isStderrTruncated: false } };
     if (e.argv[0] === "cat" && fs.has(e.argv[1] ?? "")) return { value: { exitCode: 0, stdout: fs.get(e.argv[1]!)!, stderr: "", isStdoutTruncated: false, isStderrTruncated: false } };
@@ -81,7 +95,7 @@ export function serveVault(on: On, opts: { hold?: string; registryDown?: boolean
     if (text === undefined) throw new Error(`ENOENT: ${e.path}`);
     return { value: { kind: "file" as const, size: text.length, mtimeMs: 1, isLink: false } };
   });
-  return { release };
+  return { release, builds: () => builds };
 }
 
 /**
