@@ -1,12 +1,17 @@
 /**
- * Vault skills (plan §7): prompt-only `SKILL.md` files the user keeps in
- * `<vault>/.wiki/skills/<name>/SKILL.md`, usable from any session without
- * starting in the vault.
+ * Vault skills (plan §7): the vault's own Claude Code skills —
+ * `<vault>/.claude/skills/<name>/SKILL.md`, and the same under any folder
+ * inside the vault (`<folder>/.claude/skills/…`) — usable from a session
+ * started anywhere. A session started in the vault gets them from Claude Code
+ * itself; this module serves every other session.
  *
- * Trust boundary (§7.4): a skill is instructions authored outside Claude, so
- *   - the model can never write there (the sealing guard denies it);
- *   - a skill is loadable only once the PERSON has trusted its exact content
- *     (`/vault skills trust <name>` stores its SHA-256); any edit untrusts it;
+ * Trust boundary (§7.4): a skill is instructions that then run in other
+ * projects, and Claude can write into the vault, so
+ *   - a skill is loadable outside the vault only once the PERSON has trusted
+ *     its exact content (asked when discovered, or `/vault skills trust`; the
+ *     SHA-256 is pinned) — any edit, including one Claude made, untrusts it;
+ *   - a skill in a folder holding or inside a private domain loads only while
+ *     that domain is open (`skillGateShards`);
  *   - a skill with a `domain:` loads only while that domain is visible, and
  *     an undomained skill whose text reproduces a sealed title is hidden.
  *
@@ -29,12 +34,36 @@ export type VaultSkill = {
   trusted: boolean;
   /** Trusted before, edited since. */
   changed: boolean;
+  /** Vault-relative path of the SKILL.md, for the person to review. */
+  path: string;
 };
 
-export type SkillFile = { dir: string; text: string; hash: string };
+/** `dir` is the skill folder's name; `base` the vault-relative folder holding `.claude/skills` ("" for the vault root). */
+export type SkillFile = { dir: string; text: string; hash: string; base?: string };
+
+/**
+ * The private shards a skill folder belongs to: a nested `.claude/skills`
+ * under a private domain, or above one (`08 - Group/.claude/skills` above
+ * `08 - Group/Secret`), carries that domain's scope. The vault root's skills
+ * are vault-wide and gated by nothing.
+ */
+export function skillGateShards(
+  base: string,
+  domains: Readonly<Record<string, { path?: string; scope?: string; linkGroup?: string }>>,
+): string[] {
+  const b = base.replace(/\/+$/, "");
+  if (!b) return [];
+  const out = new Set<string>();
+  for (const [id, d] of Object.entries(domains)) {
+    if (d.scope !== "private" || !d.path) continue;
+    const p = d.path.replace(/\/+$/, "");
+    if (p === b || p.startsWith(`${b}/`) || b.startsWith(`${p}/`)) out.add(d.linkGroup || id);
+  }
+  return [...out];
+}
 
 /** Parse one SKILL.md; null when malformed or misnamed. */
-export function parseSkill(file: SkillFile): Omit<VaultSkill, "trusted" | "changed"> | null {
+export function parseSkill(file: SkillFile): Omit<VaultSkill, "trusted" | "changed" | "path"> | null {
   const name = file.dir;
   if (!SKILL_NAME_RE.test(name)) return null;
   const { data, body } = parseFrontmatter(file.text);
@@ -62,15 +91,22 @@ export function visibleSkills(
   trusted: Readonly<Record<string, string>>,
   isDomainVisible: (domain: string) => boolean,
   sealedNames: readonly string[],
+  isShardOpen: (shard: string) => boolean = () => false,
+  domains: Readonly<Record<string, { path?: string; scope?: string; linkGroup?: string }>> = {},
 ): VaultSkill[] {
   const out: VaultSkill[] = [];
+  const seen = new Set<string>();
   for (const f of files) {
     const s = parseSkill(f);
-    if (!s) continue;
+    if (!s || seen.has(s.name)) continue;
+    const gate = skillGateShards(f.base ?? "", domains);
+    if (!gate.every(isShardOpen)) continue;
+    seen.add(s.name);
     if (s.domain && !isDomainVisible(s.domain)) continue;
-    if (!s.domain && findPrivateMatches(`${s.name}\n${s.description}\n${s.body}`, [...sealedNames]).length > 0) continue;
+    if (!s.domain && gate.length === 0 && findPrivateMatches(`${s.name}\n${s.description}\n${s.body}`, [...sealedNames]).length > 0) continue;
     const pinned = trusted[s.name];
-    out.push({ ...s, trusted: pinned === s.hash, changed: Boolean(pinned) && pinned !== s.hash });
+    const path = `${f.base ? `${f.base}/` : ""}.claude/skills/${f.dir}/SKILL.md`;
+    out.push({ ...s, trusted: pinned === s.hash, changed: Boolean(pinned) && pinned !== s.hash, path });
   }
   return out.sort((a, b) => (a.name < b.name ? -1 : 1));
 }

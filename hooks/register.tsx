@@ -624,48 +624,107 @@ const listExtras = async ($: EngineInterface, ctx: Ctx, what: string) => {
 /** `$.store` key holding the person's trusted skill hashes for a vault. */
 const trustKey = (vault: GuardVault) => `skills:trusted:${vault.id ?? vault.path}`;
 
+/** `$.store` key holding skill hashes the person answered "Never ask" for. */
+const declinedKey = (vault: GuardVault) => `skills:declined:${vault.id ?? vault.path}`;
+
 /**
- * Find, read and filter a vault's skills (plan §7.2). Cheap enough to run per
- * call: one `find` over `.wiki/skills` and one read per skill.
+ * Find, read and filter a vault's skills (plan §7.2): the vault's own Claude
+ * Code skills, `<vault>/.claude/skills/<name>/SKILL.md` and the same under any
+ * folder in it. One `find` and one read per skill — cheap enough per call.
+ * `.claude/worktrees` holds checkouts of other repos, whose skills are theirs.
  */
 const loadVaultSkills = async ($: EngineInterface, vault: GuardVault): Promise<VaultSkill[]> => {
-  const root = `${vault.path}/.wiki/skills`;
+  const root = vault.path;
   let listing = "";
   try {
-    const r = await $.process.run(["find", root, "-mindepth", "2", "-maxdepth", "2", "-name", "SKILL.md"]);
+    const r = await $.process.run([
+      "find", root, "-maxdepth", "6", "-path", "*/.claude/skills/*/SKILL.md",
+      "-not", "-path", "*/.claude/worktrees/*", "-not", "-path", "*/node_modules/*",
+      "-not", "-path", "*/.git/*", "-not", "-path", "*/.trash/*",
+    ]);
     listing = r.exitCode === 0 ? String(r.stdout ?? "") : "";
   } catch {
     return [];
   }
   const files: SkillFile[] = [];
-  for (const path of listing.split("\n").map((l) => l.trim()).filter(Boolean).slice(0, 50)) {
-    const dir = path.slice(root.length + 1, path.length - "/SKILL.md".length);
+  const paths = listing.split("\n").map((l) => l.trim()).filter(Boolean);
+  // The vault root's skills first, so a nested skill cannot shadow one by name.
+  paths.sort((a, b) => a.split("/").length - b.split("/").length || (a < b ? -1 : 1));
+  for (const path of paths.slice(0, 50)) {
+    const rel = path.slice(root.length + 1);
+    const at = rel.lastIndexOf(".claude/skills/");
+    if (at < 0) continue;
+    const base = rel.slice(0, at).replace(/\/$/, "");
+    const dir = rel.slice(at + ".claude/skills/".length, rel.length - "/SKILL.md".length);
+    if (dir.includes("/")) continue;
     try {
       const text = String(await $.fs.read(path));
-      files.push({ dir, text, hash: await sha256Hex(text) });
+      files.push({ dir, base, text, hash: await sha256Hex(text) });
     } catch {}
   }
   const trusted = ((await $.store.get(trustKey(vault))) ?? {}) as Record<string, string>;
   const open = openOf(vault.path);
   const { names } = await loadGuard($);
   const sealed = names.filter((n) => n.vault === vault.path && n.shard !== PRIVATE_VAULT_SHARD && !open.has(n.shard)).flatMap((n) => [n.t, ...(n.al ?? [])]);
-  const skills = visibleSkills(
+  return visibleSkills(
     files,
     trusted,
     (domain) => listableDomains(vault.domains, open).includes(domain),
     sealed,
+    (shard) => open.has(shard),
+    vault.domains,
   );
-  // An edit untrusts a skill silently by design; say so once per content.
-  for (const sk of skills) {
-    if (!sk.changed || changedToasted.has(sk.hash)) continue;
-    changedToasted.add(sk.hash);
-    try {
-      $.ui.toast(`vault skill ${sk.name} changed — /vault skills trust ${sk.name}`);
-    } catch {}
-  }
-  return skills;
 };
-const changedToasted = new Set<string>();
+
+/** Skills answered "Not now" this session (by content hash). */
+const skillsNotNow = new Set<string>();
+
+/**
+ * Ask the person whether to trust a skill's current content (the
+ * AskUserQuestion dialog). "Trust" pins the hash, "Never ask" remembers it
+ * across sessions, "Not now" for this session. Resolves true only on Trust;
+ * false with nobody to ask (`-p`) or when dismissed.
+ */
+const askTrust = async ($: EngineInterface, vault: GuardVault, s: VaultSkill): Promise<boolean> => {
+  if (s.trusted) return true;
+  if (skillsNotNow.has(s.hash)) return false;
+  const declined = ((await $.store.get(declinedKey(vault))) ?? {}) as Record<string, string>;
+  if (declined[s.name] === s.hash) return false;
+  let answer = "";
+  try {
+    answer = await $.ui.ask(
+      `${s.changed ? "Vault skill changed since you trusted it" : "New vault skill found"}: "${s.name}" — ${s.description.slice(0, 160)} ` +
+        `(${vault.label ?? vault.id ?? "vault"}: ${s.path}). Trust this exact content so it can run from any project? An edit asks again.`,
+      { options: ["Trust", "Not now", "Never ask"], header: "Vault skill" },
+    );
+  } catch {
+    return false;
+  }
+  if (answer === "Trust") {
+    const trusted = { ...(((await $.store.get(trustKey(vault))) ?? {}) as Record<string, string>), [s.name]: s.hash };
+    await $.store.set(trustKey(vault), trusted);
+    traceTo($, vault.path, "skill:trusted", { via: "ask" });
+    return true;
+  }
+  if (answer === "Never ask") await $.store.set(declinedKey(vault), { ...declined, [s.name]: s.hash });
+  else skillsNotNow.add(s.hash);
+  return false;
+};
+
+/**
+ * At session start, outside the vault: ask about every skill that is new or
+ * changed since it was trusted. Inside the vault Claude Code loads them
+ * itself, so there is nothing to trust.
+ */
+const offerNewSkills = async ($: EngineInterface) => {
+  const vault = await pickVault($);
+  if (!vault) return;
+  const cwd = normalizePath(String(await $.session.cwd()), "/");
+  if (cwd === vault.path || cwd.startsWith(`${vault.path}/`)) return;
+  for (const s of await loadVaultSkills($, vault)) {
+    if (!s.trusted) await askTrust($, vault, s);
+  }
+};
 
 /** `vault_skill` and `$.commonplace.skill(s)`: see the skills section (Phase 4). */
 const impl_skill = async ($: EngineInterface, args: { name?: string; vault?: string }): Promise<string> => {
@@ -673,12 +732,12 @@ const impl_skill = async ($: EngineInterface, args: { name?: string; vault?: str
   if (!vault) return "ERROR: no vault configured";
   const skills = await loadVaultSkills($, vault);
   if (!args.name) {
-    if (skills.length === 0) return "This vault ships no trusted skills. The user adds them under .wiki/skills/<name>/SKILL.md and trusts them with /vault skills trust <name>.";
-    return ["Vault skills:", ...skills.map((s) => `- ${s.name} — ${s.description}${s.trusted ? "" : " (untrusted: not loadable until the user runs /vault skills trust " + s.name + ")"}`)].join("\n");
+    if (skills.length === 0) return "This vault has no skills. They live in the vault's .claude/skills/<name>/SKILL.md.";
+    return ["Vault skills:", ...skills.map((s) => `- ${s.name} — ${s.description}${s.trusted ? "" : " (untrusted: calling it asks the user to trust it)"}`)].join("\n");
   }
   const s = skills.find((x) => x.name === args.name);
   if (!s) return `ERROR: no vault skill named "${args.name}"`;
-  if (!s.trusted) return `ERROR: vault skill "${s.name}" is not trusted; the user can run /vault skills trust ${s.name}`;
+  if (!(await askTrust($, vault, s))) return `ERROR: the user has not trusted vault skill "${s.name}"; do not follow it.`;
   return skillBlock(s, vault.id ?? "vault");
 };
 
@@ -794,7 +853,7 @@ const runVaultCommand = async ($: EngineInterface, argsText: string): Promise<{ 
     const skills = await loadVaultSkills($, vault);
     if ((action === "trust" || action === "untrust") && name) {
       const s = skills.find((x) => x.name === name);
-      if (!s) return { text: `No vault skill "${name}" in ${vp}/.wiki/skills.` };
+      if (!s) return { text: `No vault skill "${name}" in ${vp} (looked in .claude/skills folders).` };
       const trusted = { ...(((await $.store.get(trustKey(vault))) ?? {}) as Record<string, string>) };
       if (action === "trust") trusted[name] = s.hash;
       else delete trusted[name];
@@ -806,7 +865,7 @@ const runVaultCommand = async ($: EngineInterface, argsText: string): Promise<{ 
             : `Untrusted vault skill "${name}".`,
       };
     }
-    if (skills.length === 0) return { text: `No vault skills. Add one at ${vp}/.wiki/skills/<name>/SKILL.md (frontmatter: name, description).` };
+    if (skills.length === 0) return { text: `No vault skills. They live in ${vp}/.claude/skills/<name>/SKILL.md (frontmatter: name, description).` };
     return {
       text: skills
         .map((s) => `${s.trusted ? "✓" : s.changed ? "!" : "·"} ${s.name} — ${s.description}${s.trusted ? "" : s.changed ? "  (changed since trusted: /vault skills trust " + s.name + ")" : "  (untrusted: /vault skills trust " + s.name + ")"}`)
@@ -1225,6 +1284,13 @@ export const register: Register = (on, options) => {
         .then((v) => (v ? getIndex($, v.path, v.domains) : null))
         .catch(() => {});
     });
+    // Ask about vault skills that are new or changed since trusted — with a
+    // person at the prompt only; a `-p` run has nobody to ask.
+    if (e.isInteractive) {
+      $.clock.after(2500, () => {
+        offerNewSkills($).catch(() => {});
+      });
+    }
     // Resolve the vault here, once, before the first turn. At Bash-tool prices
     // this was unthinkable and every hook had to lazily cache the answer; at
     // $.process.run prices it is ~46ms of session setup, so the later hooks
@@ -1800,7 +1866,7 @@ export const register: Register = (on, options) => {
         if (!vault) return built;
         const s = (await loadVaultSkills($, vault)).find((x) => x.name === m[1]);
         if (!s) return { text: `${built.text}\n\n(No vault skill named "${m[1]}" is visible in this session.)` };
-        if (!s.trusted) return { text: `Vault skill "${s.name}" is not trusted. Tell the user to run /vault skills trust ${s.name} after reviewing it; do not follow it.` };
+        if (!(await askTrust($, vault, s))) return { text: `The user has not trusted vault skill "${s.name}". Do not follow it; tell them they can trust it with /vault skills trust ${s.name}.` };
         traceTo($, vault.path, "skill:delivered", { trusted: true });
         return { text: skillBlock(s, vault.id ?? "vault", m[2].trim()) };
       }

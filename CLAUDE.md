@@ -67,7 +67,7 @@ userConfig" warning.
   `scope: private`), never from who links to it. A private shard (its
   `linkGroup`, else the domain id; note-level privates → `loose`; folders that
   appear after the first v2 index → `quarantine`) is **sealed** unless opened
-  by one of exactly two signals: the session starting inside its folder, or the
+  by one of exactly two signals: the session starting inside its folder (or in its link group's own folder, when every domain there is in the group), or the
   person typing `/vault open <domain>`. Scope truth lives in module memory only
   (`$.state.commonplace.scope` is a display mirror); `/clear`, a reload and a
   new session re-seal. A typed prompt naming a sealed domain gets a band
@@ -85,11 +85,17 @@ userConfig" warning.
   `types/index.d.ts`. Internal callers use the `impl_*`/`noun.*` functions
   directly so a foreign hook on our noun never sits between the model and our
   data.
-- **Vault skills** — prompt-only `SKILL.md` files in `<vault>/.wiki/skills/`,
-  delivered through the static `vault-skill` skill (its text is swapped in
-  `skill.prompt`; `$.prompt.submit` is refused inside `command.run`). Loadable
-  only after the person runs `/vault skills trust <name>`, which pins the exact
-  content hash; any edit untrusts it. The model can never write there.
+- **Vault skills** — the vault's own Claude Code skills: `<vault>/.claude/skills/`
+  and `<folder>/.claude/skills/` anywhere inside it (`.claude/worktrees` is
+  skipped). A session started in the vault gets them from Claude Code itself;
+  any other session gets them through the static `vault-skill` skill (its text
+  is swapped in `skill.prompt`; `$.prompt.submit` is refused inside
+  `command.run`) and `vault_skill`. Outside the vault a skill runs only once the
+  person has trusted its exact content: discovered at session start, or first
+  called, it raises a `$.ui.ask` dialog (Trust / Not now / Never ask), pinned by
+  SHA-256 so any edit — including Claude's — asks again. `/vault skills trust`
+  does the same by hand. A nested skills folder holding or inside a private
+  domain is offered only while that domain is open (`skillGateShards`).
 - **`/vault`** — `status · list · use · open · close · reindex · skills ·
   domain`, answered by `command.run`.
 - **Prime** (`hooks/lib/core/prime.ts`, off by default): the sync lane in

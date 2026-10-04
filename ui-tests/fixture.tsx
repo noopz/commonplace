@@ -51,16 +51,18 @@ function files(): Map<string, string> {
 /**
  * `unbuilt` withholds the index until the module runs `commonplace index`,
  * which then waits on `buildDelay` (a mocked clock's `sleep`).
+ * `skills` adds vault-relative SKILL.md files (served to the module's `find`).
  * `registryDown` fails `commonplace vaults` (a fresh install before npm
  * install finishes). `hold` names a vault-relative file whose read waits until the returned
  * `release` is called: how a test looks at the module mid-call.
  */
-export function serveVault(on: On, opts: { hold?: string; registryDown?: boolean; unbuilt?: boolean; buildDelay?: () => Promise<void> } = {}): { release: () => void; builds: () => number } {
+export function serveVault(on: On, opts: { hold?: string; registryDown?: boolean; unbuilt?: boolean; buildDelay?: () => Promise<void>; skills?: Record<string, string> } = {}): { release: () => void; builds: () => number } {
   const fs = files();
   // `unbuilt`: the graph is not there until the module runs `commonplace index`.
   const pending = new Map<string, string>();
   if (opts.unbuilt) for (const [k, v] of fs) if (k.startsWith(`${VAULT}/.wiki/graph/`) || k.startsWith(`${VAULT}/.wiki/sealed/`)) { pending.set(k, v); fs.delete(k); }
   let builds = 0;
+  for (const [rel, text] of Object.entries(opts.skills ?? {})) fs.set(`${VAULT}/${rel}`, text);
   let release = () => {};
   const gate = new Promise<void>((r) => (release = r));
   on("process.run", async (_$, e) => {
@@ -70,6 +72,10 @@ export function serveVault(on: On, opts: { hold?: string; registryDown?: boolean
     }
     if (argv.includes(" vaults --json")) {
       return { value: { exitCode: 0, stdout: JSON.stringify({ matches: [{ path: VAULT, id: "acme", label: "Acme", aliases: [] }] }), stderr: "", isStdoutTruncated: false, isStderrTruncated: false } };
+    }
+    if (e.argv[0] === "find" && e.argv.includes("*/.claude/skills/*/SKILL.md")) {
+      const found = [...fs.keys()].filter((k) => /\/\.claude\/skills\/[^/]+\/SKILL\.md$/.test(k));
+      return { value: { exitCode: 0, stdout: found.join("\n"), stderr: "", isStdoutTruncated: false, isStderrTruncated: false } };
     }
     if (e.argv.includes("index") && e.argv.includes("--vault")) {
       builds++;
@@ -103,9 +109,9 @@ export function serveVault(on: On, opts: { hold?: string; registryDown?: boolean
  * session starts, toasts and the status line land nowhere, and the engine's
  * own drawing of a component is an empty column the plugin may wrap.
  */
-export function engineFloor(on: On): void {
+export function engineFloor(on: On, cwd = "/fixture/project"): void {
   on("session.start", async (_$, e) => ({ cwd: e.cwd }));
-  on("session.cwd", async () => ({ value: "/fixture/project" }));
+  on("session.cwd", async () => ({ value: cwd }));
   on("session.id", async () => ({ value: "fixture-session-0001" }));
   on("session.version", async () => ({ value: { version: "2.1.288", base: "2.1.288" } }));
   on("session.repo", async () => ({ value: null }));

@@ -62,6 +62,9 @@ test("every $.noun.verb() the hooks module calls exists in the newest API snapsh
       const key = `'${noun}.${verb}'`;
       const declared =
         snapshot.includes(key) ||
+        // A method with no event of its own (`$.ui.ask` rides `tool.call`):
+        // every method's doc carries an example of the call.
+        snapshot.includes(`$.${noun}.${verb}(`) ||
         // A plugin-added noun: its method must appear in our own contract.
         (own.includes(`${noun}:`) && new RegExp(`\\b${verb}\\s*[:(]`).test(own));
       if (!declared) missing.push(`${file.slice(root.length + 1)}: $.${noun}.${verb}()`);

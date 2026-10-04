@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { parseSkill, visibleSkills, skillBlock, sha256Hex, type SkillFile } from "./load.ts";
+import { parseSkill, visibleSkills, skillBlock, sha256Hex, skillGateShards, type SkillFile } from "./load.ts";
 
 const file = async (dir: string, text: string): Promise<SkillFile> => ({ dir, text, hash: await sha256Hex(text) });
 
@@ -36,4 +36,28 @@ test("skill block wraps the body with provenance", async () => {
   assert.match(block, /^<vault-skill name="alpha" vault="alpha-vault" trusted="true">/);
   assert.match(block, /Arguments: the draft/);
   assert.match(block, /Step one\./);
+});
+
+const DOMS = {
+  craft: { path: "08 - Saga/Craft", scope: "public", linkGroup: "saga" },
+  world: { path: "08 - Saga/World", scope: "private", linkGroup: "saga" },
+  gamma: { path: "04 - Explorations/Gamma", scope: "private" },
+};
+
+test("a nested .claude/skills folder carries the scope of the private domains it holds or sits in", () => {
+  assert.deepEqual(skillGateShards("", DOMS), [], "the vault root's skills are vault-wide");
+  assert.deepEqual(skillGateShards("08 - Saga", DOMS), ["saga"]);
+  assert.deepEqual(skillGateShards("04 - Explorations/Gamma/drafts", DOMS), ["gamma"]);
+  assert.deepEqual(skillGateShards("02 - Research", DOMS), []);
+});
+
+test("gated skills appear only while their shard is open; root skills win a name clash", async () => {
+  const play = { ...(await file("saga-play", "---\nname: saga-play\ndescription: d\n---\nPlay the saga.\n")), base: "08 - Saga" };
+  const root = { ...(await file("intake", "---\nname: intake\ndescription: root\n---\nx\n")), base: "" };
+  const clash = { ...(await file("intake", "---\nname: intake\ndescription: nested\n---\ny\n")), base: "08 - Saga" };
+  const sealed = visibleSkills([root, play, clash], {}, () => true, [], () => false, DOMS);
+  assert.deepEqual(sealed.map((s) => [s.name, s.description]), [["intake", "root"]]);
+  const open = visibleSkills([root, play, clash], {}, () => true, [], (s) => s === "saga", DOMS);
+  assert.deepEqual(open.map((s) => s.name), ["intake", "saga-play"]);
+  assert.equal(open.find((s) => s.name === "saga-play")!.path, "08 - Saga/.claude/skills/saga-play/SKILL.md");
 });

@@ -195,4 +195,4 @@ After writing the source note and any new concept stubs:
 
 ## Never write into `.wiki/`
 
-Indexes, `.wiki/skills/` and `.wiki/agents/` are the plugin's and the user's. The plugin denies model writes there; do not try another route.
+Indexes and `.wiki/agents/` are the plugin's and the user's. The plugin denies model writes there; do not try another route.

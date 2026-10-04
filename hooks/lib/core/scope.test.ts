@@ -31,6 +31,21 @@ test("shards: public → main, private → linkGroup ?? id, nested folder wins",
   assert.equal(shardOfNote(D, "03 - Concepts/Gamma Term.md"), "main", "concept lives in a public folder");
 });
 
+test("signal 1: a link group's own folder opens the group; a broad shared folder does not", () => {
+  const G: DomainMap = {
+    craft: { path: "08 - Saga/Craft", scope: "public", linkGroup: "saga" },
+    world: { path: "08 - Saga/World", scope: "private", linkGroup: "saga" },
+    ...D,
+  };
+  assert.deepEqual([...openFromStartCwd(G, V, `${V}/08 - Saga`)], ["saga"]);
+  assert.deepEqual([...openFromStartCwd(G, V, `${V}/08 - Saga/Craft`)], ["saga"]);
+  // g1's common folder also holds epsilon and xyz: not g1's home.
+  assert.equal(openFromStartCwd(G, V, `${V}/04 - Explorations`).size, 0);
+  // A group with no private member has nothing to open.
+  const pub: DomainMap = { a: { path: "09 - Pub/A", scope: "public", linkGroup: "p" }, b: { path: "09 - Pub/B", scope: "public", linkGroup: "p" } };
+  assert.equal(openFromStartCwd(pub, V, `${V}/09 - Pub`).size, 0);
+});
+
 test("signal 1: session-start cwd opens that shard (and its group) only", () => {
   assert.deepEqual([...openFromStartCwd(D, V, `${V}/04 - Explorations/Gamma/drafts`)], ["g1"]);
   assert.equal(openFromStartCwd(D, V, V).size, 0);

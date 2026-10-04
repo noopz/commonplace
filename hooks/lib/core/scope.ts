@@ -81,6 +81,32 @@ export function openFromStartCwd(domains: DomainMap, vaultPath: string, startCwd
     const root = strip(`${strip(vaultPath)}/${d.path}`);
     if (cwd === root || cwd.startsWith(`${root}/`)) open.add(shardOfDomain(domains, id));
   }
+  // A link group's home: starting in the folder that holds ALL of a group's
+  // domains (`08 - Group/` above `08 - Group/Craft` and `08 - Group/World`)
+  // is working on that group, so it opens — but only when every domain in
+  // that folder belongs to the group, so a broad folder holding other
+  // domains (`04 - Explorations/`) opens nothing. Never the vault root.
+  const groups = new Map<string, { paths: string[][]; private: boolean }>();
+  for (const d of Object.values(domains)) {
+    if (!d.linkGroup || !d.path) continue;
+    const g = groups.get(d.linkGroup) ?? { paths: [], private: false };
+    g.paths.push(strip(d.path).split("/"));
+    g.private ||= isPrivate(d);
+    groups.set(d.linkGroup, g);
+  }
+  for (const [group, g] of groups) {
+    if (!g.private || g.paths.length < 2) continue;
+    const common: string[] = [];
+    for (let i = 0; g.paths.every((p) => i < p.length && p[i] === g.paths[0][i]); i++) common.push(g.paths[0][i]);
+    if (common.length === 0) continue;
+    const prefix = common.join("/");
+    const foreign = Object.values(domains).some(
+      (d) => d.linkGroup !== group && d.path && (strip(d.path) === prefix || strip(d.path).startsWith(`${prefix}/`)),
+    );
+    if (foreign) continue;
+    const home = strip(`${strip(vaultPath)}/${prefix}`);
+    if (cwd === home || cwd.startsWith(`${home}/`)) open.add(group);
+  }
   return open;
 }
 
