@@ -83,7 +83,7 @@ export function toCard(c: Card, ctx: Pick<NounCtx, "vaultId" | "index">): Common
   return {
     id: c.id,
     vault: ctx.vaultId,
-    path: c.p,
+    path: ctx.index.view?.relOfId(c.id) ?? "",
     title: c.t,
     kind: c.k as CommonplaceNodeKind,
     domain: c.d,

@@ -2,8 +2,11 @@
  * One compact card per note (`graph/cards/main.NNN.jsonl`, plan §3.3).
  *
  * A card is what search results, link listings and the prime show about a
- * note WITHOUT reading it: title, path, kind, domain, a ≤120-char abstraction
- * and its public degree/neighbours. It is a pointer, never content — reading
+ * note WITHOUT reading it: title, kind, domain, a ≤120-char abstraction and
+ * its public degree/neighbours. No path: the title IS the filename stem
+ * (parse.ts), so a path on the card paid for a long title twice and the
+ * abstraction was clipped to pay the bill. Readers take the path from the
+ * view (`relOfId`), which every visible id has. It is a pointer, never content — reading
  * the note is still `vault_note`'s job.
  *
  * `deg`/`nb` are computed by the caller on the public subgraph (review B8),
@@ -16,7 +19,6 @@
 export type Card = {
   id: number;
   t: string;
-  p: string;
   k: "source" | "concept" | "moc" | "other";
   d: string;
   a: string;
@@ -48,8 +50,10 @@ export function clip(s: string, max: number): string {
 }
 
 /**
- * Build a card, shrinking optional parts (tags, then neighbours, then the
- * abstraction) until the serialised line fits CARD_MAX_BYTES.
+ * Build a card, shedding tags, then neighbours, until the serialised line fits
+ * CARD_MAX_BYTES — a soft budget. The abstraction is never clipped below
+ * CARD_ABSTRACTION_MAX: it is the one field a card exists to deliver, so a
+ * note with a very long title gets a longer line instead.
  */
 export function makeCard(c: Omit<Card, "a"> & { a: string }): Card {
   const card: Card = { ...c, a: clip(c.a, CARD_ABSTRACTION_MAX), tags: c.tags.slice(0, 5), nb: c.nb.slice(0, 3) };
@@ -59,11 +63,6 @@ export function makeCard(c: Omit<Card, "a"> & { a: string }): Card {
   const size = () => new TextEncoder().encode(JSON.stringify(card)).length;
   while (size() > CARD_MAX_BYTES && card.tags.length > 0) card.tags.pop();
   while (size() > CARD_MAX_BYTES && card.nb.length > 0) card.nb.pop();
-  let max = CARD_ABSTRACTION_MAX;
-  while (size() > CARD_MAX_BYTES && max > 20) {
-    max -= 10;
-    card.a = clip(c.a, max);
-  }
   return card;
 }
 

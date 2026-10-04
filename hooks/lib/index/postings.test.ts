@@ -53,12 +53,12 @@ test("postings build is deterministic", () => {
 
 test("cards fit the byte budget and clip on word boundaries", () => {
   const card = makeCard({
-    id: 7, t: "Alpha Calibration Drift", p: "02 - Research/Alpha/Alpha Calibration Drift.md", k: "source", d: "alpha",
+    id: 7, t: "Alpha Calibration Drift", k: "source", d: "alpha",
     a: "word ".repeat(80), deg: [3, 9], nb: [1, 2, 3, 4, 5], tags: ["a", "b", "c", "d", "e", "f", "g"], stub: false, ret: false,
   });
   assert.ok(new TextEncoder().encode(JSON.stringify(card)).length <= CARD_MAX_BYTES);
   assert.ok(card.nb.length <= 3);
-  assert.ok(card.a.endsWith("…"));
+  assert.ok(card.a.endsWith("…"), "an over-long abstraction is clipped to CARD_ABSTRACTION_MAX");
   assert.equal(card.af, undefined);
   assert.equal(clip("short", 120), "short");
   assert.equal(cardChunk(CARDS_PER_CHUNK - 1), 0);
@@ -178,4 +178,16 @@ test("local rerank: a hit the other hits link to rises; vault-wide popularity al
   assert.deepEqual(localRerank(hits, rank, 4, inLinks).map((h) => h.id), [0, 1, 2, 3], "off unless weighted");
   const self = { 0: [0], 1: [], 2: [], 3: [] } as Record<number, number[]>;
   assert.deepEqual(localRerank(hits, { ...rank, local: 1 }, 4, (id, cb) => (self[id] ?? []).forEach(cb)).map((h) => h.id), [0, 1, 2, 3], "a self-link counts for nothing");
+});
+
+test("a long title sheds tags and neighbours, never the abstraction", () => {
+  const a = "staged ledger index that separates writes from lookups across shards"; // < CARD_ABSTRACTION_MAX
+  const card = makeCard({
+    id: 9, t: `Kappa Ledger ${"Extended Edition ".repeat(6)}— A Very Long Invented Title`, k: "source", d: "alpha",
+    a, deg: [1, 1], nb: [1, 2, 3], tags: ["a", "b", "c", "d", "e"], stub: false, ret: false, pub: "2025-02", cr: "2026-01-05",
+  });
+  assert.equal(card.a, a, "abstraction intact");
+  assert.equal(card.tags.length, 0, "tags went first");
+  assert.equal(card.nb.length, 0, "then neighbours");
+  assert.equal((card as Record<string, unknown>).p, undefined, "no path on cards");
 });

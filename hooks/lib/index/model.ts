@@ -305,7 +305,6 @@ export function buildIndex(notes: readonly IndexNote[], opts: BuildOptions): Bui
     return makeCard({
       id,
       t: p.title,
-      p: note.rel,
       k: kindOf(p.kind),
       d: domainOf(opts.domains, note.rel),
       a: p.abstraction,

@@ -513,7 +513,6 @@ export class VaultView implements Adjacency {
         makeCard({
           id,
           t: note.title,
-          p: rel,
           k: note.kind,
           d: domainOf(this.domains, rel),
           a: note.abstraction,

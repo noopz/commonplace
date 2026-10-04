@@ -70,8 +70,11 @@ export type Manifest = {
   schema?: number;
 };
 
-/** Bump when cards or edge kinds gain fields an old artefact lacks (2: dates on cards, `contests` edges). */
-export const SCHEMA = 2;
+/**
+ * Bump when cards or edge kinds change shape (2: dates on cards, `contests`
+ * edges; 3: cards drop `p`, abstraction never clipped).
+ */
+export const SCHEMA = 3;
 
 export type NamesFile = {
   v: 2;

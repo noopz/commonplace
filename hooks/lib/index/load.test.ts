@@ -220,3 +220,11 @@ test("a private-shard patch is journaled only under sealed/", async () => {
   assert.ok(!(files.get(P.journal) ?? "").includes("Gamma"));
   assert.ok((files.get(P.shardJournal("gamma")) ?? "").includes("Gamma Term"));
 });
+
+test("a manifest cut under an older card schema loads as absent", async () => {
+  const files = art(BASE);
+  const m = JSON.parse(files.get(P.manifest)!);
+  m.schema = 2;
+  files.set(P.manifest, JSON.stringify(m));
+  assert.equal(await new VaultIndex(fakePorts(files), DOMAINS).load(), "absent", "schema-2 cards still carry a path");
+});

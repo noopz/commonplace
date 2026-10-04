@@ -324,7 +324,7 @@ confirms; `wiki-supersede` stays for entities the user switched away from.
 Not built yet, and only behind a time-aware gold set: CiteRank over the vault
 graph (PageRank with recency-biased restarts, so an old note stays "current"
 exactly while new notes keep citing it) as a displayed signal or tiebreak.
-`layout.ts SCHEMA` bumps force one rebuild when cards or edge kinds gain fields.
+`layout.ts SCHEMA` bumps force one rebuild when cards or edge kinds change shape. Cards carry no path — the title is the filename stem, so readers take the path from the view (`relOfId`) — and the abstraction is never clipped to fit the card budget: tags go first, then neighbours, and a very long title just makes a longer line.
 
 **`commonplace eval:scale`** times rebuild, patch, sweep, journal replay and
 the tool p50s on synthetic 1×/10×/50× vaults (invented text only). Cards and

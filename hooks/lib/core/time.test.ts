@@ -101,3 +101,14 @@ test("timeLines: nothing to say means no lines", () => {
   assert.deepEqual(timeLines(bare), []);
   assert.deepEqual(timeLines({ ...bare, published: "2020" }), ["published 2020"]);
 });
+
+test("cards carry no path; search and note take it from the view", async () => {
+  const { index, ctx } = setup();
+  await index.load();
+  const s = await noun.search(ctx(), { query: "kestrel ledger" });
+  assert.ok(!("error" in s));
+  for (const h of s.hits) assert.equal(h.path, `Research/Alpha/${h.title}.md`);
+  const n = await noun.note(ctx(), { ref: "Kestrel Survey" });
+  assert.ok(!("error" in n));
+  assert.equal(n.card.path, "Research/Alpha/Kestrel Survey.md");
+});
