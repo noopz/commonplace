@@ -22,6 +22,7 @@
 
 import { readFileSync, existsSync, mkdirSync, writeFileSync } from "fs";
 import { logLinesSince } from "../hook-log.js";
+import { commonplaceIds } from "../plugin-ids.js";
 import { join, dirname, resolve } from "path";
 import { parseArgs } from "node:util";
 import { spawnSync } from "child_process";
@@ -110,6 +111,14 @@ const linesSince = (sinceIso: string): LogLine[] => logLinesSince(logPath, since
 
 const timeoutMs = Math.max(30, Number(args.timeout ?? 240)) * 1000;
 const pluginDir = args["plugin-dir"] ? resolve(args["plugin-dir"]) : "";
+const passOnly = { options: { primeContext: false, ambientConnections: true } };
+const SETTINGS = JSON.stringify({
+  pluginConfigs: Object.fromEntries(commonplaceIds().map((id) => [id, passOnly])),
+  // Under --plugin-dir the working tree is `commonplace@inline`; the installed copy stays off.
+  ...(pluginDir
+    ? { enabledPlugins: Object.fromEntries(commonplaceIds().filter((id) => id.includes("@") && id !== "commonplace@inline").map((id) => [id, false])) }
+    : {}),
+});
 
 const results: CaseResult[] = [];
 
@@ -119,7 +128,10 @@ for (const [i, c] of gold.entries()) {
   }
   const before = new Date().toISOString();
 
-  const argv = ["-p", c.prompt];
+  // Measured alone: prime off (it shares the per-segment vault budget), the
+  // pass on, keyed by every installed id. The session runs inside the vault,
+  // so nothing that can change files is allowed.
+  const argv = ["-p", c.prompt, "--settings", SETTINGS, "--disallowedTools", "Write", "Edit", "NotebookEdit", "Bash"];
   if (pluginDir) argv.push("--plugin-dir", pluginDir);
 
   const started = Date.now();
