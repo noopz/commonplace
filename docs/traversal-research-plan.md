@@ -20,7 +20,7 @@ a standing retrieval layer that traversal or hub-handling depends on.
 
 Two problems that *look* like one ("hubs") are actually distinct and need separate fixes:
 
-- **Graph-topology hubs** (a MOC or "Agent Experience" connecting to everything) — solved with
+- **Graph-topology hubs** (a MOC or "Gamma Term" connecting to everything) — solved with
   HITS-style hub/authority separation and Personalized PageRank, which structurally dilute paths
   through high-degree nodes. Pure graph algorithms over the explicit edge set — no embeddings
   involved.

@@ -25,7 +25,7 @@ So retrieval seeds against a bare name/title string. In this frame a **stub is a
 
 ## 3. The field
 
-- New frontmatter key `abstraction:` — one canonical descriptor, ~6–12 words, noun-phrase-first ("harmonic memory representation that decouples storage from retrieval"), no citations, no dates.
+- New frontmatter key `abstraction:` — one canonical descriptor, ~6–12 words, noun-phrase-first ("staged ledger index that separates writes from lookups"), no citations, no dates.
 - For concepts: it replaces the "*Definition pending*" stub sentinel as the thing `isStub` keys on — `isStub = abstraction empty OR body still sentinel`.
 - For sources: derived from `## Summary`'s first clause at ingest; editable.
 

@@ -113,15 +113,15 @@ At the end of your answer, briefly note any vault updates. Keep it short — one
 
 ## Example
 
-**User**: "How does FinMem's memory system compare to TradingGPT?"
+**User**: "How does the Alpha Model's memory system compare to the Beta Model's?"
 
 **Process**:
 1. Read both paper notes from the vault
 2. Compare their memory architectures
-3. Synthesize: FinMem uses working/episodic/semantic layers; TradingGPT uses layered memory with distinct character profiles
-4. Notice: both papers reference [[layered memory]] but the concept note doesn't mention [[character design]] as related → file back
+3. Synthesize: the Alpha Model uses working/episodic/semantic layers; the Beta Model uses tiered recall with distinct persona profiles
+4. Notice: both papers reference [[tiered recall]] but the concept note doesn't mention [[persona modelling]] as related → file back
 5. Answer with comparison table + wikilinks
-6. Mention: "Updated [[layered memory]] to note its connection to [[character design]]"
+6. Mention: "Updated [[tiered recall]] to note its connection to [[persona modelling]]"
 
 ## Pre-Ingest Relevance Check
 

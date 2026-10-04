@@ -44,13 +44,13 @@ test("parseJsonl skips malformed lines instead of throwing", () => {
     "not json at all",
     '{"name":"Gamma Term","path":"conce',   // a torn line from a partial write
     "",
-    '{"name":"Delta Rule","path":"concepts/delta.md"}',
+    '{"name":"Kappa Rule","path":"concepts/kappa.md"}',
   ].join("\n");
 
   const recs = parseJsonl(content);
   assert.equal(recs.length, 2);
   assert.equal(recs[0].name, "Alpha Method");
-  assert.equal(recs[1].name, "Delta Rule");
+  assert.equal(recs[1].name, "Kappa Rule");
 });
 
 test("scoreRecord weights a title match above an abstraction match", () => {

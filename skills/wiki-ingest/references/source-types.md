@@ -15,9 +15,9 @@
 4. Place in appropriate domain under `{structure.sources}/` (read from `.wiki/config.json`)
 
 **Domain inference:**
-- Financial/trading topics → `Financial Trading AI`
-- Agent/LLM architecture → `Agent Foundations`
-- AI dev tools/coding → `AI Development`
+- Topics matching a domain's subject → that domain (e.g. `Alpha Markets`)
+- Topics spanning two domains → the one the source's core claim belongs to (e.g. `Beta Systems`)
+- Tooling/how-to material → the tooling domain if one exists (e.g. `Gamma Tools`)
 - Ask user if ambiguous
 
 ## Raw/ Files — Technical Reports, Model Cards, Data Files

@@ -45,11 +45,11 @@ For each source you intend to add to a MOC:
 
 ### DO / DON'T
 
-A source note exists at `02 - Areas/Research/Direct Corpus Interaction - Rethinking Retrieval for Agentic Search.md` whose H1 reads `# Beyond Semantic Similarity: Rethinking Retrieval for Agentic Search via Direct Corpus Interaction`.
+A source note exists at `02 - Areas/Research/Acme Retrieval Study - Rethinking Search for Agents.md` whose H1 reads `# Beyond Keywords: Rethinking Search for Agents in the Acme Retrieval Study`.
 
-✅ DO write: `- [[Direct Corpus Interaction - Rethinking Retrieval for Agentic Search]]`
-❌ DON'T write: `- [[Beyond Semantic Similarity: Rethinking Retrieval for Agentic Search via Direct Corpus Interaction]]`
-❌ DON'T write: `- [[Beyond Semantic Similarity - Rethinking Retrieval for Agentic Search]]`
+✅ DO write: `- [[Acme Retrieval Study - Rethinking Search for Agents]]`
+❌ DON'T write: `- [[Beyond Keywords: Rethinking Search for Agents in the Acme Retrieval Study]]`
+❌ DON'T write: `- [[Beyond Keywords - Rethinking Search for Agents]]`
 
 The DON'T versions look right but produce dead links because Obsidian cannot resolve them to the actual file.
 

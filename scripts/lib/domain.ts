@@ -14,7 +14,7 @@ export function inferSourceDomain(
     : filePath;
 
   for (const [slug, entry] of Object.entries(registry.domains)) {
-    // Trailing "/" prevents `02 - Research/AI` from matching `02 - Research/AI Development/...`
+    // Trailing "/" prevents `02 - Research/Alpha` from matching `02 - Research/Alpha Systems/...`
     if (relative.startsWith(entry.path + "/")) {
       return slug;
     }

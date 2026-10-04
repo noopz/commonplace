@@ -398,24 +398,24 @@ test("findPrivateMatches catches any title written as a wikilink", () => {
   assert.deepEqual(findPrivateMatches("see [[alpha|the alpha note]]", titles), ["Alpha"]);
   assert.deepEqual(findPrivateMatches("see [[Weekly Review#Monday]]", titles), ["Weekly Review"]);
   // an unrelated wikilink is not a hit
-  assert.deepEqual(findPrivateMatches("see [[Delta Rule]]", titles), []);
+  assert.deepEqual(findPrivateMatches("see [[Kappa Rule]]", titles), []);
 });
 
 
 test("checkPrivateLeak denies a public-repo write that reproduces a private title", () => {
   const r = checkPrivateLeak(
     'test("links Alpha Method to Gamma Term", () => {})',
-    ["Alpha Method", "Gamma Term", "Delta Rule"],
+    ["Alpha Method", "Gamma Term", "Kappa Rule"],
   );
   assert.ok(r);
   assert.match(r.deny, /"Alpha Method"/);
   assert.match(r.deny, /"Gamma Term"/);
-  assert.ok(!r.deny.includes("Delta Rule"), "unmatched titles are not named");
+  assert.ok(!r.deny.includes("Kappa Rule"), "unmatched titles are not named");
   assert.match(r.deny, /invent/i);
 });
 
 test("checkPrivateLeak caps the titles it names but counts the rest", () => {
-  const titles = ["Alpha Method", "Gamma Term", "Delta Rule", "Epsilon Bound", "Zeta Cohort"];
+  const titles = ["Alpha Method", "Gamma Term", "Kappa Rule", "Epsilon Bound", "Zeta Cohort"];
   const text = titles.join(", ");
   const r = checkPrivateLeak(text, titles);
   assert.ok(r);

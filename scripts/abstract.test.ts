@@ -16,7 +16,7 @@ created: '2026-01-01'
 
 ## Summary
 
-This paper introduces a harmonic memory representation that decouples storage from retrieval across layers.
+This paper introduces a staged ledger index that decouples storage from retrieval across layers.
 
 ## Notes
 Some notes.
@@ -147,7 +147,7 @@ test("backfill inserts one line, preserves bytes, sets the vault flag, and is id
       alpha,
       SOURCE_NOTE.replace(
         "created: '2026-01-01'\n---",
-        "created: '2026-01-01'\nabstraction: 'a harmonic memory representation that decouples storage from retrieval across layers'\n---",
+        "created: '2026-01-01'\nabstraction: 'a staged ledger index that decouples storage from retrieval across layers'\n---",
       ),
     );
 

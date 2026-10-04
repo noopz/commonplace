@@ -81,7 +81,7 @@ uses_method:      # optional — methods employed
 ---
 ```
 
-**`abstraction` (required):** one canonical descriptor, ~6–12 words, noun-phrase-first (e.g. 'harmonic memory representation that decouples storage from retrieval'), no citations, no dates. Derive it from the Summary's core claim. It is indexed as the note's primary retrieval key, so favor distinctive content words over generic ones — an abstraction that merely repeats the title gets lint-flagged.
+**`abstraction` (required):** one canonical descriptor, ~6–12 words, noun-phrase-first (e.g. 'staged ledger index that separates writes from lookups'), no citations, no dates. Derive it from the Summary's core claim. It is indexed as the note's primary retrieval key, so favor distinctive content words over generic ones — an abstraction that merely repeats the title gets lint-flagged.
 
 ### Body Structure
 
@@ -142,7 +142,7 @@ A concept related to wikilinks. *Definition pending - please update.*
 
 Stubs deliberately omit `abstraction:` — a missing abstraction is what marks a stub for compilation. wiki-compile writes the abstraction together with the real definition.
 
-Only create concepts for genuine noun-phrase concepts (e.g., "reinforcement learning", "layered memory"), not sentence fragments or incidental phrases.
+Only create concepts for genuine noun-phrase concepts (e.g., "gradient descent", "tiered recall"), not sentence fragments or incidental phrases.
 
 ## MOC Linking
 
@@ -171,7 +171,7 @@ After writing the source note and any new concept stubs:
    ```
 
 4. **Dispatch agents** for source files. First, if `$VAULT_PATH/.wiki/quarantine.json` exists, Read it and hard-skip any agent named in a `doNotInvoke` list with `status` of `open` or `quarantined` (see `docs/known-bugs.md`). Agents have isolated context windows — they cannot see this conversation. Include vault path and relevant data inline in each prompt:
-   - Dispatch `wiki-moc-updater` agent with: (a) the absolute path to the new source note, (b) its `mocs:` frontmatter list, (c) the **canonical wikilink text** (= `basename(newSourcePath, '.md')`). State the wikilink text explicitly in the prompt — e.g. `Wikilink text to use: "Direct Corpus Interaction - Rethinking Retrieval for Agentic Search"`. Obsidian resolves links by filename, so the agent must use this exact string in `[[...]]`, not the note's H1.
+   - Dispatch `wiki-moc-updater` agent with: (a) the absolute path to the new source note, (b) its `mocs:` frontmatter list, (c) the **canonical wikilink text** (= `basename(newSourcePath, '.md')`). State the wikilink text explicitly in the prompt — e.g. `Wikilink text to use: "Acme Retrieval Study - Rethinking Search for Agents"`. Obsidian resolves links by filename, so the agent must use this exact string in `[[...]]`, not the note's H1.
    - Run `commonplace link --note "<new source note path>"` to wikilink any unlinked concept/source/MOC mentions in that note. Deterministic; no agent dispatch.
 
 5. **Supersession scan** (hard prompt — do not skip): grep the new note's body for supersession declarations:

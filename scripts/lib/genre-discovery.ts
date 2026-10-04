@@ -18,7 +18,7 @@ const SAMPLE_LIMIT = 200;
 const MIN_GENRE_NOTES = 3;
 
 export interface NoteSample {
-  /** Up to 2 path segments deep, e.g. "07 - Blog" or "02 - Research/AI Development" */
+  /** Up to 2 path segments deep, e.g. "06 - Journal" or "02 - Research/Alpha Systems" */
   relDir: string;
   /** Raw frontmatter text between the leading and trailing --- */
   fm: string;

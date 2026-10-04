@@ -742,8 +742,8 @@ if (shouldRun("underlinked")) {
 
       // Check frontmatter-body coherence (both directions).
       // Resolve frontmatter concepts to canonical names so an alias in
-      // frontmatter (e.g. `LM`) is treated the same as a body link to its
-      // canonical target (`Layered Memory`).
+      // frontmatter (e.g. `TR`) is treated the same as a body link to its
+      // canonical target (`Tiered Recall`).
       const fmConcepts = extractFrontmatterWikilinks(parsed.frontmatter.concepts);
       const fmConceptCanonical = new Map<string, string>();
       for (const c of fmConcepts) {

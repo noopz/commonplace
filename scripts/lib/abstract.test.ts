@@ -11,15 +11,15 @@ import {
 
 test("cleanForAbstraction strips wikilinks, markdown links, and emphasis", () => {
   assert.equal(
-    cleanForAbstraction("A **harmonic** [[Memory Layer|memory layer]] per [[Cue Anchors]] and [docs](https://example.com)"),
-    "A harmonic memory layer per Cue Anchors and docs",
+    cleanForAbstraction("A **staged** [[Ledger Layer|ledger layer]] per [[Cue Anchors]] and [docs](https://example.com)"),
+    "A staged ledger layer per Cue Anchors and docs",
   );
 });
 
 test("deriveAbstraction takes the first sentence and strips boilerplate", () => {
   assert.equal(
-    deriveAbstraction("This paper introduces a harmonic memory representation that decouples storage from retrieval. It also does other things."),
-    "a harmonic memory representation that decouples storage from retrieval",
+    deriveAbstraction("This paper introduces a staged ledger index that decouples storage from retrieval. It also does other things."),
+    "a staged ledger index that decouples storage from retrieval",
   );
 });
 
@@ -54,10 +54,10 @@ test("extractConceptDefinition skips headings and the stub sentinel", () => {
 
 test("insertFrontmatterAbstraction preserves all other bytes", () => {
   const raw = "---\ntags: [paper]\ncreated: '2026-01-01'\n---\n\n# Title\n\nBody.\n";
-  const out = insertFrontmatterAbstraction(raw, "a harmonic memory representation");
+  const out = insertFrontmatterAbstraction(raw, "a staged ledger index");
   assert.equal(
     out,
-    "---\ntags: [paper]\ncreated: '2026-01-01'\nabstraction: 'a harmonic memory representation'\n---\n\n# Title\n\nBody.\n",
+    "---\ntags: [paper]\ncreated: '2026-01-01'\nabstraction: 'a staged ledger index'\n---\n\n# Title\n\nBody.\n",
   );
 });
 

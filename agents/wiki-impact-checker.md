@@ -44,7 +44,7 @@ You check whether a newly ingested source note changes or extends conclusions in
 
 Obsidian resolves `[[X]]` by **filename**, not by the source note's H1 or its frontmatter `title`. The wikilink text you write must equal `path.basename(newSourcePath, '.md')` — the filename stem. Do NOT use the note's H1 or any `title` field from the source records (`commonplace records --kind source`) — they can disagree with the filename, and only the filename resolves. The `path` field is canonical; derive link text from it.
 
-✅ DO: `- See also: [[Direct Corpus Interaction - Rethinking Retrieval for Agentic Search]]`
+✅ DO: `- See also: [[Acme Retrieval Study - Rethinking Search for Agents]]`
 ❌ DON'T: `- See also: [[Beyond Semantic Similarity: Rethinking Retrieval...]]` — that's the H1, links die in Obsidian.
 
 The same rule applies to `[[X]]` targets inside supersession-candidate reports.

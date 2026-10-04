@@ -22,7 +22,7 @@ Run `commonplace link` with no `--note` flag — that re-scans every source/conc
 
 **Why vault-wide, not just newly-ingested notes**: the post-write hook already runs `commonplace link --note <new-path>` on every ingest, so per-ingest linking is covered. Autoimprove's inline-linking round exists to catch the harder case — older notes that pre-date a concept's existence, or notes whose bodies grew organically after their initial linking pass. A vault-wide re-scan closes that gap and is cheap because the linker only needs grep-word-boundary matches, not LLM judgment.
 
-For paraphrase-level link gaps that grep cannot catch (e.g., body text says "long-context reasoning" while the concept is named "long-horizon agents"), see the `concept-density-without-source-links` lint check, which surfaces candidates for the user to manually review with `commonplace deep-link`. **Autoimprove does not run `commonplace deep-link`** — it depends on Ollama embeddings and is opt-in only.
+For paraphrase-level link gaps that grep cannot catch (e.g., body text says "multi-day task chains" while the concept is named "Gamma Planning"), see the `concept-density-without-source-links` lint check, which surfaces candidates for the user to manually review with `commonplace deep-link`. **Autoimprove does not run `commonplace deep-link`** — it depends on Ollama embeddings and is opt-in only.
 
 ## Stub compilation
 
