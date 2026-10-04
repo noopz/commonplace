@@ -286,8 +286,10 @@ vault (read-only, `scripts/lib/index-notes.ts`) so build-time knobs can vary.
 Postings have two kinds of knob: `TERMS` (stemming, phrase keys, field
 weights) is baked into the artefact, so the manifest records `termSig(TERMS)`
 and a mismatch loads as absent and rebuilds (`--incremental` too); `RANK`
-(BM25 saturation `k1`, coverage exponent, phrase weight, and an authority prior —
-the note's HITS authority from `scores.json`, (auth/max)^0.25) is query-time.
+(BM25 saturation `k1`, coverage exponent, phrase weight, and authority —
+`local` reranks the top 25 by in-links from the other hits, query-dependent;
+the global HITS prior from `scores.json` is off, because on broad tied queries
+it let the vault's most-cited notes win regardless of topic) is query-time.
 `--tune` runs coordinate ascent over both plus Connect's `seedK`/`restart`/
 `docSeed`/`lambda`, with a 2-fold held-out check — with ~50 gold questions
 the folds disagree on exact values, so pick defaults that win on BOTH folds,

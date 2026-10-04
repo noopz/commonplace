@@ -3,7 +3,7 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildPostings, indexPostings, searchPostings, noteTerms, authorityPrior, type PostingsInput } from "./postings.ts";
+import { buildPostings, indexPostings, searchPostings, noteTerms, authorityPrior, localRerank, type PostingsInput } from "./postings.ts";
 import { makeCard, clip, CARD_MAX_BYTES, CARDS_PER_CHUNK, cardChunk, cardChunkName } from "./cards.ts";
 
 const NOTES: PostingsInput[] = [
@@ -165,4 +165,17 @@ test("authority breaks a near-tie toward the cited note, and is off unless weigh
   assert.equal(searchPostings(idx, "epsilon ledger", { rank: RANK_LINEAR, prior })[0].id, 0, "weight 0: prior ignored");
   const r = { ...RANK_LINEAR, authority: 2 };
   assert.equal(searchPostings(idx, "epsilon ledger", { rank: r, prior })[0].id, 1);
+});
+
+test("local rerank: a hit the other hits link to rises; vault-wide popularity alone does not", () => {
+  // Tied hits 0..3. Hits 1 and 2 link to 3 (the topical hub's member);
+  // 0 is linked only from notes outside the result set (popular elsewhere).
+  const hits = [0, 1, 2, 3].map((id) => ({ id, score: 1, matched: ["omega"] }));
+  const inbound: Record<number, number[]> = { 0: [90, 91, 92, 93], 3: [1, 2], 1: [], 2: [] };
+  const inLinks = (id: number, cb: (from: number) => void) => (inbound[id] ?? []).forEach(cb);
+  const rank = { k1: 4, coverage: 2, phrase: 0 };
+  assert.deepEqual(localRerank(hits, { ...rank, local: 0.5 }, 4, inLinks).map((h) => h.id), [3, 0, 1, 2]);
+  assert.deepEqual(localRerank(hits, rank, 4, inLinks).map((h) => h.id), [0, 1, 2, 3], "off unless weighted");
+  const self = { 0: [0], 1: [], 2: [], 3: [] } as Record<number, number[]>;
+  assert.deepEqual(localRerank(hits, { ...rank, local: 1 }, 4, (id, cb) => (self[id] ?? []).forEach(cb)).map((h) => h.id), [0, 1, 2, 3], "a self-link counts for nothing");
 });

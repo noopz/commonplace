@@ -66,6 +66,13 @@ export type RankConfig = {
    * normalised to [0, 1] (`authorityPrior`); 0 or absent = off.
    */
   authority?: number;
+  /**
+   * Query-dependent authority (Kleinberg's original HITS): score × (1 + local ·
+   * share), share = how much of the top LOCAL_POOL's score links INTO the hit,
+   * normalised to [0, 1]. A note the other good hits cite rises; a note
+   * central only to the vault at large does not. 0 or absent = off.
+   */
+  local?: number;
 };
 
 /**
@@ -73,8 +80,12 @@ export type RankConfig = {
  * connect gold questions): over v2.0's scoring, Find MRR 0.667 → 0.753 and
  * Connect pool recall 0.81 → 1.00, better on both held-out halves. Phrase keys
  * measured no gain there, so they stay off (the tuner can still try them).
- * An authority prior of 2 (AUTH_EXP 0.25) lifted the objective 3.101 → 3.157,
- * better on both halves, moving only paraphrase questions up.
+ * Authority is LOCAL (query-dependent), not global. A global HITS prior of 2
+ * scored best on the gold set (3.157) but shipped a regression it could not
+ * see: on a broad query where many notes tie lexically, the vault's most-cited
+ * notes won regardless of topic (two trading papers topping an agent-memory
+ * query, its MOC fourth). Local 0.5 scores 3.126, beats no authority on both
+ * halves, and puts the topical MOC/concept first on such queries.
  *
  * `cues:` are supported but no vault is expected to have them yet. A
  * haiku-drafted set on ~480 notes raised Find MRR 0.762 → 0.823 (with
@@ -84,7 +95,7 @@ export type RankConfig = {
  * set and a rephrase-once eval.
  */
 export const TERMS: TermConfig = { stem: "s", phrases: false, weights: FIELD_WEIGHTS };
-export const RANK: RankConfig = { k1: 4, coverage: 2, phrase: 0, authority: 2 };
+export const RANK: RankConfig = { k1: 4, coverage: 2, phrase: 0, authority: 0, local: 0.5 };
 /**
  * v2.0's linear, coverage-blind scale. Prime's absolute thresholds
  * (PRIME_MIN_SCORE, PRIME_MIN_MARGIN) were calibrated on it, so prime ranks
@@ -230,6 +241,45 @@ export function authorityPrior(auth: ArrayLike<number> | undefined): ((id: numbe
     const a = id < auth.length ? auth[id] : 0;
     return a > 0 ? Math.pow(a / max, AUTH_EXP) : 0;
   };
+}
+
+/** Candidates the local rerank looks at (it reorders only these). */
+export const LOCAL_POOL = 25;
+
+/**
+ * Rerank the top LOCAL_POOL hits by in-links from the rest of the pool, each
+ * weighted by the linking hit's normalised score. `inLinks(id, cb)` calls `cb`
+ * once per note linking to `id`. Hits below the pool keep their order.
+ */
+export function localRerank(
+  hits: readonly SearchHit[],
+  r: RankConfig,
+  limit: number,
+  inLinks: (id: number, cb: (from: number) => void) => void,
+): SearchHit[] {
+  const w = r.local ?? 0;
+  if (!(w > 0) || hits.length < 2) return hits.slice(0, limit);
+  const pool = hits.slice(0, LOCAL_POOL);
+  const top = pool[0].score || 1;
+  const norm = new Map(pool.map((h) => [h.id, h.score / top]));
+  const share = new Map<number, number>();
+  let max = 0;
+  for (const h of pool) {
+    let s = 0;
+    const seen = new Set<number>();
+    inLinks(h.id, (from) => {
+      if (from === h.id || seen.has(from)) return;
+      seen.add(from);
+      s += norm.get(from) ?? 0;
+    });
+    share.set(h.id, s);
+    if (s > max) max = s;
+  }
+  if (!(max > 0)) return hits.slice(0, limit);
+  const re = pool
+    .map((h) => ({ ...h, score: h.score * (1 + (w * (share.get(h.id) ?? 0)) / max) }))
+    .sort((x, y) => y.score - x.score || y.matched.length - x.matched.length || x.id - y.id);
+  return [...re, ...hits.slice(LOCAL_POOL)].slice(0, limit);
 }
 
 export function rankHits(

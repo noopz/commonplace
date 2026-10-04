@@ -27,7 +27,7 @@
 import { type Csr, type Adjacency, type EdgeKind, KIND_INDEX, KIND_WEIGHT, EDGE_KINDS } from "../graph/csr.js";
 import { stemOf, normalizeKey, type Names } from "../graph/resolver.js";
 import { makeCard, type Card } from "./cards.js";
-import { noteTerms, queryKeys, keyScore, rankHits, authorityPrior, TERMS, RANK, type PostingsRow, type TermConfig, type RankConfig } from "./postings.js";
+import { noteTerms, queryKeys, keyScore, rankHits, authorityPrior, localRerank, LOCAL_POOL, TERMS, RANK, type PostingsRow, type TermConfig, type RankConfig } from "./postings.js";
 import { domainOf, type ShardArtefact } from "./model.js";
 import type { JournalNote } from "./journal.js";
 import { MAIN, type DomainMap } from "../core/scope.js";
@@ -320,7 +320,13 @@ export class VaultView implements Adjacency {
     };
     for (const t of q.words) run(t, 1, true);
     for (const t of q.phrases) run(t, r.phrase, false);
-    return rankHits(acc, q.words.length, r, limit, 0, this.authPrior);
+    if (!r.local) return rankHits(acc, q.words.length, r, limit, 0, this.authPrior);
+    const pool = rankHits(acc, q.words.length, r, Math.max(limit, LOCAL_POOL), 0, this.authPrior);
+    return localRerank(pool, r, limit, (id, cb) =>
+      this.eachIn(id, (v) => {
+        if (this.visible(v) && (!opts.filter || opts.filter(v))) cb(v);
+      }),
+    );
   }
 
   // --------------------------------------------------------------- refresh

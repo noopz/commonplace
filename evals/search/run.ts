@@ -68,6 +68,7 @@ type Cfg = {
   coverage: number;
   phrase: number;
   authority: number;
+  local: number;
   seedK: number;
   restart: number;
   docSeed: number;
@@ -76,13 +77,13 @@ type Cfg = {
 
 const LEGACY: Cfg = {
   stem: "none", phrases: false, wTitle: 4, wAlias: 4, wAbs: 3, wHead: 2, wCues: 0, wOther: 1,
-  k1: Infinity, coverage: 0, phrase: 0, authority: 0, seedK: 5, restart: 0.15, docSeed: 1, lambda: 0.25,
+  k1: Infinity, coverage: 0, phrase: 0, authority: 0, local: 0, seedK: 5, restart: 0.15, docSeed: 1, lambda: 0.25,
 };
 const CURRENT: Cfg = {
   stem: TERMS.stem, phrases: TERMS.phrases,
   wTitle: TERMS.weights.title, wAlias: TERMS.weights.alias, wAbs: TERMS.weights.abstraction,
   wHead: TERMS.weights.heading, wCues: TERMS.weights.cues, wOther: TERMS.weights.other,
-  k1: RANK.k1, coverage: RANK.coverage, phrase: RANK.phrase, authority: RANK.authority ?? 0,
+  k1: RANK.k1, coverage: RANK.coverage, phrase: RANK.phrase, authority: RANK.authority ?? 0, local: RANK.local ?? 0,
   seedK: CONNECT.seedK, restart: CONNECT.restart, docSeed: CONNECT.docSeed, lambda: CONNECT.lambda,
 };
 const GRID: Grid<Cfg> = {
@@ -97,7 +98,8 @@ const GRID: Grid<Cfg> = {
   k1: [Infinity, 1, 2, 4, 8],
   coverage: [0, 0.5, 1, 2],
   phrase: [0, 0.5, 1, 2],
-  authority: [0, 0.1, 0.25, 0.5, 1],
+  authority: [0, 0.5, 1, 2],
+  local: [0, 0.25, 0.5, 1, 2],
   seedK: [3, 5, 8, 12],
   restart: [0.15, 0.3, 0.5],
   docSeed: [0.05, 0.2, 0.5, 1],
@@ -109,7 +111,7 @@ const termsOf = (c: Cfg): TermConfig => ({
   phrases: c.phrases,
   weights: { title: c.wTitle, alias: c.wAlias, abstraction: c.wAbs, heading: c.wHead, cues: c.wCues, other: c.wOther },
 });
-const rankOf = (c: Cfg): RankConfig => ({ k1: c.k1, coverage: c.coverage, phrase: c.phrase, authority: c.authority });
+const rankOf = (c: Cfg): RankConfig => ({ k1: c.k1, coverage: c.coverage, phrase: c.phrase, authority: c.authority, local: c.local });
 
 const config = resolveVault(args.vault);
 const readJsonl = <T,>(p: string): T[] =>
