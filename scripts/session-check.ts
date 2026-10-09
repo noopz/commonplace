@@ -13,7 +13,8 @@
  *      to 0 at its own session.start and writes `.runtime/module-alive.json`.
  *      Two consecutive sessions without the module → print a systemMessage.
  *      The counter (not this session's stamp) is what's checked, because this
- *      hook and the module's session.start run concurrently.
+ *      hook and the module's session.start run concurrently. `compact` and
+ *      `clear` are skipped: they fire this hook but not the module's start.
  *
  * Prints at most one JSON line on stdout (`{"systemMessage": ...}`); never
  * fails the session.
@@ -50,8 +51,15 @@ try {
   });
 } catch {}
 
-// 3. watchdog
-try {
+// 3. watchdog. The shell SessionStart also fires on `compact` and `clear`,
+// where the module's session.start does not (module memory survives both), so
+// counting those would report a live module as missing after two compacts.
+function hookSource(): string {
+  if (process.stdin.isTTY) return "";
+  try { return String(JSON.parse(readFileSync(0, "utf-8")).source ?? ""); } catch { return ""; }
+}
+const source = hookSource();
+if (source !== "compact" && source !== "clear") try {
   mkdirSync(runtime, { recursive: true });
   const counterPath = join(runtime, "shell-sessions");
   let prev = 0;
