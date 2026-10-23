@@ -1072,8 +1072,14 @@ const sweep = async ($: EngineInterface) => {
         if (res === "patched") n++;
         if (res === "sealed") sealed = true;
       }
-      traceTo($, vault.path, "index:sweep", { changed: changed.length, patched: n, sealed });
-      if (sealed || (await idx.compactionDue())) startBuild($, vault.path, sealed ? "sealed-change" : "compact");
+      // Only a sweep that acted is traced. An idle one fires every 60 s in
+      // every session holding the index, and at 2000 kept lines those
+      // heartbeats evicted every real decision from the log within hours.
+      const compact = !sealed && (await idx.compactionDue());
+      if (n > 0 || sealed || compact) {
+        traceTo($, vault.path, "index:sweep", { changed: changed.length, patched: n, sealed });
+      }
+      if (sealed || compact) startBuild($, vault.path, sealed ? "sealed-change" : "compact");
     } catch {
       /* a failed sweep retries next period */
     }
