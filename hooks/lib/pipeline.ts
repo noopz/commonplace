@@ -365,13 +365,12 @@ export async function runConnectionPass(
     let vaultPath = String((await ports.getState(vaultKey)) ?? "");
     if (!vaultPath) {
       vaultPath = String((await ports.runCommand(["vault-path"])) ?? "").trim();
+      // No vault configured is a STATE, not a failure. Counted as one, an
+      // install that never ran `commonplace init` tripped the breaker after
+      // three answers and showed a permanent "stopped after repeated errors"
+      // band — which a paused breaker shows even with showBand off.
       if (!vaultPath) {
-        await ports.note("no vault resolved", {
-          phase: "warn",
-          lastError: "commonplace vault-path returned nothing",
-          paused: failures + 1 >= MAX_FAILURES,
-        });
-        await ports.setState(SESSION_KEY, { ...state, failures: failures + 1 });
+        ports.trace("skip:no-vault");
         return null;
       }
       await ports.setState(vaultKey, vaultPath);

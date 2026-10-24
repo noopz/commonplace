@@ -16,3 +16,4 @@ docs/superpowers/
 # esbuild bundle — built by `npm run build` / `commonplace session-check`
 dist/
 .runtime/
+.DS_Store

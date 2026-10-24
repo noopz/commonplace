@@ -23,32 +23,22 @@ export function isExcluded(relPath: string): boolean {
   return segs.some((d) => d.startsWith(".") || d.startsWith("_"));
 }
 
-/** Escape find(1) `-path` glob metacharacters in a literal path. */
-function escapeFindGlob(s: string): string {
-  return s.replace(/[\\*?[\]]/g, (c) => "\\" + c);
-}
-
 /**
- * The `find` argv fragment equivalent to `isExcluded`, anchored at `root` (the
- * path passed to find as its starting point, without a trailing slash).
- * Anchoring matters: an unanchored `-not -path '*\/.*'` excludes EVERYTHING
- * when the vault itself lives under a dot-directory (e.g. `~/.vaults/alpha`).
- * `*` in `-path` matches `/`, so `root/*\/.*` covers every depth below 1.
+ * The `find` argv equivalent to `isExcluded`, over `root`, optionally limited
+ * to files newer than `newer`.
  *
- * Use with: `find <root> -type f -name '*.md' ...findExcludeArgs(root)`.
+ * Excluded directories are PRUNED, not filtered: `-not -path` still walks
+ * `.git/objects`, `.obsidian/plugins`, `.trash` and any worktree checkout
+ * before discarding them, which made the sweep several times slower than the
+ * notes it lists. `-mindepth 1` keeps `root` itself out of the prune, so a
+ * vault living under a dot-directory (e.g. `~/.vaults/alpha`) is still walked.
  */
-export function findExcludeArgs(root: string): string[] {
-  const r = escapeFindGlob(root.replace(/\/+$/, "") || "/");
-  const base = r === "/" ? "" : r;
+export function findNotesArgv(root: string, newer?: string): string[] {
   return [
-    "-not", "-path", `${base}/.*`,
-    "-not", "-path", `${base}/*/.*`,
-    "-not", "-path", `${base}/_*/*`,
-    "-not", "-path", `${base}/*/_*/*`,
+    "find", root, "-mindepth", "1",
+    "-type", "d", "(", "-name", ".*", "-o", "-name", "_*", ")", "-prune",
+    "-o", "-type", "f", "-name", "*.md", "!", "-name", ".*",
+    ...(newer ? ["-newer", newer] : []),
+    "-print",
   ];
-}
-
-/** Full sweep argv for one find exec over `root`. */
-export function findNotesArgv(root: string): string[] {
-  return ["find", root, "-type", "f", "-name", "*.md", ...findExcludeArgs(root)];
 }

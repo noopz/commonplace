@@ -40,10 +40,17 @@ export const SEALED_DENY =
 export const PROTECTED_DENY =
   "Vault skills and agents are authored by the user outside Claude; see /vault skills.";
 
-/** Lexical normalisation: resolve `.`/`..`, collapse slashes, strip trailing `/`. */
+/**
+ * Lexical normalisation: resolve `.`/`..`, collapse slashes, strip trailing
+ * `/`, and expand a leading `~`, `$HOME` or `${HOME}` — the shell expands all
+ * three, so a literal `$HOME/…` read as a relative path under the cwd and let
+ * a sealed note through.
+ */
 export function normalizePath(p: string, cwd: string, home = ""): string {
   let s = String(p ?? "").trim();
   if (!s) return "";
+  const homeVar = /^(?:\$HOME|\$\{HOME\})(?=\/|$)/.exec(s);
+  if (homeVar) s = "~" + s.slice(homeVar[0].length);
   if (s === "~" || s.startsWith("~/")) s = (home || "/~") + s.slice(1);
   if (!s.startsWith("/")) s = `${cwd.replace(/\/+$/, "")}/${s}`;
   const out: string[] = [];
@@ -57,6 +64,8 @@ export function normalizePath(p: string, cwd: string, home = ""): string {
 
 export const isUnder = (p: string, root: string) => p === root || p.startsWith(`${root}/`);
 const isAncestorOf = (p: string, root: string) => p === root || root.startsWith(`${p === "/" ? "" : p}/`);
+/** Path segments of `root` below its ancestor `p` (0 when equal). */
+const levelsBelow = (p: string, root: string) => (p === root ? 0 : root.slice(p === "/" ? 1 : p.length + 1).split("/").length);
 
 /** Shell-ish word split honouring single/double quotes and backslash escapes. */
 export function shellWords(cmd: string): string[] {
@@ -149,8 +158,16 @@ export function codePaths(body: string): string[] {
 
 const RECURSIVE_CMDS = new Set(["rg", "find", "fd", "ag", "ack", "tree", "du", "fzf", "locate"]);
 const RECURSE_FLAG = /^-[a-zA-Z]*[rR]/;
-const looksLikePath = (w: string) => w.startsWith("/") || w.startsWith("~") || w.startsWith(".") || w.includes("/");
+const looksLikePath = (w: string) =>
+  w.startsWith("/") || w.startsWith("~") || w.startsWith(".") || w.includes("/") || /^\$(?:HOME|\{HOME\})$/.test(w);
 const hasGlob = (w: string) => /[*?[]/.test(w);
+
+/**
+ * A path a tool call would touch. `scan`: it is a scan root, so an ancestor
+ * of a sealed folder is denied too. `reach`: for a shell glob, how many
+ * levels below `path` it can match (absent = unbounded).
+ */
+type Candidate = { path: string; scan: boolean; write: boolean; reach?: number };
 
 /** Paths a tool call would touch, and whether each is a recursive scan root. */
 export function candidatePaths(
@@ -158,10 +175,10 @@ export function candidatePaths(
   input: Record<string, unknown>,
   cwd: string,
   home = "",
-): { path: string; scan: boolean; write: boolean }[] {
+): Candidate[] {
   const norm = (p: string) => normalizePath(p, cwd, home);
   const str = (k: string) => (typeof input[k] === "string" ? (input[k] as string) : "");
-  const out: { path: string; scan: boolean; write: boolean }[] = [];
+  const out: Candidate[] = [];
   const write = tool === "Write" || tool === "Edit" || tool === "NotebookEdit" || tool === "MultiEdit";
 
   if (tool === "Grep" || tool === "Glob") {
@@ -179,9 +196,11 @@ export function candidatePaths(
     const split = splitHeredocs(str("command"));
     for (const t of split.code.flatMap(codePaths)) {
       if (hasGlob(t)) {
-        const fixed = t.split("/").filter((_, i, a) => !a.slice(0, i + 1).some(hasGlob)).join("/");
-        const root = norm(fixed || "/");
-        if (root !== "/") out.push({ path: root, scan: true, write: false });
+        const segs = t.split("/");
+        const fixed = segs.filter((_, i, a) => !a.slice(0, i + 1).some(hasGlob));
+        const root = norm(fixed.join("/") || "/");
+        const reach = segs.some((s) => s.includes("**")) ? Infinity : segs.length - fixed.length;
+        if (root !== "/") out.push({ path: root, scan: true, write: false, reach });
       } else {
         out.push({ path: norm(t), scan: false, write: false });
       }
@@ -202,8 +221,14 @@ export function candidatePaths(
         const val = w.includes("=") && w.startsWith("-") ? w.slice(w.indexOf("=") + 1) : w;
         if (!looksLikePath(val)) continue;
         if (hasGlob(val)) {
-          const fixed = val.split("/").filter((_, i, a) => !a.slice(0, i + 1).some(hasGlob));
-          out.push({ path: norm(fixed.join("/") || (val.startsWith("/") ? "/" : ".")), scan: true, write: false });
+          const segs = val.split("/");
+          const fixed = segs.filter((_, i, a) => !a.slice(0, i + 1).some(hasGlob));
+          // How many levels below its fixed root the glob reaches: a
+          // one-level `ls <dir>/*.png` cannot touch a sealed folder two
+          // levels down, and denying it blocked ordinary work in every repo.
+          // `**` (zsh, bash globstar) or a recursive command reach all.
+          const reach = recursive || segs.some((s) => s.includes("**")) ? Infinity : segs.length - fixed.length;
+          out.push({ path: norm(fixed.join("/") || (val.startsWith("/") ? "/" : ".")), scan: true, write: false, reach });
         } else {
           out.push({ path: norm(val), scan: recursive, write: false });
         }
@@ -247,7 +272,11 @@ export function checkSealedAccess(
       return { deny: SEALED_DENY };
     }
     if (c.write && roots.protectedWrite.some((r) => isUnder(c.path, r))) return { deny: PROTECTED_DENY };
-    if (c.scan && roots.sealed.some((r) => isAncestorOf(c.path, r))) return { deny: SEALED_DENY };
+    // A bounded glob is denied only if it reaches the sealed folder itself
+    // (matching the folder is enough: `ls <parent>/*` lists its contents).
+    if (c.scan && roots.sealed.some((r) => isAncestorOf(c.path, r) && (c.reach ?? Infinity) >= levelsBelow(c.path, r))) {
+      return { deny: SEALED_DENY };
+    }
   }
   return null;
 }

@@ -50,6 +50,31 @@ test("23: Bash recursive scans and direct reads of sealed paths are denied", () 
   assert.equal(check("Bash", { command: "git log --oneline | head -5" }), null);
 });
 
+test("$HOME, ${HOME} and ~ resolve to the home directory", () => {
+  const home = "/home/u";
+  const vault = `${home}/notes/acme`;
+  const sealed = { sealed: [`${vault}/Gamma`], protectedWrite: [] };
+  const at = (command: string, cwd = "/opt/work/repo") => checkSealedAccess("Bash", { command }, sealed, cwd, home);
+  assert.deepEqual(at(`cat $HOME/notes/acme/Gamma/a.md`), { deny: SEALED_DENY });
+  assert.deepEqual(at(`cat "\${HOME}/notes/acme/Gamma/a.md"`), { deny: SEALED_DENY });
+  assert.deepEqual(at(`cat ~/notes/acme/Gamma/a.md`), { deny: SEALED_DENY }, "cwd outside /Users and /home");
+  assert.deepEqual(at(`grep -r x $HOME`), { deny: SEALED_DENY });
+  assert.equal(at(`cat $HOME/notes/acme/Public/a.md`), null);
+  assert.equal(normalizePath("$HOMER/x", "/c", home), "/c/$HOMER/x", "only the exact variable expands");
+});
+
+test("a shell glob is a scan only as deep as it reaches", () => {
+  const home = "/home/u";
+  const sealed = { sealed: [`${home}/notes/acme/Gamma`], protectedWrite: [] };
+  const at = (command: string) => checkSealedAccess("Bash", { command }, sealed, "/repos/app", home);
+  assert.equal(at(`ls ~/notes/*.png`), null, "one level cannot reach two down");
+  assert.equal(at(`mv ~/notes/*.pdf ~/Documents/`), null);
+  assert.deepEqual(at(`ls ~/notes/acme/*`), { deny: SEALED_DENY }, "matching the sealed folder lists it");
+  assert.deepEqual(at(`cat ~/notes/*/Gamma/a.md`), { deny: SEALED_DENY });
+  assert.deepEqual(at(`ls ~/notes/**/*.md`), { deny: SEALED_DENY }, "** reaches every level");
+  assert.deepEqual(at(`grep -r x ~/notes/*`), { deny: SEALED_DENY }, "a recursive command reaches every level");
+});
+
 test("24: model writes into vault skills/agents are denied; sealed edits too", () => {
   assert.deepEqual(check("Write", { file_path: `${V}/.wiki/skills/alpha/SKILL.md`, content: "x" }), { deny: PROTECTED_DENY });
   assert.deepEqual(check("Edit", { file_path: `${V}/.wiki/agents/beta.md` }), { deny: PROTECTED_DENY });

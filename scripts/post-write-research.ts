@@ -54,7 +54,13 @@ if (inferSourceDomain(filePath, vaultPath, registry) === "unknown") {
   process.exit(0);
 }
 
-const tsx = join(pluginRoot, "node_modules", ".bin", "tsx");
+// Through the CLI, which runs the esbuild bundle when it is fresh: `tsx` on
+// the .ts source paid a ~380 ms cold start per script, on every vault write.
+const cli = (cmd: string, ...rest: string[]) =>
+  spawnSync(process.execPath, [join(pluginRoot, "bin", "commonplace"), cmd, ...rest], {
+    encoding: "utf-8",
+    cwd: pluginRoot,
+  });
 
 // Refresh the index unless the caller already did. `post-write` runs its own
 // incremental index and then invokes this script with --file, so re-indexing
@@ -67,28 +73,20 @@ const tsx = join(pluginRoot, "node_modules", ".bin", "tsx");
 // which meant two `index.ts --incremental` processes writing the same
 // .wiki/*.jsonl files at the same time. Sequencing them is what removed that.
 if (fileFlag === -1) {
-  spawnSync(tsx, [
-    join(pluginRoot, "scripts", "index.ts"),
-    "--vault", vaultPath,
-    "--incremental",
-  ], { encoding: "utf-8", cwd: pluginRoot, timeout: 15000 });
+  spawnSync(process.execPath, [join(pluginRoot, "bin", "commonplace"), "index", "--vault", vaultPath, "--incremental"], {
+    encoding: "utf-8",
+    cwd: pluginRoot,
+    timeout: 15000,
+  });
 }
 
 // Run impact check
-const impactResult = spawnSync(tsx, [
-  join(pluginRoot, "scripts", "impact.ts"),
-  "--vault", vaultPath,
-  "--source", filePath,
-], { encoding: "utf-8", cwd: pluginRoot });
+const impactResult = cli("impact", "--vault", vaultPath, "--source", filePath);
 
 const impactJson = impactResult.stdout?.trim() || "";
 
 // Run cross-domain check
-const crossResult = spawnSync(tsx, [
-  join(pluginRoot, "scripts", "cross-domain.ts"),
-  "--vault", vaultPath,
-  "--source", filePath,
-], { encoding: "utf-8", cwd: pluginRoot });
+const crossResult = cli("cross-domain", "--vault", vaultPath, "--source", filePath);
 
 const crossJson = crossResult.stdout?.trim() || "";
 

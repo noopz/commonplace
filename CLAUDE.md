@@ -46,7 +46,7 @@ userConfig" warning.
   5 s. After a vault Write/Edit it parses the file in-module, patches the view
   and appends ONE line to `.wiki/graph/journal.jsonl` (~1–3 ms), then runs
   `commonplace post-write --no-index` for analysis and debounces a CLI rebuild.
-  A 60 s sweep (`find -newer manifest`) patches notes changed outside Claude;
+  A 60 s sweep (`find -newer manifest`, armed by the first graph load — at session start only when it begins inside a vault or prime is on, else on first use) patches notes changed outside Claude;
   sealed changes, bursts over 200 files and due compactions go to the CLI.
 - **Layout.** `.wiki/graph/` is public only: `manifest.json`, `main.csr.json`
   (packed CSR + sentinel ids), `names.json`, `scores.json`,

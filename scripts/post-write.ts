@@ -10,10 +10,17 @@
 
 import { parseArgs } from "util";
 import { existsSync } from "fs";
-import { resolve, dirname } from "path";
+import { resolve, dirname, join } from "path";
 import { discoverVault, getVaultConfig, isInVault, classifyNote } from "./lib/vault.js";
 import { parseNote, validateFrontmatter } from "./lib/frontmatter.js";
-import { execSync } from "child_process";
+import { execFileSync } from "child_process";
+
+/**
+ * The plugin CLI. It runs each script's esbuild bundle when fresh; the old
+ * `npx tsx <script>.ts` paid an npx lookup plus a tsx cold start (~380 ms)
+ * per step, four per vault write, all before the Write result returned.
+ */
+const CLI = join(import.meta.dirname!, "..", "bin", "commonplace");
 
 const { values } = parseArgs({
   options: {
@@ -147,11 +154,10 @@ try {
 if (values["no-index"]) {
   output.index = "deferred";
 } else try {
-  const scriptDir = new URL(".", import.meta.url).pathname;
-  execSync(
-    `npx tsx ${scriptDir}index.ts --vault ${config.vaultPath} --incremental`,
-    { stdio: "pipe", timeout: 15000 }
-  );
+  execFileSync(process.execPath, [CLI, "index", "--vault", config.vaultPath, "--incremental"], {
+    stdio: "pipe",
+    timeout: 15000,
+  });
   output.index = "updated";
 } catch {
   output.index = "failed";
@@ -159,11 +165,10 @@ if (values["no-index"]) {
 
 // Step 3: Scope check
 try {
-  const scriptDir = new URL(".", import.meta.url).pathname;
-  const result = execSync(
-    `npx tsx ${scriptDir}scope-check.ts --vault ${config.vaultPath} "${filePath}"`,
-    { stdio: "pipe", timeout: 10000 }
-  );
+  const result = execFileSync(process.execPath, [CLI, "scope-check", "--vault", config.vaultPath, filePath], {
+    stdio: "pipe",
+    timeout: 10000,
+  });
   const violations = JSON.parse(result.toString());
   if (violations.length > 0) {
     output.scopeCheck = violations;
@@ -182,11 +187,10 @@ try {
 // malformed output and its additionalContext is dropped silently.
 let researchContext = "";
 try {
-  const scriptDir = new URL(".", import.meta.url).pathname;
-  const raw = execSync(
-    `npx tsx ${scriptDir}post-write-research.ts --file "${filePath}"`,
-    { stdio: ["ignore", "pipe", "pipe"], timeout: 60000 },
-  ).toString().trim();
+  const raw = execFileSync(process.execPath, [CLI, "post-write-research", "--file", filePath], {
+    stdio: ["ignore", "pipe", "pipe"],
+    timeout: 60000,
+  }).toString().trim();
   if (raw) {
     researchContext = String(
       JSON.parse(raw)?.hookSpecificOutput?.additionalContext ?? "",

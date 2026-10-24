@@ -85,7 +85,7 @@ import { VaultIndex, type IndexPorts } from "./lib/index/load.js";
 import { parseNote as parseIndexNote } from "./lib/index/parse.js";
 import { journalNote } from "./lib/index/journal.js";
 import { shardFor } from "./lib/index/model.js";
-import { isExcluded, findExcludeArgs } from "./lib/index/exclude.js";
+import { isExcluded, findNotesArgv } from "./lib/index/exclude.js";
 import { visibleSkills, skillBlock, sha256Hex, type VaultSkill, type SkillFile } from "./lib/skills/load.js";
 import {
   PRIME_JUDGE_SYSTEM,
@@ -206,6 +206,9 @@ const openShards = new Map<string, Set<string>>();
  * silently re-open what `/clear` sealed. Cleared at the next session.start.
  */
 let sealedByClear = false;
+
+/** `$HOME`, read once per module load; `null` until the guard first needs it. */
+let homeDir: string | null = null;
 
 /** Registered vaults + their domains + every private title, for the guard. */
 let guardCache: { at: number; vaults: GuardVault[]; names: SealedName[] } | null = null;
@@ -335,8 +338,12 @@ const buildGuard = async ($: EngineInterface, now: number): Promise<{ vaults: Gu
   }
   // A degraded read is used for this call but not cached: the next call
   // retries the registry instead of holding the fallback for GUARD_TTL_MS.
+  // A failed REFRESH keeps the last good load instead: the CLI vanishing
+  // mid-session (an update pruning this version's folder) used to drop the
+  // guard to zero vaults, and zero vaults switches sealing off.
   const built = { at: now, vaults, names };
-  guardCache = registryOk ? built : null;
+  if (registryOk) guardCache = built;
+  else if (guardCache) return guardCache;
   return built;
 };
 
@@ -378,23 +385,33 @@ const traceTo = ($: EngineInterface, vaultPath: string, stage: string, detail: R
  * Taking `$` as a parameter is legal — the scanner follows it into a function
  * declared in THIS file, just never across an import into `lib/`.
  *
- * A miss is not cached. At 46ms a re-resolve per turn is cheap, and caching
- * the empty answer would hide a `commonplace init` until the next restart.
+ * A miss is cached for VAULT_MISS_TTL_MS only (see vaultMisses).
  */
 const ensureVaultPath = async ($: EngineInterface, projectDir: string): Promise<string> => {
   const known = vaultPaths.get(projectDir);
   if (known) return known;
+  const now = Date.now();
+  if (now - (vaultMisses.get(projectDir) ?? 0) < VAULT_MISS_TTL_MS) return "";
   try {
     const res = await $.process.run([
       "node", `${$.plugin.root}/bin/commonplace`, "vault-path",
     ]);
     const resolved = res.stdout.trim();
     if (resolved) vaultPaths.set(projectDir, resolved);
+    else vaultMisses.set(projectDir, now);
     return resolved;
   } catch {
     return "";
   }
 };
+
+/**
+ * A miss is remembered briefly, not forever. Uncached, an install with no
+ * vault spawned `node vault-path` (~25 ms) on every Bash call, prompt and
+ * turn; cached forever, it would hide a `commonplace init` until restart.
+ */
+const vaultMisses = new Map<string, number>();
+const VAULT_MISS_TTL_MS = 60_000;
 
 
 // ---------------------------------------------------------------------------
@@ -467,7 +484,10 @@ const startBuild = ($: EngineInterface, vp: string, why: string) => {
       const ok = r.exitCode === 0;
       if (ok) swept.delete(vp);
       traceTo($, vp, "index:built", { ok });
-      if (ok && why !== "write" && why !== "absent") {
+      // Only a rebuild the person asked for is announced. Sweep, sealed-change
+      // and compaction builds fire in the background of any session holding
+      // the index, where a toast is noise about work nobody requested.
+      if (ok && why === "command") {
         try {
           $.ui.toast("⟡ vault index refreshed");
         } catch {}
@@ -517,6 +537,13 @@ const getIndex = async ($: EngineInterface, vp: string, domains: DomainMap): Pro
     };
     idx = new VaultIndex(ports, domains, String(await $.session.id()).slice(0, 8));
     indexes.set(vp, idx);
+    // The sweep exists to keep a LOADED graph fresh, so it starts with the
+    // first load: a session that never touches the vault never walks it.
+    if (!sweepTimer) {
+      sweepTimer = $.clock.every(60_000, () => {
+        sweep($).catch(() => {});
+      });
+    }
   }
   idx.setDomains(domains);
   const state = await idx.ensureFresh();
@@ -796,6 +823,7 @@ const runVaultCommand = async ($: EngineInterface, argsText: string): Promise<{ 
     if (rest.includes("--default")) argv.push("--default");
     const r = await $.process.run(argv, { cwd: await $.session.cwd() });
     vaultPaths.clear();
+    vaultMisses.clear();
     guardCache = null;
     const out = String(r.stdout ?? r.stderr ?? "").trim();
     if (r.exitCode !== 0) return { text: out || `Could not switch to "${id}".` };
@@ -1036,17 +1064,15 @@ let sweepTimer: { cancel(): void } | null = null;
  * Sealed changes and large bursts go to the CLI, the single artefact writer.
  */
 const sweep = async ($: EngineInterface) => {
-  const { vaults } = await loadGuard($);
-  for (const vault of vaults) {
+  // The cached registry, never a refresh: GUARD_TTL_MS equals the period, so
+  // loadGuard here respawned the registry CLI (~200 ms) on nearly every tick.
+  // Tool calls keep the cache fresh; a cleared one just skips a tick.
+  for (const vault of guardCache?.vaults ?? []) {
     const idx = indexes.get(vault.path);
     if (!idx || idx.state !== "ready") continue;
     try {
       const root = vault.path;
-      const r = await $.process.run([
-        "find", root, "-type", "f", "-name", "*.md",
-        "-newer", `${root}/.wiki/graph/manifest.json`,
-        ...findExcludeArgs(root),
-      ]);
+      const r = await $.process.run(findNotesArgv(root, `${root}/.wiki/graph/manifest.json`));
       if (r.exitCode !== 0) continue;
       const changed = String(r.stdout ?? "").split("\n").map((l) => l.trim()).filter(Boolean);
       if (changed.length > SWEEP_MAX) {
@@ -1281,10 +1307,6 @@ export const register: Register = (on, options) => {
         /* commands are a convenience */
       }
     }
-    sweepTimer?.cancel();
-    sweepTimer = $.clock.every(60_000, () => {
-      sweep($).catch(() => {});
-    });
     try {
       // Warm the guard (registry, domains, private titles, open shards) so
       // the first guarded tool call does not pay for it.
@@ -1298,10 +1320,20 @@ export const register: Register = (on, options) => {
     // with no v2 index yet, start the first build now, so it is usually done
     // before the first vault tool call (which waits for it if not). Prime
     // needs a warm graph too (skip-cold < 5%, §8.1).
+    //
+    // Only when this session is likely to use it: started inside a vault, or
+    // prime on. Loading also arms the 60 s sweep, and every session on the
+    // machine — any repo — was walking the vault every minute for nothing.
+    // Anywhere else the first vault tool call loads it lazily.
     $.clock.after(e.isInteractive === false ? 0 : 1500, () => {
-      pickVault($)
-        .then((v) => (v ? getIndex($, v.path, v.domains) : null))
-        .catch(() => {});
+      (async () => {
+        const cwd = String(await $.session.cwd());
+        const { vaults } = await loadGuard($);
+        const inVault = vaults.some((v) => cwd === v.path || cwd === v.real || locate([v], cwd));
+        if (!inVault && !primeOn) return;
+        const v = await pickVault($);
+        if (v) await getIndex($, v.path, v.domains);
+      })().catch(() => {});
     });
     // Ask about vault skills that are new or changed since trusted — with a
     // person at the prompt only; a `-p` run has nobody to ask.
@@ -1399,7 +1431,11 @@ export const register: Register = (on, options) => {
         const { vaults, names } = await loadGuard($);
         if (vaults.length === 0) return next(e);
         const cwd = String(await $.session.cwd());
-        const home = cwd.match(/^\/(?:Users|home)\/[^/]+/)?.[0] ?? "";
+        // From the environment: guessed from the cwd, `~` went unresolved in
+        // any session started outside /Users or /home, and a `~/…` path into
+        // a sealed folder read as a relative path that matched no root.
+        if (homeDir === null) homeDir = String((await $.env.get("HOME")) ?? "").replace(/\/+$/, "");
+        const home = homeDir || (cwd.match(/^\/(?:Users|home)\/[^/]+/)?.[0] ?? "");
         const touched = candidatePaths(tool, input, cwd, home)
           .map((c) => locate(vaults, c.path)?.vault.path ?? "")
           .find(Boolean);
@@ -2213,7 +2249,9 @@ export const register: Register = (on, options) => {
     // guessing a path.
     const projectDir = await $.session.cwd();
     const vp = await ensureVaultPath($, projectDir);
-    const logPath = vp ? `${vp}/.wiki/${LOG_FILE}` : "";
+    // No vault configured: nothing to connect to and nowhere to log.
+    if (!vp) return base;
+    const logPath = `${vp}/.wiki/${LOG_FILE}`;
 
     const surfaced = await runConnectionPass(
       {

@@ -473,20 +473,19 @@ describe("runConnectionPass", () => {
     assert.equal(fake.count("complete"), 1);
   });
 
-  test("an empty vault-path resolution counts as a failure under the right id", async () => {
+  test("an empty vault-path resolution is a skip, never a breaker failure", async () => {
     fake.ports.runCommand = async (cmd) => {
       fake.calls.push({ name: "runCommand", args: [cmd] });
       return "   ";
     };
-    assert.equal(await runConnectionPass(fake.ports, answerInput()), null);
+    for (let i = 1; i <= MAX_FAILURES + 1; i++) {
+      fake.turn = i * 10;
+      assert.equal(await runConnectionPass(fake.ports, answerInput()), null);
+    }
     assert.equal(fake.count("readText"), 0);
-    assert.deepEqual(fake.sessionRecord(), {
-      id: "session-one",
-      lastTurn: -999,
-      failures: 1,
-      seen: [],
-    });
-    assert.equal(fake.status.lastError, "commonplace vault-path returned nothing");
+    assert.equal(Number(fake.sessionRecord()?.failures ?? 0), 0);
+    assert.equal(fake.status.paused, false);
+    assert.equal(fake.status.lastError, "");
   });
 
   test("an unparseable index counts as a failure and is not cached", async () => {

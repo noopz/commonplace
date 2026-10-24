@@ -63,12 +63,13 @@ export async function measureModule(vault: string, samples = 20): Promise<Module
 
   // Sweep: the one find exec a 60 s tick costs.
   let t = performance.now();
-  const [cmd, ...argv] = findNotesArgv(vault);
-  const listing = execFileSync(cmd, [...argv.slice(0, 1), ...argv.slice(1), "-newer", join(wiki, "graph", "manifest.json")], { encoding: "utf-8" });
+  const [cmd, ...newerArgv] = findNotesArgv(vault, join(wiki, "graph", "manifest.json"));
+  const listing = execFileSync(cmd, newerArgv, { encoding: "utf-8" });
   const sweep = performance.now() - t;
   void listing;
 
   // Graph rebuild in-process: parse + build + serialize (reads excluded).
+  const [, ...argv] = findNotesArgv(vault);
   const all = execFileSync(cmd, argv, { encoding: "utf-8", maxBuffer: 256 * 1024 * 1024 }).split("\n").filter(Boolean);
   const texts = all.map((abs) => ({ rel: abs.slice(vault.length + 1), text: readFileSync(abs, "utf-8") }));
   t = performance.now();

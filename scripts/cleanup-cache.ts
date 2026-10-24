@@ -13,6 +13,13 @@
  * acts on dirs whose name matches a strict semver pattern, so any
  * non-version sibling (cache metadata, lockfiles, etc.) is left alone.
  *
+ * A version used in the last IN_USE_MS is kept: another session may still be
+ * running from it. Deleting its bin/ and dist/ under a live module made every
+ * CLI spawn fail, the guard load zero vaults, and sealing switch off for the
+ * rest of that session. "Used" is the newest write to its `.runtime/` (the
+ * module and the SessionStart hook both write there each session), else the
+ * dir's own mtime.
+ *
  * Trade-off: a user can no longer roll back to an old version by
  * selecting it in the marketplace UI without re-downloading. The
  * marketplace will fetch it fresh on demand.
@@ -35,6 +42,16 @@ try {
 }
 
 const semverRe = /^\d+\.\d+\.\d+$/;
+const IN_USE_MS = 7 * 24 * 60 * 60 * 1000;
+
+function lastUsed(dir: string): number {
+  let t = statSync(dir).mtimeMs;
+  try {
+    const rt = join(dir, ".runtime");
+    for (const f of readdirSync(rt)) t = Math.max(t, statSync(join(rt, f)).mtimeMs);
+  } catch { /* no .runtime: the dir's mtime stands */ }
+  return t;
+}
 const removed: string[] = [];
 
 for (const entry of entries) {
@@ -44,6 +61,7 @@ for (const entry of entries) {
   try {
     const st = statSync(path);
     if (!st.isDirectory()) continue;
+    if (Date.now() - lastUsed(path) < IN_USE_MS) continue;
     rmSync(path, { recursive: true, force: true });
     removed.push(entry);
   } catch { /* skip — best effort */ }
