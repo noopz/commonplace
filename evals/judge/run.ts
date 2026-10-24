@@ -22,6 +22,10 @@
  * `--used` asks whether a primed answer actually used the note
  * (used-in-answer, §8.6), over eval:prime's stored answers.
  *
+ * `--feedback` scores the connection judge on the person's own presses
+ * (Read it / Not for me) from `.wiki/evals/connection-feedback.jsonl`
+ * instead of a gold file: precision from real use, no hand labelling.
+ *
  * The judge runs on haiku in the hook (`$.model.complete({model:"haiku"})`),
  * so --model defaults to haiku here. Point it elsewhere to ablate the model
  * rather than the prompt.
@@ -40,6 +44,7 @@ import {
   scoreJudgeCase,
   summarizeJudge,
   formatJudgeSummary,
+  feedbackCases,
   type JudgeCase,
   type JudgeResult,
   type JudgeTrial,
@@ -57,13 +62,20 @@ const { values: args } = parseArgs({
     init: { type: "boolean" },
     prime: { type: "boolean" },
     used: { type: "boolean" },
+    feedback: { type: "boolean" },
   },
 });
 const mode: "connection" | "prime" | "used" = args.used ? "used" : args.prime ? "prime" : "connection";
 
 const config = resolveVault(args.vault);
-const goldPath =
-  args.gold ?? join(config.wikiPath, "evals", mode === "connection" ? "judge-gold.jsonl" : `${mode}-judge-gold.jsonl`);
+const feedbackPath = join(config.wikiPath, "evals", "connection-feedback.jsonl");
+const goldPath = args.feedback
+  ? feedbackPath
+  : (args.gold ?? join(config.wikiPath, "evals", mode === "connection" ? "judge-gold.jsonl" : `${mode}-judge-gold.jsonl`));
+if (args.feedback && mode !== "connection") {
+  console.error("error: --feedback scores the connection judge; it does not combine with --prime or --used");
+  process.exit(1);
+}
 const answersDir = join(config.wikiPath, "evals", ...(mode === "used" ? ["prime", "answers"] : ["answers"]));
 const model = args.model ?? "haiku";
 const repeat = Math.max(1, Number(args.repeat ?? 1));
@@ -96,15 +108,23 @@ if (args.init) {
 }
 
 if (!existsSync(goldPath)) {
-  console.error(`error: gold set not found at ${goldPath}`);
-  console.error("Run `commonplace eval:judge --init` to scaffold one from stored answers.");
+  if (args.feedback) {
+    console.error(`error: no presses recorded yet at ${goldPath}`);
+    console.error("Read it / Not for me on a surfaced connection writes them.");
+  } else {
+    console.error(`error: gold set not found at ${goldPath}`);
+    console.error("Run `commonplace eval:judge --init` to scaffold one from stored answers.");
+  }
   process.exit(1);
 }
 
-let gold: JudgeCase[] = readFileSync(goldPath, "utf-8")
-  .split("\n")
-  .filter((l) => l.trim())
-  .map((l) => JSON.parse(l) as JudgeCase);
+let gold: JudgeCase[] = args.feedback
+  ? // A pressed note that has since been renamed or removed cannot be shown to the judge.
+    feedbackCases(readFileSync(goldPath, "utf-8")).filter((c) => existsSync(join(config.vaultPath, c.note)))
+  : readFileSync(goldPath, "utf-8")
+      .split("\n")
+      .filter((l) => l.trim())
+      .map((l) => JSON.parse(l) as JudgeCase);
 if (args.only) gold = gold.filter((c) => c.id === args.only);
 if (gold.length === 0) {
   console.error("error: no cases selected");

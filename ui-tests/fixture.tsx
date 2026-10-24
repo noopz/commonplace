@@ -119,6 +119,10 @@ export function engineFloor(on: On, cwd = "/fixture/project"): void {
   on("command.register", async (_$, e) => ({ value: { command: e.name } }));
   on("ui.toast", async () => ({ value: undefined }));
   on("ui.status", async () => ({ value: undefined }));
+  // A turn: the prompt goes through as written, the turn ends with the answer it was handed.
+  on("prompt.submit", async (_$, e) => ({ text: e.text }) as never);
+  on("turn.start", async (_$, e) => ({ turnId: (e as { turnId?: string }).turnId }) as never);
+  on("turn.complete", async (_$, e) => ({ text: (e as { answer?: string }).answer ?? "" }) as never);
   on("ui.render", async ($, e) => {
     const { Box, Text } = $.ui.resolve(e);
     // The spinner draws what it was handed, so a rewrite of its message shows.
@@ -126,6 +130,8 @@ export function engineFloor(on: On, cwd = "/fixture/project"): void {
       const p = e.props as { word: string; message: string | null };
       return <Text>{p.message ?? p.word}</Text>;
     }
+    // A reply draws its text as handed, so a rewrite of it shows.
+    if (e.component === "AssistantMessage") return <Text>{(e.props as { text: string }).text}</Text>;
     return <Box flexDirection="column" />;
   });
 }

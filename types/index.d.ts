@@ -194,7 +194,18 @@ export type CommonplaceBand = {
    * private note) is composed at render time from commonplace's module
    * memory, never stored here.
    */
-  kind?: "idle" | "primed" | "following" | "connected" | "warn" | "open" | "propose" | "reindexed";
+  kind?:
+    | "idle"
+    | "primed"
+    | "following"
+    | "connected"
+    | "warn"
+    | "open"
+    | "propose"
+    | "reindexed"
+    // Cards: a line with buttons (a surfaced connection, a pasted link's verdict).
+    | "connection"
+    | "triage";
 };
 
 export type Commonplace = {
@@ -228,6 +239,8 @@ declare module "claude-code" {
       index: CommonplaceIndexStatus;
       // Display mirror only; commonplace never reads it back.
       scope: CommonplaceScope;
+      // Bumped to redraw the witness pane; its content stays in module memory.
+      paneRev: number;
     };
   }
 }

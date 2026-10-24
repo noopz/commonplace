@@ -9,6 +9,17 @@ import { serveVault, engineFloor } from "./fixture.tsx";
 const SKILL = "---\nname: acme-intake\ndescription: Turn an Acme clip into a source note\n---\nRun the intake.\n";
 const SKILLS = { ".claude/skills/acme-intake/SKILL.md": SKILL };
 
+/**
+ * A wait in real time: the skill hash is computed off the mocked clock, so
+ * advancing it alone can check before the question is asked.
+ */
+const realTick = (ms: number) =>
+  new Promise<void>((r) => {
+    const st = (globalThis as { setTimeout?: (f: () => void, ms: number) => unknown }).setTimeout;
+    if (st) st(r, ms);
+    else r();
+  });
+
 for (const surface of ["terminal", "desktop"] as const) {
   for (const [cwd, expected] of [["/fixture/project", 1], ["/fixture/acme-vault", 0]] as const) {
     test(`${surface}: a session started in ${cwd} is asked about new skills ${expected ? "once" : "never"}`, async ($, on) => {
@@ -24,6 +35,12 @@ for (const surface of ["terminal", "desktop"] as const) {
       });
       await $.session.start({ cwd, surface, isInteractive: true });
       await clock.advance(3000);
+      // The offer is a chain of reads after the timer; give it room to land
+      // (a "never" case spends the whole allowance and still asks nothing).
+      for (let i = 0; i < 20 && asked.length < expected; i++) {
+        await clock.advance(100);
+        await realTick(10);
+      }
       expect(asked).toHaveLength(expected);
     });
   }

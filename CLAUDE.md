@@ -29,13 +29,14 @@ an older engine gets a toast, `tooOld: true` in `module-alive.json`, and no
 registrations. There is no shell fallback to keep in step any more, so the v1
 `hooks-module.json` marker and `module-gate` are gone.
 
-`plugin.json` declares three `userConfig` fields: `ambientConnections` (the
-connection pass, default on), `primeContext` (prime, default **off** until
-`eval:prime` passes its gate on the user's vault) and `showBand` (the status
-band; a paused breaker still shows when off). Everything else the module does
-is either a guard (which must not be optional) or free. Declaring userConfig is
-also what silences the host's "options requested but its manifest declares no
-userConfig" warning.
+`plugin.json` declares a `userConfig` switch for every feature the person
+would want to turn off (guards are not optional): `ambientConnections` (the
+connection pass and its Read it / Not for me card, default on), `vaultLinks`
+(links and citation flags in replies, default on), `linkTriage` (default off:
+a fork per pasted link Claude fetched), `primeContext` (default **off** until `eval:prime`
+passes its gate on the user's vault) and `showBand` (the receipt band; a
+paused breaker and the cards still show when off). Keep the menu this short:
+a feature that needs a switch to be tolerable usually needs cutting instead.
 
 ### What the module holds
 
@@ -238,10 +239,58 @@ Hard constraints of this API, verified rather than assumed:
   `session.end{reason:"clear"}` re-seals explicitly. Cache lazily as well as
   eagerly.
 
+### Surfaces: cards, reply links, the witness (v2.4)
+
+Pure logic in `hooks/lib/surfaces/*` (node tests); `ui-tests/surfaces.test.tsx`
+drives the reply surfaces through the engine. v2.4 briefly also shipped
+resurfacing, paragraph tangents, session capture, A/B trials and a
+fork-based connection judge; they were cut before release as speculative —
+do not bring them back without evidence (for the judge: an `eval:connection`
+comparison against haiku).
+
+- **The connection card** (`BandCard`, module memory like `bandText`): a
+  surfaced connection puts **Read it / Not for me** on the band. Not for me
+  goes to `$.store connect:suppressed:<vault>`, which the pipeline treats like
+  the seen-set (`PassInput.suppressed`) but never writes into it. Every press
+  appends `{path, title, label, answer}` to `.wiki/evals/connection-feedback.jsonl`,
+  and **`eval:judge --feedback`** scores the judge on those presses: precision
+  from real use, the label a gold set only approximates. A press takes the
+  card down first; typing again is a pass, not a press.
+- **Link triage** (`linkTriage`): a turn that FETCHED a link the person
+  pasted (a `tool.call{WebFetch}` hook records it) ends with a card —
+  already in the vault as [[X]] / extends / contests / new / skip — with
+  Ingest / Later / Skip (`/vault later`). The candidates are READ and a
+  `$.model.fork` judges them against what the conversation learned; an
+  invented title is dropped. A fork is the main thread's last request plus
+  one prompt, every tool denied, prefix from the prompt cache, on the main
+  model, under the main system prompt — so its instructions ride in
+  `triagePrompt`. A link nobody fetched is never triaged — the
+  fork has no tools, so it would be judging the URL string; that one rule is
+  also what keeps dev servers and work links out, so do not add host lists.
+  It replaces the pre-ingest check wiki-query was asked to remember. That
+  turn gets no ambient pass.
+- **Replies** (`ui.render{AssistantMessage}`, `vaultLinks`): `[[links]]` that
+  resolve in the LOADED view become `file:` links; a footer flags only the
+  citations that do not hold up — not a note, not read this session (a Read of
+  a vault `.md` counts, like `vault_note`), superseded or contested. Sound
+  citations draw nothing. Drawing never loads the graph, rewrites only
+  `props.text`, and leaves sealed titles exactly as written.
+- **Witness** (`/vault witness`, pane `commonplace-witness`): every hidden
+  addition — first-message block, prime, subagent prompt rewrites, skill
+  preambles and swaps, notes on tool results, post-write analysis, command
+  context — verbatim in module memory. A pane, so the record is not fed back
+  to the model. No switch: it shows nothing unless asked.
+
+`turn.complete` and `turn.start` act on the **main loop only**
+(`e.agentId` absent): a subagent's turn ends there too, and the pass used to
+judge replies the person never saw.
+
 **`hook-log.jsonl` stage vocabulary** (beyond the connection pass's own):
 `tool:vault_*`, `index:patch|sweep|build|built`, `guard:*`, `scope:proposed`,
 `skill:delivered`, `prime:sync|skip-cold|appended|judged-no|unanswered|late-drop|no-turn|error`,
-`skip:segment-budget`. A private note's path is never logged.
+`skip:segment-budget`, `feedback:useful|not-for-me`,
+`triage:verdict|not-fetched|unanswered|ingest|later|skip|read|error`, `cite:check`
+(counts only). A private note's path is never logged.
 
 **Measure it with `commonplace eval:connection`.** It drives real `claude -p`
 sessions and scores the trace log, because the pass is a chain of guards, a
@@ -416,6 +465,8 @@ All commands auto-discover the vault via cwd (`.obsidian/` or `.wiki/` marker) o
 - `commonplace session-check` — The one shell hook (SessionStart): dist rebuild, cache cleanup, module watchdog
 - `commonplace synthetic --scale N --out <dir>` / `commonplace eval:scale` — Synthetic vaults and the scale benchmark
 - `commonplace test:ui` — Module UI tests under `claude plugin test` (terminal + desktop); also `npm run test:ui`
+- `commonplace eval:judge [--feedback] [--prime|--used] [--repeat N]` — The judge alone on stored (answer, note) pairs; `--feedback` uses your Read it / Not for me presses as the labels
+- `commonplace eval:connection [--plugin-dir .]` — The whole connection pass in live `claude -p` sessions
 - `commonplace eval:prime [--repeat 3] [--init]` — Prime's gate (live `claude -p` sessions)
 - `commonplace eval:search [--tune] [--cfg '<json>'] [--cues <draft>] [--show "<q>"] [--json] [--history]` — `vault_search` + Connect pool over the vault's gold sets, in-memory build, zero tokens
 - `commonplace dates [--dry-run] [--json]` — Backfill `published:` on source notes from their labelled source line (`**Published:**`, `**arXiv:**`, `**Source:**`…); never guesses; a note with `published:`/`date:` is left alone

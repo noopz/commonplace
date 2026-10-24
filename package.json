@@ -1,6 +1,7 @@
 {
   "name": "commonplace",
-  "version": "2.3.5",
+  "version": "2.4.0",
+  "license": "MIT",
   "private": true,
   "type": "module",
   "bin": {

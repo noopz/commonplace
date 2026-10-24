@@ -78,6 +78,43 @@ export function decide(trials: readonly JudgeTrial[]): JudgeExpect {
   return surfaced > trials.length / 2 ? "surface" : "skip";
 }
 
+/**
+ * Cases from the person's own presses on connection cards
+ * (`.wiki/evals/connection-feedback.jsonl`, written by the module): Read it
+ * is a surface the person wanted, Not for me one they did not. Every line was
+ * a judge SURFACE in the session, so these measure precision from real use —
+ * the label a gold set can only approximate. The same (note, answer) pressed
+ * twice keeps the later press. A note no longer in the vault is dropped by
+ * the runner, not here.
+ */
+export function feedbackCases(jsonl: string): JudgeCase[] {
+  const byKey = new Map<string, JudgeCase>();
+  let n = 0;
+  for (const line of jsonl.split("\n")) {
+    if (!line.trim()) continue;
+    let r: { at?: unknown; path?: unknown; label?: unknown; answer?: unknown };
+    try {
+      r = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    const path = typeof r.path === "string" ? r.path : "";
+    const answer = typeof r.answer === "string" ? r.answer : "";
+    if (!path || !answer.trim() || (r.label !== "useful" && r.label !== "not-for-me")) continue;
+    n++;
+    const key = `${path}\u0000${answer}`;
+    byKey.delete(key);
+    byKey.set(key, {
+      id: `press-${n}`,
+      answer,
+      note: path,
+      expect: r.label === "useful" ? "surface" : "skip",
+      why: `you pressed ${r.label === "useful" ? "Read it" : "Not for me"}${typeof r.at === "string" ? ` on ${r.at.slice(0, 10)}` : ""}`,
+    });
+  }
+  return [...byKey.values()];
+}
+
 export function scoreJudgeCase(c: JudgeCase, trials: readonly JudgeTrial[]): JudgeResult {
   const decided = decide(trials);
   const agreeing = trials.filter(

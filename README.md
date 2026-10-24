@@ -17,6 +17,22 @@ Works on any directory — Obsidian vault, plain folder, whatever. Obsidian is n
 - **wiki-deep-link**: Find hidden concept connections via local embeddings (Ollama)
 - **paper-analyzer**: Deep paper analysis with smart PDF extraction and multi-agent review
 
+## In the session
+
+Claude gets vault tools (`vault_search`, `vault_note`, `vault_links`, `vault_path`, `vault_neighbourhood`) over a graph index of the notes, so it finds a note and follows its links instead of grepping. Domains marked private stay sealed — invisible to every tool, and their titles never written into code — unless the session starts inside one or you type `/vault open <domain>`.
+
+Switches in the plugin's settings (`/config`):
+
+| Setting | Default | What it does |
+| --- | --- | --- |
+| Ambient vault connections | on | One line under an answer when it connects to a note you already wrote, with **Read it** / **Not for me** (Not for me never surfaces that note again) |
+| Vault links in replies | on | `[[links]]` in replies open the note; any that isn't in your vault, wasn't read, or is superseded gets flagged |
+| Verdict card for pasted links | off | Paste a link Claude then reads → "already in your vault / extends a note / new" with **Ingest** / **Later** / **Skip** (`/vault later`) |
+| Prime tasks with a vault note | off | A pointer to the vault's best note before a task starts |
+| Vault status band | on | A one-line receipt above the prompt when the vault was consulted |
+
+`/vault witness` shows, word for word, everything commonplace added to the model's context that the transcript doesn't show.
+
 ## How it works
 
 Skills auto-trigger from natural conversation. You never type slash commands — just chat and the right skill activates.
@@ -107,18 +123,10 @@ Three-tier cost model:
 
 ## Install
 
-```bash
-git clone https://github.com/noopz/commonplace
-cd commonplace
-npm install
-
-# Point it at your vault
-npx tsx scripts/init.ts --vault /path/to/your/vault
+```
+/plugin install commonplace --marketplace noopz/stray-bits-sanctuary
 ```
 
-## Dependencies
+Then, in any session, point it at your notes: "set up commonplace for ~/Notes" (the wiki-init skill runs `commonplace init` and builds the index).
 
-- `gray-matter` — YAML frontmatter parsing
-- `glob` — File pattern matching
-- `pdfjs-dist` — PDF text extraction
-- `tsx` — TypeScript execution
+Needs Claude Code 2.1.288 or later and Node.js. `wiki-deep-link` also needs [Ollama](https://ollama.com) with `nomic-embed-text`; nothing else does.

@@ -242,9 +242,15 @@ export type PassInput = {
   answer: string;
   reason: string;
   aborted: boolean;
+  /**
+   * Notes the person answered "Not for me" on, across sessions: never
+   * candidates again. Treated exactly like the session's seen-set.
+   */
+  suppressed?: readonly string[];
 };
 
-export type PassOutput = { text: string } | null;
+/** The line to show, and the note it names (for the card's buttons). */
+export type PassOutput = { text: string; path: string; title: string; why: string } | null;
 
 // ---------------------------------------------------------------------------
 // Index cache
@@ -440,10 +446,13 @@ export async function runConnectionPass(
     // limit tell a promising turn from an ordinary one.
 
     const seen = (state.seen ?? []) as string[];
+    // Suppressed notes are skipped as if already judged, but never written
+    // back into the session record: the store keeps them on their own.
+    const skip = [...seen, ...(input.suppressed ?? [])];
 
     const lexical = rankCandidates(records, tokens, 4);
     const lexTop = lexical[0]?.score ?? 0;
-    const unseen = lexical.filter((c) => !seen.includes(c.path));
+    const unseen = lexical.filter((c) => !skip.includes(c.path));
     const unseenTop = unseen[0]?.score ?? 0;
     // Traced unconditionally, including the zero case, and WITH the score.
     // A pass that seeds lexically and goes straight on to the judge otherwise
@@ -571,7 +580,7 @@ export async function runConnectionPass(
     const candidates = mergeSeeds(
       tiers,
       (p) => surfaceableByPath.get(p) === true,
-      seen,
+      skip,
       4,
     );
     // THE WHOLE POOL, not just the one that gets read.
@@ -669,7 +678,7 @@ export async function runConnectionPass(
       surfaced: (await ports.status()).surfaced + 1,
       phase: "ok",
     });
-    return { text: renderConnection(best.label, verdict) };
+    return { text: renderConnection(best.label, verdict), path: best.path, title: best.label, why: verdict };
   } catch (err) {
     // Never let an ambient feature break a turn. Count the failure so a
     // persistently broken vault stops costing model calls, and stay quiet.

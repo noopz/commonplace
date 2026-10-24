@@ -13,6 +13,7 @@ import {
   scoreJudgeCase,
   summarizeJudge,
   formatJudgeSummary,
+  feedbackCases,
   type JudgeCase,
   type JudgeTrial,
 } from "./score.ts";
@@ -103,4 +104,26 @@ test("median is over trials, not cases", () => {
     scoreJudgeCase(CASE({ id: "b" }), [SURFACE(500)]),
   ];
   assert.equal(summarizeJudge(results).medianMs, 300);
+});
+
+test("feedbackCases: presses become cases; a re-press of the same pair keeps the later label", () => {
+  const line = (o: object) => JSON.stringify(o);
+  const jsonl = [
+    line({ at: "2026-01-02T00:00:00Z", path: "concepts/alpha/Alpha Lattice.md", label: "useful", answer: "about lattices" }),
+    line({ at: "2026-01-03T00:00:00Z", path: "concepts/beta/Beta Report.md", label: "not-for-me", answer: "about reports" }),
+    "{not json",
+    line({ path: "concepts/gamma/Gamma Term.md", label: "maybe", answer: "x" }),
+    line({ path: "concepts/gamma/Gamma Term.md", label: "useful", answer: "" }),
+    line({ at: "2026-01-04T00:00:00Z", path: "concepts/alpha/Alpha Lattice.md", label: "not-for-me", answer: "about lattices" }),
+  ].join("\n");
+  const cases = feedbackCases(jsonl);
+  assert.deepEqual(
+    cases.map((c) => [c.note, c.expect]),
+    [
+      ["concepts/beta/Beta Report.md", "skip"],
+      ["concepts/alpha/Alpha Lattice.md", "skip"],
+    ],
+  );
+  assert.equal(cases[1].why, "you pressed Not for me on 2026-01-04");
+  assert.equal(cases[1].answer, "about lattices");
 });

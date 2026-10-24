@@ -102,6 +102,10 @@ import {
   type SegmentState,
 } from "./lib/core/prime.js";
 import { resolveOpenRef, listableDomains, shardOfDomain, proposeFromPrompt, isPrivate as isPrivateDomain } from "./lib/core/scope.js";
+import { maskSealed } from "./lib/core/noun.js";
+import { wikiRefs, linkWikiRefs, fileHref, citationFooter, citationCounts, type CitedNote } from "./lib/surfaces/wikilinks.js";
+import { pastedUrls, sameUrl, triagePrompt, parseTriage, triageLine, addLater, formatLater, TRIAGE_NOTE_CHARS, type Triage, type LaterItem } from "./lib/surfaces/triage.js";
+import { Witness, renderWitness } from "./lib/surfaces/witness.js";
 
 // ---------------------------------------------------------------------------
 // Tunables
@@ -779,8 +783,8 @@ const impl_skill = async ($: EngineInterface, args: { name?: string; vault?: str
 const VAULT_COMMANDS = [
   {
     name: "vault",
-    description: "commonplace vault: status · use · list · open · close · reindex · skills · domain",
-    argumentHint: "[use <id> | list | open <domain> | close [domain] | reindex | skills [trust|untrust <name>] | domain public|private <id>]",
+    description: "commonplace vault: status · use · list · open · close · reindex · skills · domain · witness · later",
+    argumentHint: "[use <id> | list | open <domain> | close [domain] | reindex | skills [trust|untrust <name>] | domain public|private <id> | witness | later]",
   },
 ];
 
@@ -793,6 +797,8 @@ const VAULT_HELP = [
   "/vault reindex                 rebuild the vault index in the background",
   "/vault skills [trust|untrust <name>]   list vault skills / trust one's current content",
   "/vault domain public|private <id>      classify a domain (e.g. a quarantined folder)",
+  "/vault witness [clear]         everything commonplace added to context that the transcript does not show",
+  "/vault later [clear]           links saved with Later on a link card",
 ].join("\n");
 
 const scopeMirror = async ($: EngineInterface, vp: string) => {
@@ -833,6 +839,19 @@ const runVaultCommand = async ($: EngineInterface, argsText: string): Promise<{ 
     } catch {}
     return { text: out || `Using vault ${id}.`, context: [`The active commonplace vault is now "${id}".`] };
   }
+  if (sub === "witness") {
+    if (rest[0] === "clear") {
+      witness.clear();
+      bumpPanes($);
+      return { text: "Witness cleared." };
+    }
+    // The pane, not the transcript: a command's text is read by the model too.
+    try {
+      const r = await $.ui.open({ id: WITNESS_PANE, title: "⟡ vault · witness" });
+      if (r.isPlaced) return { text: `Witness pane open: ${witness.list().length} hidden additions this session.` };
+    } catch {}
+    return { text: renderWitness(witness) };
+  }
   if (!vault) return { text: "No vault configured. Run `commonplace init --vault <path>`." };
   const vp = vault.path;
   if (sub === "open") {
@@ -872,6 +891,13 @@ const runVaultCommand = async ($: EngineInterface, argsText: string): Promise<{ 
     await scopeMirror($, vp);
     update($, band, (b) => ({ ...b, visible: false, kind: "idle" as const }));
     return { text: set.size ? "Sealed. Other domains you opened stay open." : "All private domains sealed for this session." };
+  }
+  if (sub === "later") {
+    if (rest[0] === "clear") {
+      await $.store.set(laterKey(vp), []);
+      return { text: "Saved links cleared." };
+    }
+    return { text: formatLater(((await $.store.get(laterKey(vp))) ?? []) as LaterItem[]) };
   }
   if (sub === "reindex") {
     buildStarted.delete(vp);
@@ -1192,12 +1218,9 @@ const primeAsync = async (
       traceTo($, vp, "prime:late-drop", {});
       return;
     }
-    await $.session.append({
-      message: {
-        type: "user",
-        content: [{ type: "text", text: primeBlock({ title: card.t, vault: p.vaultId, domain: card.d, abstraction: card.a, why, path: rel }) }],
-      },
-    });
+    const primed = primeBlock({ title: card.t, vault: p.vaultId, domain: card.d, abstraction: card.a, why, path: rel });
+    await $.session.append({ message: { type: "user", content: [{ type: "text", text: primed }] } });
+    witnessAdd($, "prime", primed);
     segment = { ...segment, touches: segment.touches + 1 };
     setBand($, { kind: "primed", text: `primed [[${card.t}]] — ${why}` });
     // The path is what eval:prime scores precision against; a private note's
@@ -1230,29 +1253,248 @@ const traceNoun = ($: EngineInterface, ctx: { vaultPath?: string } | { error: st
 };
 
 // ---------------------------------------------------------------------------
+// Surfaces: the connection and link-triage cards on the band, vault links and
+// citation flags in replies, and the witness. Switches in plugin.json's
+// userConfig, read once per load into `features`.
+// ---------------------------------------------------------------------------
+
+type Features = {
+  ambient: boolean;
+  prime: boolean;
+  /** Clickable [[links]] in replies and the citation flags under them. */
+  links: boolean;
+  triage: boolean;
+};
+
+let features: Features = { ambient: true, prime: false, links: true, triage: false };
+
+/** What `/vault witness` shows: every hidden addition, word for word. */
+const witness = new Witness();
+const WITNESS_PANE = "commonplace-witness";
+/** Bumped to redraw the witness pane; its content stays in module memory (it can quote an open private note). */
+const paneRev = atom({ plugin: "commonplace", key: "paneRev" } as const, 0);
+const bumpPanes = ($: EngineInterface) => {
+  update($, paneRev, (n) => n + 1).catch(() => {});
+};
+const witnessAdd = ($: EngineInterface, kind: string, text: string) => {
+  witness.add(kind, text, Date.now());
+  bumpPanes($);
+};
+
+/**
+ * A card on the band: one line plus the buttons that act on it. Module
+ * memory, like `bandText` (a card can name an open private note); `$.state`
+ * carries only the band's kind.
+ */
+type BandCard =
+  | { kind: "connection"; vp: string; path: string; title: string; answer: string }
+  | { kind: "triage"; vp: string; url: string; triage: Triage };
+let bandCard: BandCard | null = null;
+const CARD_KINDS = new Set<string>(["connection", "triage"]);
+
+const showCard = ($: EngineInterface, card: BandCard, text: string) => {
+  bandCard = card;
+  setBand($, { kind: card.kind, text });
+};
+
+/** The buttons each card offers, as [action, label]. */
+const cardButtons = (card: BandCard): Array<[string, string]> => {
+  if (card.kind === "connection") return [["read", "Read it"], ["not-for-me", "Not for me"]];
+  return card.triage.verdict === "in-vault"
+    ? [["read", "Read it"], ["skip", "Dismiss"]]
+    : [["ingest", "Ingest"], ["later", "Later"], ["skip", "Skip"]];
+};
+
+/** `$.store` keys, per vault. */
+const suppressedKey = (vp: string) => `connect:suppressed:${vp}`;
+const laterKey = (vp: string) => `triage:later:${vp}`;
+/** Not-for-me notes kept per vault. */
+const SUPPRESSED_MAX = 500;
+
+/**
+ * A press on a connection card is a relevance label from real use: it goes
+ * to `.wiki/evals/connection-feedback.jsonl` with the answer it was judged
+ * against, which `eval:judge --feedback` scores the judge on. In the vault,
+ * never committed, like every gold file.
+ */
+const recordLabel = ($: EngineInterface, card: Extract<BandCard, { kind: "connection" }>, label: string) => {
+  const dir = `${card.vp}/.wiki/evals`;
+  $.process
+    .run(["mkdir", "-p", dir])
+    .then(() =>
+      $.process.run(["tee", "-a", `${dir}/connection-feedback.jsonl`], {
+        stdin: `${JSON.stringify({ at: new Date().toISOString(), path: card.path, title: card.title, label, answer: card.answer })}\n`,
+      }),
+    )
+    .catch(() => {});
+};
+
+/** One press on the band's card. The card is taken down first, so a second press does nothing. */
+const bandPress = async ($: EngineInterface, action: string) => {
+  const card = bandCard;
+  if (!card) return;
+  bandCard = null;
+  try {
+    await update($, band, (b) => ({ ...b, visible: false }));
+  } catch {}
+  try {
+    if (card.kind === "connection") {
+      const label = action === "read" ? "useful" : "not-for-me";
+      traceTo($, card.vp, `feedback:${label}`, { path: card.path });
+      recordLabel($, card, label);
+      if (action === "read") {
+        await $.prompt.submit({ text: `Read my vault note [[${card.title}]] and tell me how it bears on what we were just discussing.`, asUser: true });
+      } else {
+        const list = ((await $.store.get(suppressedKey(card.vp))) ?? []) as string[];
+        await $.store.set(suppressedKey(card.vp), [...list.filter((p) => p !== card.path), card.path].slice(-SUPPRESSED_MAX));
+        $.ui.toast(`⟡ won't surface [[${card.title}]] again`);
+      }
+      return;
+    }
+    traceTo($, card.vp, `triage:${action}`, { verdict: card.triage.verdict });
+    if (action === "ingest") await $.prompt.submit({ text: `Add this to my vault: ${card.url}`, asUser: true });
+    if (action === "read" && card.triage.note) {
+      await $.prompt.submit({ text: `Read my vault note [[${card.triage.note}]] — it already covers ${card.url}. What does it say?`, asUser: true });
+    }
+    if (action === "later") {
+      const list = ((await $.store.get(laterKey(card.vp))) ?? []) as LaterItem[];
+      const t = card.triage;
+      await $.store.set(laterKey(card.vp), addLater(list, { url: card.url, verdict: t.verdict, note: t.note, why: t.why, at: new Date().toISOString() }));
+      $.ui.toast("⟡ saved for later · /vault later");
+    }
+  } catch {
+    /* a card is a convenience; a failed press must never surface as an error */
+  }
+};
+
+/**
+ * Links the person pasted, waiting for the turn they started to end, and the
+ * ones that turn actually fetched. Only a fetched link is triaged: the fork
+ * has no tools, so for a link nobody read it would judge the URL string.
+ */
+let pendingLinks: { urls: string[]; turnId: string; fetched: string[] } | null = null;
+
+/**
+ * Link triage at the end of the turn that answered a pasted link. Returns
+ * true when a card went up (the ambient pass then sits this turn out).
+ */
+const runTriage = async ($: EngineInterface, vp: string, urls: string[], answer: string): Promise<boolean> => {
+  const ctx = await nounCtx($);
+  if ("error" in ctx || ctx.vaultPath !== vp) return false;
+  const query = `${urls.map((u) => u.replace(/^https?:\/\/(www\.)?/i, "").replace(/[/._?=&#-]+/g, " ")).join(" ")} ${answer.slice(0, 600)}`;
+  const r = await noun.search(ctx, { query: query.slice(0, 800), limit: 5 });
+  const hits = "error" in r ? [] : r.hits;
+  // The candidates are READ before anything is judged: a pointer is not a finding.
+  const notes = [];
+  for (const h of hits.slice(0, 3)) {
+    const raw = await ctx.readNote(h.path);
+    if (raw === null) continue;
+    notes.push({ title: h.title, abstraction: h.abstraction, text: maskSealed(stripFrontmatter(raw), ctx.sealedNames).slice(0, TRIAGE_NOTE_CHARS) });
+  }
+  const f = await $.model.fork({ prompt: triagePrompt(urls, notes) });
+  if (!f.isAnswered) {
+    traceTo($, vp, "triage:unanswered", { reason: f.reason });
+    return false;
+  }
+  const t = parseTriage(f.text, notes.map((n) => n.title));
+  traceTo($, vp, "triage:verdict", { verdict: t?.verdict ?? "unparsed", candidates: notes.length });
+  if (!t) return false;
+  showCard($, { kind: "triage", vp, url: urls[0], triage: t }, triageLine(t, urls[0]));
+  return true;
+};
+
+/**
+ * A reply's text with its `[[links]]` made clickable and, under it, a flag
+ * for each citation that does not hold up (not a note, not read this
+ * session, superseded, contested). Null when the reply cites nothing or no
+ * index is loaded: drawing never loads the graph. Sealed titles are left
+ * exactly as written, neither linked nor flagged.
+ */
+const decorated = new Map<string, { text: string; cited: CitedNote[] } | null>();
+const decorateReply = async ($: EngineInterface, text: string): Promise<{ text: string; cited: CitedNote[] } | null> => {
+  if (!text.includes("[[")) return null;
+  const vp = vaultPaths.get(String(await $.session.cwd())) ?? "";
+  const idx = vp ? indexes.get(vp) : undefined;
+  const view = idx?.state === "ready" ? idx.view : null;
+  if (!vp || !idx || !view) return null;
+  const trail = trailOf(vp);
+  // Keyed by vault and text: the first verdict on a reply sticks. A note read
+  // later must not clear the flag on a reply that cited it unread.
+  const key = `${vp}|${text}`;
+  if (decorated.has(key)) return decorated.get(key)!;
+  const refs = wikiRefs(text);
+  const open = openOf(vp);
+  const sealed = new Set(
+    (guardCache?.names ?? [])
+      .filter((n) => n.vault === vp && n.shard !== PRIVATE_VAULT_SHARD && !open.has(n.shard))
+      .flatMap((n) => [n.t, ...(n.al ?? [])])
+      .map((s) => s.toLowerCase()),
+  );
+  const ids = new Map<string, number>();
+  for (const r of refs) {
+    const id = view.resolve(r.title);
+    if (id !== null) ids.set(r.title.toLowerCase(), id);
+  }
+  const cards = await idx.cards([...ids.values()]);
+  const cited: CitedNote[] = [];
+  const hrefs = new Map<string, string>();
+  for (const r of refs) {
+    const k = r.title.toLowerCase();
+    if (sealed.has(k)) continue;
+    const id = ids.get(k);
+    const card = id !== undefined ? cards.get(id) : undefined;
+    const rel = id !== undefined ? view.relOfId(id) : undefined;
+    if (id === undefined || !card || !rel) {
+      cited.push({ title: r.title, status: "missing" });
+      continue;
+    }
+    const full = noun.toCard(card, { vaultId: "", index: idx });
+    const href = fileHref(`${vp}/${rel}`);
+    hrefs.set(k, href);
+    cited.push({
+      title: card.t,
+      status: trail.has(id) ? "ok" : "unread",
+      href,
+      supersededBy: full.supersededBy,
+      contestedBy: full.contestedBy,
+    });
+  }
+  const linked = linkWikiRefs(text, (t) => hrefs.get(t.toLowerCase()) ?? null);
+  const footer = citationFooter(cited);
+  const out = { text: footer ? `${linked}\n\n${footer}` : linked, cited };
+  decorated.set(key, out);
+  if (decorated.size > 200) decorated.delete(decorated.keys().next().value as string);
+  return out;
+};
+
+/** Per-conversation surface state, emptied at session.start and /clear. */
+const resetSessionSurfaces = () => {
+  bandCard = null;
+  pendingLinks = null;
+  witness.clear();
+};
+
+// ---------------------------------------------------------------------------
 // Registration
 // ---------------------------------------------------------------------------
 
 export const register: Register = (on, options) => {
   /**
-   * The one thing a user can turn off.
-   *
-   * Declared as `ambientConnections` in plugin.json's `userConfig`, which is
-   * also what stops the host warning that options were requested against a
-   * manifest that declares none. Everything else this module does is either a
-   * guard (which must not be optional) or free, so there is nothing else worth
-   * a switch — the connection pass is the only part that spends model calls on
-   * the user's behalf without being asked.
-   *
-   * Absent reads as true: the default for a plugin nobody has configured.
+   * The switches in plugin.json's `userConfig` (declaring it also stops the
+   * host warning that options were requested against a manifest with none).
+   * Guards are never optional. Absent reads as the default: on for what costs
+   * no model call and adds no interruption — links, the band — and for the
+   * ambient pass; off for triage (a fork per pasted link) and prime, which
+   * ships off until `eval:prime` clears its gate (precision ≥ 80%,
+   * false-prime ≤ 5%).
    */
-  const ambientOn = options?.ambientConnections !== false;
-  /**
-   * Prime ships OFF until `eval:prime` clears its gate (plan §11 Phase 6:
-   * precision ≥ 80%, false-prime ≤ 5%). Absent reads as false.
-   */
-  const primeOn = options?.primeContext === true;
   const bandOn = options?.showBand !== false;
+  features = {
+    ambient: options?.ambientConnections !== false,
+    prime: options?.primeContext === true,
+    links: options?.vaultLinks !== false,
+    triage: options?.linkTriage === true,
+  };
 
   /**
    * Register the vault tools so they are listed by turn one.
@@ -1267,6 +1509,7 @@ export const register: Register = (on, options) => {
     openShards.clear();
     sealedByClear = false;
     guardCache = null;
+    resetSessionSurfaces();
     // MIN-BUILD GATE + WATCHDOG. Read the release defensively (an older engine
     // may lack `version()`); either way tell the shell watchdog
     // (scripts/session-check.ts) that the module ran, by resetting its counter.
@@ -1330,7 +1573,7 @@ export const register: Register = (on, options) => {
         const cwd = String(await $.session.cwd());
         const { vaults } = await loadGuard($);
         const inVault = vaults.some((v) => cwd === v.path || cwd === v.real || locate([v], cwd));
-        if (!inVault && !primeOn) return;
+        if (!inVault && !features.prime) return;
         const v = await pickVault($);
         if (v) await getIndex($, v.path, v.domains);
       })().catch(() => {});
@@ -1338,9 +1581,9 @@ export const register: Register = (on, options) => {
     // Ask about vault skills that are new or changed since trusted — with a
     // person at the prompt only; a `-p` run has nobody to ask.
     if (e.isInteractive) {
-      $.clock.after(2500, () => {
-        offerNewSkills($).catch(() => {});
-      });
+      // The promise is returned so a clock that waits on its callbacks (the
+      // test kit's) waits for the question too.
+      $.clock.after(2500, () => offerNewSkills($).catch(() => {}));
     }
     // Resolve the vault here, once, before the first turn. At Bash-tool prices
     // this was unthinkable and every hook had to lazily cache the answer; at
@@ -1393,6 +1636,7 @@ export const register: Register = (on, options) => {
       for (const shards of openShards.values()) shards.clear();
       sealedByClear = true;
       segment = freshSegment();
+      resetSessionSurfaces();
     }
     return next(e);
   });
@@ -1434,7 +1678,15 @@ export const register: Register = (on, options) => {
         // From the environment: guessed from the cwd, `~` went unresolved in
         // any session started outside /Users or /home, and a `~/…` path into
         // a sealed folder read as a relative path that matched no root.
-        if (homeDir === null) homeDir = String((await $.env.get("HOME")) ?? "").replace(/\/+$/, "");
+        // Its own catch: a host that refuses the read must cost the `~`
+        // expansion only, never the whole guard (which fails open).
+        if (homeDir === null) {
+          try {
+            homeDir = String((await $.env.get("HOME")) ?? "").replace(/\/+$/, "");
+          } catch {
+            homeDir = "";
+          }
+        }
         const home = homeDir || (cwd.match(/^\/(?:Users|home)\/[^/]+/)?.[0] ?? "");
         const touched = candidatePaths(tool, input, cwd, home)
           .map((c) => locate(vaults, c.path)?.vault.path ?? "")
@@ -1461,6 +1713,16 @@ export const register: Register = (on, options) => {
           });
         }
         if (verdict) return verdict;
+
+        // A vault note opened with Read counts as read for the citation
+        // check, exactly as vault_note does.
+        if (tool === "Read" && touched && typeof input.file_path === "string" && input.file_path.endsWith(".md")) {
+          const fp = normalizePath(input.file_path, cwd, home);
+          const v = vaults.find((x) => x.path === touched);
+          const root = fp.startsWith(`${touched}/`) ? touched : v?.real && fp.startsWith(`${v.real}/`) ? v.real : "";
+          const id = root ? indexes.get(touched)?.view?.idOfRel(fp.slice(root.length + 1)) : undefined;
+          if (id !== undefined) trailOf(touched).add(id);
+        }
 
         // 2. Leak. Outside every vault the rule is about code repositories,
         // as before; inside a vault leakVerdict applies the one-way rules.
@@ -1492,6 +1754,7 @@ export const register: Register = (on, options) => {
       const note =
         `Sanitized ${stripped.length} item(s) from this note's body before it was written:\n- ` +
         stripped.join("\n- ");
+      witnessAdd($, "write sanitized", note);
       return { ...built, context: [...(built.context ?? []), note] };
     },
   );
@@ -1563,6 +1826,7 @@ export const register: Register = (on, options) => {
       if (!out) return built;
       const notes = String(JSON.parse(out)?.hookSpecificOutput?.additionalContext ?? "");
       if (!notes) return built;
+      witnessAdd($, "post-write analysis", notes);
       return { ...built, context: [...(built.context ?? []), notes] };
     } catch {
       /* the write already succeeded; its follow-up must never undo that */
@@ -1579,6 +1843,18 @@ export const register: Register = (on, options) => {
    * model's tool call and our data. Recoverable failures are `ERROR: …`
    * results; only policy refusals are `{ deny }`.
    */
+  /** Link triage: a pasted link this turn fetched is one the fork can judge. */
+  on("tool.call", { tool: "WebFetch" }, async (_$, e, next) => {
+    const r = await next(e);
+    try {
+      const p = pendingLinks;
+      const code = Number((r as { result?: { code?: unknown } }).result?.code ?? 0);
+      const url = p && code >= 200 && code < 300 ? p.urls.find((u) => sameUrl(u, e.url)) : undefined;
+      if (p && url && !p.fetched.includes(url)) pendingLinks = { ...p, fetched: [...p.fetched, url] };
+    } catch {}
+    return r;
+  });
+
   on("tool.call", { tool: /^mcp__commonplace__vault_/ }, async ($, e, next) => {
     const name = String(e.tool).replace(/^mcp__commonplace__/, "");
     const arg = (k: string) => toolArg(e, k);
@@ -1595,6 +1871,8 @@ export const register: Register = (on, options) => {
       let result = "";
       let context: string[] | undefined;
       let summary = "";
+      // What hook-log gets; a private note's title stays out of it.
+      let logSummary: string | null = null;
       if (name === "vault_search") {
         const query = String(arg("query") ?? "");
         const r = await noun.search(ctx, {
@@ -1617,6 +1895,7 @@ export const register: Register = (on, options) => {
           const hint = unreadContext(r);
           if (hint) context = [hint];
           summary = r.card.title;
+          logSummary = r.card.isPrivate ? "private" : r.card.title;
           setBand($, { kind: "following", text: `read [[${r.card.title}]]` });
         }
       } else if (name === "vault_links") {
@@ -1667,7 +1946,8 @@ export const register: Register = (on, options) => {
         toolRows.set(tid, { tool: name, subject, summary, ms, error: result.startsWith("ERROR:") });
         if (toolRows.size > 200) toolRows.delete(toolRows.keys().next().value as string);
       }
-      traceTo($, vp, `tool:${name}`, { summary: summary.startsWith("[[") ? "" : summary, ms });
+      traceTo($, vp, `tool:${name}`, { summary: logSummary ?? (summary.startsWith("[[") ? "" : summary), ms });
+      if (context) for (const c of context) witnessAdd($, `${name} note`, c);
       return context ? { result, context } : { result };
     } catch (err) {
       return { result: `ERROR: commonplace vault tool failed: ${String(err).slice(0, 200)}` };
@@ -1714,7 +1994,9 @@ export const register: Register = (on, options) => {
       // the old guard needed an escape hatch.
       if (verdict !== "vault-research") return next(e);
 
-      return next({ ...e, prompt: steerPrompt(prompt) });
+      const steered = steerPrompt(prompt);
+      witnessAdd($, "subagent prompt rewritten (added ahead of its task)", steered.slice(0, steered.length - prompt.length));
+      return next({ ...e, prompt: steered });
     } catch {
       /* steering is advisory; a broken hook must never block a dispatch */
     }
@@ -1737,7 +2019,9 @@ export const register: Register = (on, options) => {
   /** `/vault …` — the person's commands (plan §6.2). */
   on("command.run", { command: "vault" }, async ($, e, next) => {
     try {
-      return await runVaultCommand($, e.args ?? "");
+      const out = await runVaultCommand($, e.args ?? "");
+      for (const c of out.context ?? []) witnessAdd($, "/vault command", c);
+      return out;
     } catch (err) {
       return { text: `commonplace: /vault failed — ${String(err).slice(0, 200)}` };
     }
@@ -1928,7 +2212,9 @@ export const register: Register = (on, options) => {
         if (!s) return { text: `${built.text}\n\n(No vault skill named "${m[1]}" is visible in this session.)` };
         if (!(await askTrust($, vault, s))) return { text: `The user has not trusted vault skill "${s.name}". Do not follow it; tell them they can trust it with /vault skills trust ${s.name}.` };
         traceTo($, vault.path, "skill:delivered", { trusted: true });
-        return { text: skillBlock(s, vault.id ?? "vault", m[2].trim()) };
+        const swapped = skillBlock(s, vault.id ?? "vault", m[2].trim());
+        witnessAdd($, `vault skill "${s.name}" (replaces the vault-skill body)`, swapped);
+        return { text: swapped };
       }
       // `includes`, not `startsWith`: it is not established whether a plugin
       // skill arrives bare (`wiki-query`) or namespaced
@@ -1946,13 +2232,12 @@ export const register: Register = (on, options) => {
         ? ` Its graph index holds ${indexes.get(vaultPath)!.manifest!.shards.main.nodes} public notes.`
         : "";
 
-      return {
-        text:
-          `The commonplace vault for this session is at ${vaultPath}.${counts} ` +
-          "It is already resolved — do not run `commonplace vault-path` or " +
-          "search for it.\n\n" +
-          built.text,
-      };
+      const preamble =
+        `The commonplace vault for this session is at ${vaultPath}.${counts} ` +
+        "It is already resolved — do not run `commonplace vault-path` or " +
+        "search for it.";
+      witnessAdd($, `skill preamble (${skill})`, preamble);
+      return { text: `${preamble}\n\n${built.text}` };
     } catch {
       return built;
     }
@@ -2029,6 +2314,7 @@ export const register: Register = (on, options) => {
         mocs,
         untunedGenres,
       });
+      if (block) witnessAdd($, `first-message block "${block.name}"`, block.text);
       return { blocks: mergeBlocks(built.blocks ?? [], block) };
     } catch {
       // A broken vault must never cost the user their context block set.
@@ -2059,6 +2345,8 @@ export const register: Register = (on, options) => {
       } else if ((await read($, band)).visible) {
         await update($, band, (b) => ({ ...b, visible: false }));
       }
+      // A card unanswered when the person types again is a pass, not a press.
+      bandCard = null;
     } catch {
       /* a band that fails to lower must never hold up the prompt */
     }
@@ -2083,7 +2371,12 @@ export const register: Register = (on, options) => {
       }
     } catch {}
     // PRIME, sync lane (§8.1): postings only, no model call, prompt untouched.
-    if (primeOn && PRIME_ORIGINS.has(e.origin.kind) && !e.turnId && primeFailures < PRIME_BREAKER) {
+    // Link triage: remember what the person pasted; the turn it starts ends with the card.
+    if (features.triage && !e.turnId && PRIME_ORIGINS.has(e.origin.kind)) {
+      const urls = pastedUrls(e.text);
+      pendingLinks = urls.length ? { urls, turnId: "", fetched: [] } : null;
+    }
+    if (features.prime && PRIME_ORIGINS.has(e.origin.kind) && !e.turnId && primeFailures < PRIME_BREAKER) {
       try {
         const t0 = await $.clock.now();
         const vault = await pickVault($);
@@ -2134,7 +2427,12 @@ export const register: Register = (on, options) => {
 
   /** Prime's async lane needs to know which turn its prompt became (§8.2). */
   on("turn.start", async ($, e, next) => {
+    // The main loop only: a subagent's turn would otherwise stand in for the
+    // prompt's own and send prime's late check after the wrong turn.
+    // (`agentId` is in builds after the 2.1.288 typings this module compiles against.)
+    if ((e as { agentId?: string }).agentId !== undefined) return next(e);
     latestTurn = { turnId: e.turnId, text: e.text, at: Date.now() };
+    if (pendingLinks && !pendingLinks.turnId) pendingLinks = { ...pendingLinks, turnId: e.turnId };
     return next(e);
   });
 
@@ -2149,15 +2447,16 @@ export const register: Register = (on, options) => {
 
     // A survey owns the band while it is up; never fight it for the space.
     if (e.props.hasSurvey) return base;
-    // Turned off in settings — except a stopped feature, which is the one
-    // thing the band exists to make visible (CLAUDE.md: do not remove it
-    // without replacing it).
-    if (!bandOn && !(await read($, band)).paused) return base;
 
     // Read while drawing: this subscribes the band, so every later write to
     // the state redraws it without an invalidate.
     const st = await read($, band);
-    const live = st.visible && bandText && st.kind && BAND_TEXT_KINDS.has(st.kind);
+    const card = st.visible && st.kind && CARD_KINDS.has(st.kind) && bandCard?.kind === st.kind ? bandCard : null;
+    // Turned off in settings — except a stopped feature, which is the one
+    // thing the band exists to make visible (CLAUDE.md: do not remove it
+    // without replacing it), and a card, which its own switch governs.
+    if (!bandOn && !st.paused && !card) return base;
+    const live = st.visible && bandText && st.kind && (BAND_TEXT_KINDS.has(st.kind) || card);
     const scoped = st.kind === "open" || st.kind === "propose";
     const line = live
       ? {
@@ -2168,12 +2467,25 @@ export const register: Register = (on, options) => {
       : statusLine({ ...st, lastError });
     if (!line) return base;
 
-    const { Box, Text } = $.ui.resolve(e);
+    const { Box, Text, Button } = $.ui.resolve(e);
 
     // Props are a strict allowlist (BoxProps / TextProps) and ONE bad prop
     // fails the whole tree — at which point the engine silently draws its own
     // component instead. No `key` anywhere: only Button accepts one.
-    const ours = (
+    const ours = card ? (
+      <Box flexDirection="row">
+        <Box flexShrink={1}>
+          <Text wrap="truncate-end">
+            {line.text}
+          </Text>
+        </Box>
+        <Box flexShrink={0} flexDirection="row">
+          {cardButtons(card).map(([action, label]) => (
+            <Button key={`cp-${card.kind}-${action}`} label={label} onPress={() => void bandPress($, action)} />
+          ))}
+        </Box>
+      </Box>
+    ) : (
       <Text color={line.color} dimColor={line.dim} wrap="truncate-end">
         {line.text}
       </Text>
@@ -2216,6 +2528,45 @@ export const register: Register = (on, options) => {
   });
 
   /**
+   * Claude's replies, drawn with the vault in them: `[[links]]` that resolve
+   * become clickable (`file:` links to the note), and a footer flags each
+   * citation that does not hold up. Drawing only: `props.text` is rewritten,
+   * the stored message and what the model read are unchanged.
+   */
+  on("ui.render", { component: "AssistantMessage" }, async ($, e, next) => {
+    if (!features.links) return next(e);
+    if ((e.props as { isSummary?: true }).isSummary) return next(e);
+    try {
+      const d = await decorateReply($, e.props.text);
+      if (d && d.text !== e.props.text) return next({ ...e, props: { ...e.props, text: d.text } });
+    } catch {
+      /* drawn as the engine has it */
+    }
+    return next(e);
+  });
+
+  /** The witness pane: every hidden addition this session, verbatim. */
+  on("ui.render", { component: "Pane", requestId: WITNESS_PANE }, async ($, e, next) => {
+    await read($, paneRev);
+    const { Box, Markdown, Button } = $.ui.resolve(e);
+    return (
+      <Box flexDirection="column">
+        <Markdown text={renderWitness(witness)} />
+        <Box flexDirection="row" marginTop={1}>
+          <Button
+            key="cp-witness-clear"
+            label="Clear"
+            onPress={() => {
+              witness.clear();
+              bumpPanes($);
+            }}
+          />
+        </Box>
+      </Box>
+    );
+  });
+
+  /**
    * The connection pass.
    *
    * All decision logic lives in `lib/pipeline.ts` behind a `Ports` interface so
@@ -2232,17 +2583,9 @@ export const register: Register = (on, options) => {
     const base = await next(e);
     completedTurns.add(e.turnId);
     if (completedTurns.size > 100) completedTurns.delete(completedTurns.values().next().value as string);
-
-    // Turned off in settings: hand back the engine's answer untouched. Checked
-    // here rather than by skipping the registration so that flipping the
-    // setting takes effect on reload without a differently-shaped hook list.
-    if (!ambientOn) return base;
-    // ≤1 vault touch per segment across prime and the ambient pass (§8.5).
-    if (segment.touches >= 1) {
-      const vpb = await ensureVaultPath($, await $.session.cwd());
-      if (vpb) traceTo($, vpb, "skip:segment-budget", {});
-      return base;
-    }
+    // The main loop's answers only. A subagent's turn ends here too, and the
+    // pass would judge (and surface under) a reply the person never read.
+    if (e.agentId !== undefined) return base;
 
     // Resolved before the ports object so the note() closure can see it.
     // Empty when no vault is configured, which disables the log rather than
@@ -2253,6 +2596,40 @@ export const register: Register = (on, options) => {
     if (!vp) return base;
     const logPath = `${vp}/.wiki/${LOG_FILE}`;
 
+    // Citations in this answer, counted (no titles: they may be private).
+    if (features.links) {
+      try {
+        const d = await decorateReply($, String(e.answer ?? ""));
+        if (d && d.cited.length) traceTo($, vp, "cite:check", citationCounts(d.cited));
+      } catch {}
+    }
+
+    // A pasted link gets its triage card instead of an ambient pass.
+    const pending = pendingLinks && pendingLinks.turnId === e.turnId ? pendingLinks : null;
+    if (pending) {
+      pendingLinks = null;
+      const links = pending.fetched;
+      if (links.length === 0) traceTo($, vp, "triage:not-fetched", { pasted: pending.urls.length });
+      else if (e.reason === "answer" && !e.isAborted) {
+        try {
+          if (await runTriage($, vp, links, String(e.answer ?? ""))) return base;
+        } catch (err) {
+          traceTo($, vp, "triage:error", { err: String(err).slice(0, 80) });
+        }
+      }
+    }
+
+    // Turned off in settings: the engine's answer untouched. Checked here
+    // rather than by skipping the registration, so the hook list keeps one
+    // shape whatever the settings.
+    if (!features.ambient) return base;
+    // ≤1 vault touch per segment across prime and the ambient pass (§8.5).
+    if (segment.touches >= 1) {
+      traceTo($, vp, "skip:segment-budget", {});
+      return base;
+    }
+
+    const suppressed = ((await $.store.get(suppressedKey(vp))) ?? []) as string[];
     const surfaced = await runConnectionPass(
       {
         sessionId: () => $.session.id(),
@@ -2370,11 +2747,19 @@ export const register: Register = (on, options) => {
         // The input names it `isAborted`. This read `e.aborted`, which does
         // not exist, so an interrupted turn was always treated as finished.
         aborted: e.isAborted,
+        suppressed,
       },
     );
-
+    if (!surfaced) return base;
+    // The why is already in the line under the answer, which outlasts the
+    // card; the card names the note and carries the buttons.
+    showCard(
+      $,
+      { kind: "connection", vp, path: surfaced.path, title: surfaced.title, answer: String(e.answer ?? "").slice(0, 1500) },
+      `[[${surfaced.title}]]`,
+    );
     // Keep the engine's `usage` beside the replaced text: a hook that drops
     // it hides the turn's cost from every hook above.
-    return surfaced ? { ...base, text: surfaced.text } : base;
+    return { ...base, text: surfaced.text };
   });
 };
