@@ -15,10 +15,9 @@ LLM-maintained knowledge base for any folder of notes. Transforms raw sources in
 2.1.288+). As of v2 it is the **whole** runtime plugin: the guards, the context
 block, the vault tools, post-write, the band and the connection pass all live
 there. `hooks/hooks.json` keeps exactly one shell hook, `SessionStart` →
-`commonplace session-check`, which does three things a module cannot:
+`commonplace session-check`, which does two things a module cannot:
 
 - rebuilds `dist/` (the esbuild bundle) when a source is newer than its stamp;
-- runs cache cleanup;
 - **watchdog**: it increments `<plugin>/.runtime/shell-sessions`; the module's
   `session.start` resets it to 0 and writes `.runtime/module-alive.json`. Two
   sessions in a row without the module (modules disabled by settings or policy)
@@ -462,7 +461,7 @@ All commands auto-discover the vault via cwd (`.obsidian/` or `.wiki/` marker) o
 - `commonplace records --kind <kind> [--match <text>] [--path <rel>]` — Maintenance records as JSONL (public + `COMMONPLACE_OPEN` shards)
 - `commonplace vault [show|list|use <id> [--default]|unpin]` — Show or choose the active vault from a terminal (in a session: `/vault`)
 - `commonplace search --query "<text>"` · `note --ref "<title|path>"` · `links --ref "<…>" [--direction out|in|both]` · `path --from <ref> --to <ref>` · `neighbourhood --seed <ref>…` — CLI twins of the vault tools: same code, same output, `--json` for the structured result. Private domains stay sealed unless the PERSON passes `--open <domain>` (the guard denies it from the model).
-- `commonplace session-check` — The one shell hook (SessionStart): dist rebuild, cache cleanup, module watchdog
+- `commonplace session-check` — The one shell hook (SessionStart): dist rebuild, module watchdog
 - `commonplace synthetic --scale N --out <dir>` / `commonplace eval:scale` — Synthetic vaults and the scale benchmark
 - `commonplace test:ui` — Module UI tests under `claude plugin test` (terminal + desktop); also `npm run test:ui`
 - `commonplace eval:judge [--feedback] [--prime|--used] [--repeat N]` — The judge alone on stored (answer, note) pairs; `--feedback` uses your Read it / Not for me presses as the labels

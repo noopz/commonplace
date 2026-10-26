@@ -276,8 +276,8 @@ const buildGuard = async ($: EngineInterface, now: number): Promise<{ vaults: Gu
     registryOk = false;
   }
   // `vaults` runs through dist/ or tsx, and on the first session after an
-  // install neither exists yet (the SessionStart shell hook is still running
-  // npm install). An empty registry turns every guard off, so fall back to
+  // install dist/ is not built yet, and tsx is missing if Claude Code's
+  // dependency install failed. An empty registry turns every guard off, so fall back to
   // the default vault from `vault-path`, a bin built-in that needs neither.
   if (!registryOk) {
     try {

@@ -1,5 +1,5 @@
 {
-  "description": "commonplace: the in-process module is the plugin; one SessionStart shell hook keeps deps and dist/ fresh and warns if the module did not load",
+  "description": "commonplace: the in-process module is the plugin; one SessionStart shell hook keeps dist/ fresh and warns if the module did not load (Claude Code installs the npm deps from the lockfile)",
   "modules": [
     "register.tsx"
   ],
@@ -7,10 +7,6 @@
     "SessionStart": [
       {
         "hooks": [
-          {
-            "type": "command",
-            "command": "test -d \"${CLAUDE_PLUGIN_ROOT}/node_modules\" || (cd \"${CLAUDE_PLUGIN_ROOT}\" && npm install --production 2>&1) || true"
-          },
           {
             "type": "command",
             "command": "node \"${CLAUDE_PLUGIN_ROOT}/bin/commonplace\" session-check 2>/dev/null || true"

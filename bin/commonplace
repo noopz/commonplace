@@ -35,7 +35,6 @@ const SCRIPTS = {
   'hub-score':    'scripts/hub-score.ts',
   'connect':      'scripts/connect.ts',
   'post-write-research': 'scripts/post-write-research.ts',
-  'cleanup-cache':       'scripts/cleanup-cache.ts',
   'session-check':       'scripts/session-check.ts',
   'moc:sync':            'scripts/moc-sync.ts',
   'supersede':           'scripts/supersede.ts',

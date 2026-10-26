@@ -1,12 +1,12 @@
 #!/usr/bin/env tsx
 /**
- * The one remaining shell hook (SessionStart). Three jobs:
+ * The one remaining shell hook (SessionStart). Two jobs (Claude Code itself
+ * installs node_modules from the lockfile and sweeps orphaned versions):
  *
  *   1. Keep `dist/` fresh: rebuild the esbuild bundle when a source is newer
  *      than its stamp (after a plugin update), so `commonplace <cmd>` runs on
  *      plain node instead of a tsx cold start.
- *   2. Run cache cleanup (what the old SessionStart did).
- *   3. WATCHDOG. v2 has no shell fallback for the guards and context — the
+ *   2. WATCHDOG. v2 has no shell fallback for the guards and context — the
  *      in-process module IS the plugin. If modules are disabled (org policy, an
  *      old build), the plugin silently does almost nothing. So: this script
  *      increments `.runtime/shell-sessions` every session; the module resets it
@@ -44,14 +44,7 @@ try {
   }
 } catch { /* tsx fallback still works */ }
 
-// 2. cache cleanup
-try {
-  spawnSync(process.execPath, [join(root, "node_modules", ".bin", "tsx"), join(root, "scripts", "cleanup-cache.ts")], {
-    cwd: root, stdio: "ignore", timeout: 30_000,
-  });
-} catch {}
-
-// 3. watchdog. The shell SessionStart also fires on `compact` and `clear`,
+// 2. watchdog. The shell SessionStart also fires on `compact` and `clear`,
 // where the module's session.start does not (module memory survives both), so
 // counting those would report a live module as missing after two compacts.
 function hookSource(): string {
