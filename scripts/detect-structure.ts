@@ -10,7 +10,7 @@
 import { parseArgs } from "util";
 import { readFileSync, existsSync } from "fs";
 import { join, dirname, relative } from "path";
-import { glob } from "glob";
+import { globFiles } from "./lib/glob.js";
 import { resolveVault } from "./lib/vault.js";
 import type { WikiConfig } from "./lib/types.js";
 
@@ -28,11 +28,7 @@ const MOC_COUNT_PATTERNS = [
 
 // ---- Sample files ----
 
-const allFiles = await glob("**/*.md", {
-  cwd: config.vaultPath,
-  absolute: true,
-  ignore: [".obsidian/**", ".wiki/**", "node_modules/**"],
-});
+const allFiles = globFiles("**/*.md", config.vaultPath, ["node_modules"]);
 
 const sample = allFiles.slice(0, SAMPLE_LIMIT);
 

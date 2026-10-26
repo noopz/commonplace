@@ -27,7 +27,7 @@ import { readFileSync, existsSync, appendFileSync, writeFileSync, mkdirSync } fr
 import { join } from "path";
 import { spawn } from "child_process";
 import { parseArgs } from "node:util";
-import matter from "gray-matter";
+import { matter } from "./lib/matter.js";
 import { resolveVault } from "./lib/vault.js";
 import { loadIndexNotes, viewInMemory } from "./lib/index-notes.js";
 import { cuesPrompt, parseCues, filterCues, insertFrontmatterCues, CUES_SYSTEM, BATCH, KEEP_TOP, type CueNote } from "./lib/cues.js";

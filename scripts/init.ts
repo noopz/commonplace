@@ -14,7 +14,7 @@ import { parseArgs } from "util";
 import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSync } from "fs";
 import { join, dirname, resolve } from "path";
 import { fileURLToPath } from "url";
-import { glob } from "glob";
+import { globFiles } from "./lib/glob.js";
 import { resolveVault, loadDomainRegistry, saveDomainRegistry, loadVaultRegistry, saveVaultRegistry } from "./lib/vault.js";
 import { addVault } from "./lib/registry.js";
 import { discoverGenres } from "./lib/genre-discovery.js";
@@ -42,11 +42,7 @@ const MOC_COUNT_PATTERNS = [
   { pattern: /##\s*Sources\s*\(\d+\)/, label: "## Sources (N)" },
 ];
 
-const allFiles = await glob("**/*.md", {
-  cwd: config.vaultPath,
-  absolute: true,
-  ignore: [".obsidian/**", ".wiki/**", "node_modules/**"],
-});
+const allFiles = globFiles("**/*.md", config.vaultPath, ["node_modules"]);
 
 const sample = allFiles.slice(0, SAMPLE_LIMIT);
 

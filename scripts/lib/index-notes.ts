@@ -10,7 +10,7 @@
 
 import { readFileSync, statSync } from "fs";
 import { join, relative, sep } from "path";
-import matter from "gray-matter";
+import { matter } from "./matter.js";
 import { findAllNotes, loadDomainRegistry, loadWikiConfig } from "./vault.js";
 import type { VaultConfig } from "./types.js";
 import { computeIsStub } from "./frontmatter.js";

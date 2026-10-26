@@ -37,7 +37,7 @@ import {
 } from "fs";
 import { join, basename, relative, sep, dirname } from "path";
 import { parseArgs } from "util";
-import matter from "gray-matter";
+import { matter } from "./lib/matter.js";
 import {
   resolveVault,
   loadDomainRegistry,

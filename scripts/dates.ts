@@ -9,7 +9,7 @@
 import { readFileSync, writeFileSync } from "fs";
 import { join } from "path";
 import { parseArgs } from "node:util";
-import matter from "gray-matter";
+import { matter } from "./lib/matter.js";
 import { resolveVault } from "./lib/vault.js";
 import { loadIndexNotes } from "./lib/index-notes.js";
 import { derivePublished, insertFrontmatterPublished } from "./lib/dates.js";

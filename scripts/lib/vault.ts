@@ -1,7 +1,7 @@
 import { readFileSync, writeFileSync, existsSync, statSync, readdirSync, mkdirSync } from "fs";
 import { recordsOfKind, type RecordKind } from "../../hooks/lib/index/records.js";
 import { join, resolve, dirname, relative as relPath } from "path";
-import { glob } from "glob";
+import { globFiles } from "./glob.js";
 import { isExcluded } from "../../hooks/lib/index/exclude.js";
 import type {
   VaultConfig,
@@ -316,7 +316,7 @@ export async function findNotesByGlob(
   vaultPath: string,
   pattern: string
 ): Promise<string[]> {
-  const matches = await glob(pattern, { cwd: vaultPath, absolute: true });
+  const matches = globFiles(pattern, vaultPath);
   // Underscore-prefixed directories (e.g. _raw/) are scaffolding, not managed
   // notes — raw scrape dumps, attachments, templates. A domain-path fallback
   // would otherwise classify a frontmatter-less _raw/ dump as a "source" and

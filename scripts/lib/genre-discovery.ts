@@ -1,5 +1,5 @@
 import { readFileSync } from "fs";
-import { glob } from "glob";
+import { globFiles } from "./glob.js";
 import type { Conventions, GenreDefinition } from "./conventions.js";
 import { DEFAULT_CONVENTIONS, loadConventions } from "./conventions.js";
 
@@ -57,11 +57,7 @@ export function parseCssclasses(fmText: string): string[] {
  * extracts frontmatter text + 2-segment relative directory.
  */
 export async function loadGenreSamples(vaultPath: string): Promise<NoteSample[]> {
-  const allFiles = await glob("**/*.md", {
-    cwd: vaultPath,
-    absolute: true,
-    ignore: [".obsidian/**", ".wiki/**", "node_modules/**"],
-  });
+  const allFiles = globFiles("**/*.md", vaultPath, ["node_modules"]);
   const samples: NoteSample[] = [];
   for (const filePath of allFiles.slice(0, SAMPLE_LIMIT)) {
     try {

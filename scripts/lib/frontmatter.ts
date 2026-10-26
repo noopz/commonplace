@@ -1,11 +1,11 @@
 import { readFileSync } from "fs";
-import matter from "gray-matter";
+import { matter } from "./matter.js";
 import type { ParsedNote, NoteType, ValidationError } from "./types.js";
 import { classifyNote } from "./vault.js";
 
 /**
  * Strip malformed date lines (P25-11-07) from raw content before parsing.
- * These bare lines inside frontmatter cause gray-matter's YAML parser to fail.
+ * These bare lines inside frontmatter make the YAML parser fail.
  * They also appear in the body and should be cleaned everywhere.
  */
 function stripMalformedDateLines(raw: string): string {

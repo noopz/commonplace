@@ -7,16 +7,19 @@
  * folding, block scalars `|`/`>` with chomping and indentation indicators,
  * comments, and multi-line plain scalars.
  *
- * Scalar typing follows js-yaml 3 (what gray-matter uses) for null, booleans,
- * ints (incl. hex/octal/binary/base-60) and floats, so CLI and module agree.
- * ONE deliberate divergence: timestamps stay strings as written. gray-matter
- * turns `created: 2026-01-05` into a Date, which every consumer then has to
- * re-stringify, and which re-serialises as a full ISO timestamp.
+ * Scalar typing follows js-yaml 3 (what gray-matter used) for null, booleans,
+ * ints (incl. hex/octal/binary/base-60) and floats. The CLI reads frontmatter
+ * through this parser too (scripts/lib/matter.ts), so the two cannot disagree.
+ * ONE deliberate divergence from gray-matter: timestamps stay strings as
+ * written. gray-matter turned `created: 2026-01-05` into a Date, which every
+ * consumer then had to re-stringify, and which re-serialised as a full ISO
+ * timestamp.
  *
  * Anything outside the subset (anchors, aliases, tags, `?` complex keys, merge
  * keys) and anything js-yaml itself rejects (duplicate keys, tab indentation,
- * `a: b: c`) yields `error` and empty `data`. Never throws: a rejected file is
- * recorded `parseError`, and the CLI (gray-matter) stays authoritative for it.
+ * `a: b: c`) yields `error` and empty `data`. Never throws: the module records a
+ * rejected file `parseError`; the CLI skips it, as it skipped YAML gray-matter
+ * could not read.
  */
 
 export type YamlValue =

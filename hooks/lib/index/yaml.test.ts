@@ -66,8 +66,9 @@ const REJECTED: Record<string, string> = {
 };
 
 /**
- * Valid YAML outside the subset: gray-matter accepts these, yaml.ts reports
- * `error` so the file is recorded parseError and the CLI stays authoritative.
+ * Valid YAML outside the subset: gray-matter accepted these, yaml.ts reports
+ * `error` (the module records parseError, the CLI skips the file). gray-matter
+ * is a devDependency only for this differential test.
  */
 const OUT_OF_SUBSET: Record<string, string> = {
   "tab indentation": `tags:\n\t- a`,
@@ -133,7 +134,7 @@ for (const [name, fm] of Object.entries(REJECTED)) {
 }
 
 for (const [name, fm] of Object.entries(OUT_OF_SUBSET)) {
-  test(`out of subset, fallback to CLI: ${name}`, () => {
+  test(`out of subset, rejected: ${name}`, () => {
     assert.equal(grayMatter(fm).error, undefined);
     const ours = parseYaml(fm);
     assert.ok(ours.error);

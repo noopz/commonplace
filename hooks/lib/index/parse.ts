@@ -62,9 +62,8 @@ export interface ParsedNote {
 
 export interface ParseOptions {
   /**
-   * Frontmatter to use instead of parsing it — the CLI passes gray-matter's
-   * result for a file the subset parser rejected (§3.11: the CLI is
-   * authoritative for those).
+   * Frontmatter to use instead of parsing it — the CLI passes what it
+   * already parsed (scripts/lib/matter.ts, the same parser).
    */
   frontmatter?: YamlMap;
   /** `.wiki/config.json` `structure` folders (vault-relative). */
@@ -261,8 +260,8 @@ function fmLinkStrings(v: YamlValue | undefined): string[] {
 
 /**
  * A frontmatter date as `YYYY`, `YYYY-MM` or `YYYY-MM-DD`, else undefined.
- * gray-matter hands the CLI a Date for an unquoted date; the subset parser
- * hands the module a string — both land on the same text.
+ * The shared parser keeps a date as the string written; a Date from any other
+ * caller lands on the same text.
  */
 export function normDate(v: unknown): string | undefined {
   if (v instanceof Date) return Number.isNaN(v.getTime()) ? undefined : v.toISOString().slice(0, 10);
