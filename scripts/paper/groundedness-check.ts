@@ -1,14 +1,14 @@
-#!/usr/bin/env tsx
+#!/usr/bin/env node
 /**
  * Regex-only groundedness check: flags numbers/quoted-strings in a generated
  * paper analysis that don't appear anywhere in the paper's own extracted
  * text. A soft signal for paper-reflection-agent — never a hard gate.
  *
- * Usage: npx tsx scripts/paper/groundedness-check.ts <analysis-file> <source-text-file>
+ * Usage: node scripts/paper/groundedness-check.ts <analysis-file> <source-text-file>
  */
 import { readFileSync } from "fs";
 import { parseArgs } from "util";
-import { checkGroundedness } from "../lib/groundedness.js";
+import { checkGroundedness } from "../lib/groundedness.ts";
 
 const { positionals } = parseArgs({ allowPositionals: true });
 const [analysisPath, sourcePath] = positionals;

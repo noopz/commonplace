@@ -1,4 +1,4 @@
-#!/usr/bin/env tsx
+#!/usr/bin/env node
 /**
  * Judge-only eval runner — component isolation for the connection pass.
  *
@@ -35,11 +35,11 @@ import { readFileSync, existsSync, writeFileSync, mkdirSync, readdirSync } from 
 import { join, dirname } from "path";
 import { parseArgs } from "node:util";
 import { spawnSync } from "child_process";
-import { PLUGIN_OFF_SETTINGS } from "../plugin-ids.js";
-import { resolveVault } from "../../scripts/lib/vault.js";
-import { JUDGE_SYSTEM, ANSWER_EXCERPT, NOTE_EXCERPT } from "../../hooks/lib/pipeline.js";
-import { PRIME_JUDGE_SYSTEM, PRIME_JUDGE_PROMPT, PRIME_NOTE_CHARS, USED_JUDGE_SYSTEM, USED_JUDGE_PROMPT } from "../../hooks/lib/core/prime.js";
-import { stripFrontmatter, parseVerdict } from "../../hooks/lib/seed.js";
+import { PLUGIN_OFF_SETTINGS } from "../plugin-ids.ts";
+import { resolveVault } from "../../scripts/lib/vault.ts";
+import { JUDGE_SYSTEM, ANSWER_EXCERPT, NOTE_EXCERPT } from "../../hooks/lib/pipeline.ts";
+import { PRIME_JUDGE_SYSTEM, PRIME_JUDGE_PROMPT, PRIME_NOTE_CHARS, USED_JUDGE_SYSTEM, USED_JUDGE_PROMPT } from "../../hooks/lib/core/prime.ts";
+import { stripFrontmatter, parseVerdict } from "../../hooks/lib/seed.ts";
 import {
   scoreJudgeCase,
   summarizeJudge,
@@ -48,7 +48,7 @@ import {
   type JudgeCase,
   type JudgeResult,
   type JudgeTrial,
-} from "./score.js";
+} from "./score.ts";
 
 const { values: args } = parseArgs({
   options: {

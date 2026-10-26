@@ -11,7 +11,7 @@
  * touches the Edit; the failure mode is structurally impossible.
  */
 
-import type { DomainRegistry } from "./types.js";
+import type { DomainRegistry } from "./types.ts";
 
 export interface LinkTarget {
   name: string;

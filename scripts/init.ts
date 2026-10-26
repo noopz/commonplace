@@ -1,4 +1,4 @@
-#!/usr/bin/env tsx
+#!/usr/bin/env node
 /**
  * Initialize or reconfigure commonplace for a vault.
  *
@@ -7,19 +7,19 @@
  * - Registers the vault in vaults.json (mirrors .vault-path for back-compat)
  * - Generates/updates vault CLAUDE.md domain registry sentinel block
  *
- * Usage: npx tsx scripts/init.ts [--vault <path>]
+ * Usage: node scripts/init.ts [--vault <path>]
  */
 
 import { parseArgs } from "util";
 import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSync } from "fs";
 import { join, dirname, resolve } from "path";
 import { fileURLToPath } from "url";
-import { globFiles } from "./lib/glob.js";
-import { resolveVault, loadDomainRegistry, saveDomainRegistry, loadVaultRegistry, saveVaultRegistry } from "./lib/vault.js";
-import { addVault } from "./lib/registry.js";
-import { discoverGenres } from "./lib/genre-discovery.js";
-import type { DomainRegistry } from "./lib/types.js";
-import type { WikiConfig } from "./lib/types.js";
+import { globFiles } from "./lib/glob.ts";
+import { resolveVault, loadDomainRegistry, saveDomainRegistry, loadVaultRegistry, saveVaultRegistry } from "./lib/vault.ts";
+import { addVault } from "./lib/registry.ts";
+import { discoverGenres } from "./lib/genre-discovery.ts";
+import type { DomainRegistry } from "./lib/types.ts";
+import type { WikiConfig } from "./lib/types.ts";
 
 const { values } = parseArgs({ options: { vault: { type: "string" }, help: { type: "boolean" }, private: { type: "boolean" } } });
 if (values.help) {

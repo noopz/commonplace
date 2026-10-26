@@ -6,7 +6,7 @@
  * an agent procedure, not a script).
  */
 
-import { checkGroundedness } from "../../scripts/lib/groundedness.js";
+import { checkGroundedness } from "../../scripts/lib/groundedness.ts";
 
 export interface GoldQuestion {
   id: string;

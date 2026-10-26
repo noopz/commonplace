@@ -1,4 +1,4 @@
-#!/usr/bin/env tsx
+#!/usr/bin/env node
 /**
  * Inspect and choose vaults.
  *
@@ -19,8 +19,8 @@ import {
   saveVaultRegistry,
   loadVaultPins,
   saveVaultPins,
-} from "./lib/vault.js";
-import { findByRef, setDefault, pinFor } from "./lib/registry.js";
+} from "./lib/vault.ts";
+import { findByRef, setDefault, pinFor } from "./lib/registry.ts";
 
 const { values, positionals } = parseArgs({
   allowPositionals: true,

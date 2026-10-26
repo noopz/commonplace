@@ -1,24 +1,24 @@
-#!/usr/bin/env tsx
+#!/usr/bin/env node
 /**
  * Combined post-write hook pipeline: validate → index → scope-check.
  * Reads file path from stdin JSON (PostToolUse hook provides tool input on stdin).
  * Exits silently for non-vault files.
  *
  * Usage (as hook): stdin receives tool input JSON
- * Usage (manual): echo '{"file_path":"/path/to/file.md"}' | npx tsx scripts/post-write.ts --vault <path>
+ * Usage (manual): echo '{"file_path":"/path/to/file.md"}' | node scripts/post-write.ts --vault <path>
  */
 
 import { parseArgs } from "util";
 import { existsSync } from "fs";
 import { resolve, dirname, join } from "path";
-import { discoverVault, getVaultConfig, isInVault, classifyNote } from "./lib/vault.js";
-import { parseNote, validateFrontmatter } from "./lib/frontmatter.js";
+import { discoverVault, getVaultConfig, isInVault, classifyNote } from "./lib/vault.ts";
+import { parseNote, validateFrontmatter } from "./lib/frontmatter.ts";
 import { execFileSync } from "child_process";
 
 /**
- * The plugin CLI. It runs each script's esbuild bundle when fresh; the old
- * `npx tsx <script>.ts` paid an npx lookup plus a tsx cold start (~380 ms)
- * per step, four per vault write, all before the Write result returned.
+ * The plugin CLI, which runs each script on plain node; the old `npx tsx
+ * <script>.ts` paid an npx lookup plus a tsx cold start (~380 ms) per step,
+ * four per vault write, all before the Write result returned.
  */
 const CLI = join(import.meta.dirname!, "..", "bin", "commonplace");
 

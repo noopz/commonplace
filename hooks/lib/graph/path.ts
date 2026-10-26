@@ -15,7 +15,7 @@
  * Dijkstra with a binary heap; deterministic tie-break on node id.
  */
 
-import { type Csr, type Adjacency, adj, EDGE_KINDS, type EdgeKind } from "./csr.js";
+import { type Csr, type Adjacency, adj, EDGE_KINDS, type EdgeKind } from "./csr.ts";
 
 export type PathOptions = {
   maxHops?: number;

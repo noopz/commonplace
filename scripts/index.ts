@@ -1,4 +1,4 @@
-#!/usr/bin/env tsx
+#!/usr/bin/env node
 /**
  * Build the vault's indexes. One pass reads and parses every note once, then
  * writes two families of artefacts:
@@ -37,7 +37,7 @@ import {
 } from "fs";
 import { join, basename, relative, sep, dirname } from "path";
 import { parseArgs } from "util";
-import { matter } from "./lib/matter.js";
+import { matter } from "./lib/matter.ts";
 import {
   resolveVault,
   loadDomainRegistry,
@@ -47,25 +47,25 @@ import {
   getLastIndexTime,
   getFileMtime,
   loadWikiConfig,
-} from "./lib/vault.js";
+} from "./lib/vault.ts";
 import {
   extractFrontmatterWikilinks,
   extractWikilinks,
   extractWikilinkDisplayTexts,
   computeIsStub,
-} from "./lib/frontmatter.js";
-import { inferSourceDomain, inferConceptDomains } from "./lib/domain.js";
-import { buildNames, resolve } from "./lib/resolve.js";
-import { buildCsr, type EdgeInput } from "../hooks/lib/graph/csr.js";
-import { hitsCsr } from "../hooks/lib/graph/hits.js";
-import { discoverGenres, loadGenreSamples } from "./lib/genre-discovery.js";
-import { parseNote as parseIndexNote } from "../hooks/lib/index/parse.js";
-import { buildIndex, type IndexNote, type PrevIds } from "../hooks/lib/index/model.js";
-import { serializeIndex, P, SCHEMA, type Manifest } from "../hooks/lib/index/layout.js";
-import { TERMS, termSig } from "../hooks/lib/index/postings.js";
-import { recordLines, RECORD_KINDS, type RecordKind } from "../hooks/lib/index/records.js";
-import { shardOfDomain, MAIN, type DomainMap } from "../hooks/lib/core/scope.js";
-import type { SourceNote, ConceptNote, MocNote, DomainSummary } from "./lib/types.js";
+} from "./lib/frontmatter.ts";
+import { inferSourceDomain, inferConceptDomains } from "./lib/domain.ts";
+import { buildNames, resolve } from "./lib/resolve.ts";
+import { buildCsr, type EdgeInput } from "../hooks/lib/graph/csr.ts";
+import { hitsCsr } from "../hooks/lib/graph/hits.ts";
+import { discoverGenres, loadGenreSamples } from "./lib/genre-discovery.ts";
+import { parseNote as parseIndexNote } from "../hooks/lib/index/parse.ts";
+import { buildIndex, type IndexNote, type PrevIds } from "../hooks/lib/index/model.ts";
+import { serializeIndex, P, SCHEMA, type Manifest } from "../hooks/lib/index/layout.ts";
+import { TERMS, termSig } from "../hooks/lib/index/postings.ts";
+import { recordLines, RECORD_KINDS, type RecordKind } from "../hooks/lib/index/records.ts";
+import { shardOfDomain, MAIN, type DomainMap } from "../hooks/lib/core/scope.ts";
+import type { SourceNote, ConceptNote, MocNote, DomainSummary } from "./lib/types.ts";
 
 const t0 = Date.now();
 const marks: Array<[string, number]> = [];

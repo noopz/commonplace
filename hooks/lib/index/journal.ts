@@ -11,7 +11,7 @@
  * Sandbox-safe.
  */
 
-import type { ParsedNote, NoteKind, LinkKind } from "./parse.js";
+import type { ParsedNote, NoteKind, LinkKind } from "./parse.ts";
 
 export type JournalLink = { t: string; k: LinkKind; d?: string };
 

@@ -22,7 +22,7 @@
  * performs the reads.
  */
 
-import { scoreRecord, tokenize } from "./seed.js";
+import { scoreRecord, tokenize } from "./seed.ts";
 
 /**
  * Explicit search is more permissive than ambient surfacing. Ambient has to

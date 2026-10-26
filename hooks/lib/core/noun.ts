@@ -30,13 +30,13 @@ import type {
   CommonplaceListResult,
   CommonplaceError,
 } from "../../../types/index.js";
-import type { Card } from "../index/cards.js";
-import type { VaultIndex } from "../index/load.js";
-import { findPath } from "../graph/path.js";
-import { pushPpr, topPool } from "../graph/walk.js";
-import { KIND_INDEX, KIND_WEIGHT, type EdgeKind } from "../graph/csr.js";
-import { findPrivateMatches } from "../guard.js";
-import { listableDomains, MAIN, type DomainMap } from "./scope.js";
+import type { Card } from "../index/cards.ts";
+import type { VaultIndex } from "../index/load.ts";
+import { findPath } from "../graph/path.ts";
+import { pushPpr, topPool } from "../graph/walk.ts";
+import { KIND_INDEX, KIND_WEIGHT, type EdgeKind } from "../graph/csr.ts";
+import { findPrivateMatches } from "../guard.ts";
+import { listableDomains, MAIN, type DomainMap } from "./scope.ts";
 
 export type NounCtx = {
   vaultId: string;

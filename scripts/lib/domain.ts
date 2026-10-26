@@ -1,4 +1,4 @@
-import type { DomainRegistry } from "./types.js";
+import type { DomainRegistry } from "./types.ts";
 
 /**
  * Infer domain slug from a source note's file path.

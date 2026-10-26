@@ -24,10 +24,10 @@ import {
   stripFrontmatter,
   parseVerdict,
   renderConnection,
-} from "./seed.js";
-import { connectArgv, parseConnectOutput, mergeSeeds } from "./graph.js";
-import { recordsOfKind } from "./index/records.js";
-import type { Status } from "./status.js";
+} from "./seed.ts";
+import { connectArgv, parseConnectOutput, mergeSeeds } from "./graph.ts";
+import { recordsOfKind } from "./index/records.ts";
+import type { Status } from "./status.ts";
 
 // ---------------------------------------------------------------------------
 // Tunables

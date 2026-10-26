@@ -1,4 +1,4 @@
-#!/usr/bin/env tsx
+#!/usr/bin/env node
 /**
  * deep-link — Embedding pre-filter for semantic linking.
  *
@@ -14,8 +14,8 @@
 
 import { readFileSync, existsSync } from "fs";
 import { join, relative } from "path";
-import { resolveVault, loadIndexes, classifyNote } from "./lib/vault.js";
-import type { ConceptNote, SourceNote } from "./lib/types.js";
+import { resolveVault, loadIndexes, classifyNote } from "./lib/vault.ts";
+import type { ConceptNote, SourceNote } from "./lib/types.ts";
 
 // ---------------------------------------------------------------------------
 // CLI flags

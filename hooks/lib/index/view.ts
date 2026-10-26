@@ -24,13 +24,13 @@
  * Sandbox-safe.
  */
 
-import { type Csr, type Adjacency, type EdgeKind, KIND_INDEX, KIND_WEIGHT, EDGE_KINDS } from "../graph/csr.js";
-import { stemOf, normalizeKey, type Names } from "../graph/resolver.js";
-import { makeCard, type Card } from "./cards.js";
-import { noteTerms, queryKeys, keyScore, rankHits, authorityPrior, localRerank, LOCAL_POOL, TERMS, RANK, type PostingsRow, type TermConfig, type RankConfig } from "./postings.js";
-import { domainOf, type ShardArtefact } from "./model.js";
-import type { JournalNote } from "./journal.js";
-import { MAIN, type DomainMap } from "../core/scope.js";
+import { type Csr, type Adjacency, type EdgeKind, KIND_INDEX, KIND_WEIGHT, EDGE_KINDS } from "../graph/csr.ts";
+import { stemOf, normalizeKey, type Names } from "../graph/resolver.ts";
+import { makeCard, type Card } from "./cards.ts";
+import { noteTerms, queryKeys, keyScore, rankHits, authorityPrior, localRerank, LOCAL_POOL, TERMS, RANK, type PostingsRow, type TermConfig, type RankConfig } from "./postings.ts";
+import { domainOf, type ShardArtefact } from "./model.ts";
+import type { JournalNote } from "./journal.ts";
+import { MAIN, type DomainMap } from "../core/scope.ts";
 
 type Row = { v: number; w: number; k: number };
 

@@ -1,7 +1,7 @@
-#!/usr/bin/env tsx
+#!/usr/bin/env node
 /**
  * Extract text from specific page ranges of a PDF.
- * Usage: npx tsx scripts/paper/extract-sections.ts <pdf-path> <command> [args...]
+ * Usage: node scripts/paper/extract-sections.ts <pdf-path> <command> [args...]
  *   Commands:
  *     info              - Get page count and metadata
  *     range <start> <end> - Extract pages
@@ -9,7 +9,7 @@
  */
 
 import { parseArgs } from "util";
-import { extractPages, getPdfInfo, estimateTokens } from "./lib/pdf.js";
+import { extractPages, getPdfInfo, estimateTokens } from "./lib/pdf.ts";
 
 const { positionals } = parseArgs({ allowPositionals: true });
 
@@ -17,7 +17,7 @@ const pdfPath = positionals[0];
 const command = positionals[1];
 
 if (!pdfPath || !command) {
-  console.error("Usage: npx tsx scripts/paper/extract-sections.ts <pdf> <info|range|overview> [args]");
+  console.error("Usage: node scripts/paper/extract-sections.ts <pdf> <info|range|overview> [args]");
   process.exit(1);
 }
 

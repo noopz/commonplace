@@ -1,4 +1,4 @@
-#!/usr/bin/env tsx
+#!/usr/bin/env node
 /**
  * Sample source notes with live URLs for freshness checking.
  * Tracks check history in .wiki/freshness.json.
@@ -9,15 +9,15 @@
  *   --clear     Clear stale flag for a specific note path
  *
  * Usage:
- *   npx tsx scripts/freshen.ts --vault <path> [--sample <n>] [--min-age-days <n>]
- *   echo '<json>' | npx tsx scripts/freshen.ts --vault <path> --record
- *   npx tsx scripts/freshen.ts --vault <path> --clear "relative/path/to/note.md"
+ *   node scripts/freshen.ts --vault <path> [--sample <n>] [--min-age-days <n>]
+ *   echo '<json>' | node scripts/freshen.ts --vault <path> --record
+ *   node scripts/freshen.ts --vault <path> --clear "relative/path/to/note.md"
  */
 
 import { readFileSync, writeFileSync, existsSync } from "fs";
 import { join } from "path";
 import { parseArgs } from "util";
-import { resolveVault, ensureIndex, loadIndexes } from "./lib/vault.js";
+import { resolveVault, ensureIndex, loadIndexes } from "./lib/vault.ts";
 
 const { values } = parseArgs({
   options: {

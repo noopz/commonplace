@@ -1,14 +1,14 @@
-#!/usr/bin/env tsx
+#!/usr/bin/env node
 /**
  * Find source notes potentially impacted by a newly ingested source.
  * Impact = shares 2+ concepts with the new source.
- * Usage: npx tsx scripts/impact.ts --vault <path> --source <note-path>
+ * Usage: node scripts/impact.ts --vault <path> --source <note-path>
  */
 
 import { parseArgs } from "util";
-import { resolveVault, ensureIndex, loadIndexes, loadDomainRegistry, loadWikiConfig } from "./lib/vault.js";
-import { canLink } from "./lib/domain.js";
-import { findConsolidationCandidates } from "./lib/consolidation.js";
+import { resolveVault, ensureIndex, loadIndexes, loadDomainRegistry, loadWikiConfig } from "./lib/vault.ts";
+import { canLink } from "./lib/domain.ts";
+import { findConsolidationCandidates } from "./lib/consolidation.ts";
 
 const { values } = parseArgs({
   options: {

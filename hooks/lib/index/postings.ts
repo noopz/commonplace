@@ -26,7 +26,7 @@
  * Sandbox-safe.
  */
 
-import { tokenize, GENERIC } from "../core/text.js";
+import { tokenize, GENERIC } from "../core/text.ts";
 
 export type PostingsInput = {
   id: number;

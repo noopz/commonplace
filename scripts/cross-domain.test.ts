@@ -19,7 +19,7 @@ function runCrossDomain(vaultRoot: string, sourceAbs: string): {
 } {
   const stdout = execFileSync(
     process.execPath,
-    ["--import", "tsx", SCRIPT, "--vault", vaultRoot, "--source", sourceAbs],
+    [SCRIPT, "--vault", vaultRoot, "--source", sourceAbs],
     { encoding: "utf-8" },
   );
   return JSON.parse(stdout);

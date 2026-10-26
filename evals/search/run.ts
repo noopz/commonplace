@@ -1,4 +1,4 @@
-#!/usr/bin/env tsx
+#!/usr/bin/env node
 /**
  * `commonplace eval:search` — measures the path the model actually calls:
  * `vault_search` (field-weighted postings, hooks/lib/index/postings.ts) over
@@ -18,12 +18,12 @@
 import { readFileSync, existsSync, appendFileSync } from "fs";
 import { join } from "path";
 import { parseArgs } from "node:util";
-import { resolveVault } from "../../scripts/lib/vault.js";
-import { loadIndexNotes, viewInMemory } from "../../scripts/lib/index-notes.js";
-import type { VaultView } from "../../hooks/lib/index/view.js";
-import { connectPool, CONNECT } from "../../hooks/lib/core/connect.js";
-import { TERMS, RANK, termSig, type TermConfig, type RankConfig } from "../../hooks/lib/index/postings.js";
-import { targetsOf, type ConnectGold } from "../connect/score.js";
+import { resolveVault } from "../../scripts/lib/vault.ts";
+import { loadIndexNotes, viewInMemory } from "../../scripts/lib/index-notes.ts";
+import type { VaultView } from "../../hooks/lib/index/view.ts";
+import { connectPool, CONNECT } from "../../hooks/lib/core/connect.ts";
+import { TERMS, RANK, termSig, type TermConfig, type RankConfig } from "../../hooks/lib/index/postings.ts";
+import { targetsOf, type ConnectGold } from "../connect/score.ts";
 import {
   findMetrics,
   poolResult,
@@ -35,7 +35,7 @@ import {
   type Summary,
   type FindResult,
   type PoolResult,
-} from "./score.js";
+} from "./score.ts";
 
 const { values: args } = parseArgs({
   options: {

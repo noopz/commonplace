@@ -1,14 +1,14 @@
-#!/usr/bin/env tsx
+#!/usr/bin/env node
 /**
  * Validate a single file's frontmatter against schema.
- * Usage: npx tsx scripts/validate.ts --vault <path> <file>
- *        npx tsx scripts/validate.ts --vault <path> --stdin-path (reads file path from stdin JSON)
+ * Usage: node scripts/validate.ts --vault <path> <file>
+ *        node scripts/validate.ts --vault <path> --stdin-path (reads file path from stdin JSON)
  */
 
 import { parseArgs } from "util";
-import { resolveVault, classifyNote, isInVault, loadWikiConfig } from "./lib/vault.js";
-import { parseNote, validateFrontmatter, isStub } from "./lib/frontmatter.js";
-import type { ValidationResult } from "./lib/types.js";
+import { resolveVault, classifyNote, isInVault, loadWikiConfig } from "./lib/vault.ts";
+import { parseNote, validateFrontmatter, isStub } from "./lib/frontmatter.ts";
+import type { ValidationResult } from "./lib/types.ts";
 
 const { values, positionals } = parseArgs({
   options: {

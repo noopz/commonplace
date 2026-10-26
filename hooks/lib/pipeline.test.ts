@@ -29,9 +29,9 @@ import {
   VAULT_KEY_PREFIX,
   type Ports,
   type SessionState,
-} from "./pipeline.js";
-import type { Status } from "./status.js";
-import { recordLines } from "./index/records.js";
+} from "./pipeline.ts";
+import type { Status } from "./status.ts";
+import { recordLines } from "./index/records.ts";
 
 // ---------------------------------------------------------------------------
 // Fixtures (invented)

@@ -1,7 +1,7 @@
 import { readFileSync } from "fs";
-import { globFiles } from "./glob.js";
-import type { Conventions, GenreDefinition } from "./conventions.js";
-import { DEFAULT_CONVENTIONS, loadConventions } from "./conventions.js";
+import { globFiles } from "./glob.ts";
+import type { Conventions, GenreDefinition } from "./conventions.ts";
+import { DEFAULT_CONVENTIONS, loadConventions } from "./conventions.ts";
 
 /**
  * Genre discovery: deterministic scan over a sample of vault notes that

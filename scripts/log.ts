@@ -1,4 +1,4 @@
-#!/usr/bin/env tsx
+#!/usr/bin/env node
 /**
  * Append a structured entry to .wiki/log.md.
  * Usage:
@@ -9,7 +9,7 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "fs";
 import { join } from "path";
 import { parseArgs } from "util";
-import { resolveVault } from "./lib/vault.js";
+import { resolveVault } from "./lib/vault.ts";
 
 const { values } = parseArgs({
   options: {

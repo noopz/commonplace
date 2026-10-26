@@ -1,4 +1,4 @@
-#!/usr/bin/env tsx
+#!/usr/bin/env node
 /**
  * Discover genre signals from the vault and write `.wiki/conventions.json`.
  *
@@ -13,8 +13,8 @@
 import { writeFileSync } from "fs";
 import { join } from "path";
 import { parseArgs } from "util";
-import { resolveVault, loadWikiConfig } from "./lib/vault.js";
-import { discoverGenres, loadGenreSamples } from "./lib/genre-discovery.js";
+import { resolveVault, loadWikiConfig } from "./lib/vault.ts";
+import { discoverGenres, loadGenreSamples } from "./lib/genre-discovery.ts";
 
 const { values } = parseArgs({
   options: {

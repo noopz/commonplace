@@ -9,7 +9,7 @@ import { makeFixtureVault, removeFixtureVault } from "./lib/test-fixtures.ts";
 const HOOK = join(import.meta.dirname!, "post-write-research.ts");
 
 function runHook(filePath: string): string {
-  return execFileSync(process.execPath, ["--import", "tsx", HOOK], {
+  return execFileSync(process.execPath, [HOOK], {
     input: JSON.stringify({ tool_input: { file_path: filePath } }),
     encoding: "utf-8",
   });
@@ -75,13 +75,13 @@ test("post-write accepts a PostToolUse payload, not only a flat file_path", () =
       "---\ntitle: Acme Report\ntype: source\ntags: [alpha]\ncreated: 2026-01-01\n---\n" +
       "# Acme Report\n\n## Summary\nA study of the Gamma Term.\n");
     execFileSync(process.execPath,
-      ["--import", "tsx", join(import.meta.dirname!, "init.ts"), "--vault", root],
+      [join(import.meta.dirname!, "init.ts"), "--vault", root],
       { encoding: "utf-8", env });
 
     const run = (payload: object) =>
       execFileSync(
         process.execPath,
-        ["--import", "tsx", join(import.meta.dirname!, "post-write.ts"), "--vault", root],
+        [join(import.meta.dirname!, "post-write.ts"), "--vault", root],
         { encoding: "utf-8", input: JSON.stringify(payload),
           env },
       );

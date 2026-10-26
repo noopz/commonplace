@@ -12,8 +12,8 @@
  * the frontmatter/backlink structure the indexer already emits, rebuilt per call.
  */
 
-import type { SourceNote, ConceptNote, MocNote } from "./types.js";
-import { buildNames, resolve, type NameNode } from "../../hooks/lib/graph/resolver.js";
+import type { SourceNote, ConceptNote, MocNote } from "./types.ts";
+import { buildNames, resolve, type NameNode } from "../../hooks/lib/graph/resolver.ts";
 
 /** Undirected weighted adjacency: node -> (neighbor -> summed edge weight). */
 export type Adjacency = Map<string, Map<string, number>>;

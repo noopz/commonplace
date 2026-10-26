@@ -1,12 +1,12 @@
-#!/usr/bin/env tsx
+#!/usr/bin/env node
 /**
  * Extract figure/table captions from PDFs.
  * Note: Image extraction requires canvas (optional). This script focuses on caption catalog.
- * Usage: npx tsx scripts/paper/extract-figures.ts <pdf-path> [--format json|human]
+ * Usage: node scripts/paper/extract-figures.ts <pdf-path> [--format json|human]
  */
 
 import { parseArgs } from "util";
-import { extractPages, getPdfInfo } from "./lib/pdf.js";
+import { extractPages, getPdfInfo } from "./lib/pdf.ts";
 
 const { values, positionals } = parseArgs({
   options: {
@@ -17,7 +17,7 @@ const { values, positionals } = parseArgs({
 
 const pdfPath = positionals[0];
 if (!pdfPath) {
-  console.error("Usage: npx tsx scripts/paper/extract-figures.ts <pdf-path>");
+  console.error("Usage: node scripts/paper/extract-figures.ts <pdf-path>");
   process.exit(1);
 }
 

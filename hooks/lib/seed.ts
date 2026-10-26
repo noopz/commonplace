@@ -7,7 +7,7 @@
  * names/titles.
  */
 
-import { tokenize as coreTokenize, GENERIC } from "./core/text.js";
+import { tokenize as coreTokenize, GENERIC } from "./core/text.ts";
 
 /** Lexical score a candidate must clear before it costs a model call. */
 export const MIN_SEED_SCORE = 6;

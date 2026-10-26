@@ -1,4 +1,4 @@
-#!/usr/bin/env tsx
+#!/usr/bin/env node
 /**
  * CLI twins of the vault tools (plan §10.5): `commonplace search|note|links|
  * path|neighbourhood`. Same `hooks/lib` code, same formatters and scope rules
@@ -21,13 +21,13 @@
 import { parseArgs } from "node:util";
 import { readFileSync, statSync, appendFileSync } from "fs";
 import { join, basename } from "path";
-import { resolveVault, loadDomainRegistry } from "./lib/vault.js";
-import { VaultIndex, type IndexPorts } from "../hooks/lib/index/load.js";
-import { P } from "../hooks/lib/index/layout.js";
-import { shardOfDomain, isPrivate } from "../hooks/lib/core/scope.js";
-import type { DomainMap } from "../hooks/lib/core/scope.js";
-import * as noun from "../hooks/lib/core/noun.js";
-import { formatSearch, formatNote, formatLinks, formatPath, formatNeighbourhood } from "../hooks/lib/tools/format.js";
+import { resolveVault, loadDomainRegistry } from "./lib/vault.ts";
+import { VaultIndex, type IndexPorts } from "../hooks/lib/index/load.ts";
+import { P } from "../hooks/lib/index/layout.ts";
+import { shardOfDomain, isPrivate } from "../hooks/lib/core/scope.ts";
+import type { DomainMap } from "../hooks/lib/core/scope.ts";
+import * as noun from "../hooks/lib/core/noun.ts";
+import { formatSearch, formatNote, formatLinks, formatPath, formatNeighbourhood } from "../hooks/lib/tools/format.ts";
 
 export const COMMANDS = ["search", "note", "links", "path", "neighbourhood"] as const;
 export type Cmd = (typeof COMMANDS)[number];

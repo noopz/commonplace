@@ -1,12 +1,12 @@
-#!/usr/bin/env tsx
+#!/usr/bin/env node
 /**
  * Map citation network and identify most-cited papers.
- * Usage: npx tsx scripts/paper/analyze-citations.ts <pdf-path> [--top-n 10]
+ * Usage: node scripts/paper/analyze-citations.ts <pdf-path> [--top-n 10]
  */
 
 import { parseArgs } from "util";
-import { extractPages, getPdfInfo } from "./lib/pdf.js";
-import type { CitationAnalysis, CitationInfo } from "./lib/types.js";
+import { extractPages, getPdfInfo } from "./lib/pdf.ts";
+import type { CitationAnalysis, CitationInfo } from "./lib/types.ts";
 
 const { values, positionals } = parseArgs({
   options: {
@@ -18,7 +18,7 @@ const { values, positionals } = parseArgs({
 
 const pdfPath = positionals[0];
 if (!pdfPath) {
-  console.error("Usage: npx tsx scripts/paper/analyze-citations.ts <pdf-path>");
+  console.error("Usage: node scripts/paper/analyze-citations.ts <pdf-path>");
   process.exit(1);
 }
 

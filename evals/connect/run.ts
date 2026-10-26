@@ -1,4 +1,4 @@
-#!/usr/bin/env tsx
+#!/usr/bin/env node
 /**
  * Connect eval runner — measures the "Connect" layer (note→note relational
  * retrieval) the way eval:retrieval measures the "Find" layer.
@@ -23,9 +23,9 @@ import { readFileSync, existsSync, appendFileSync, mkdirSync } from "fs";
 import { join, relative, dirname } from "path";
 import { parseArgs } from "node:util";
 import { execFileSync } from "child_process";
-import { resolveVault, loadIndexes, readLegacyIndex } from "../../scripts/lib/vault.js";
-import { connectPool } from "../../scripts/lib/connect.js";
-import type { BacklinkRecord } from "../../scripts/lib/ppr.js";
+import { resolveVault, loadIndexes, readLegacyIndex } from "../../scripts/lib/vault.ts";
+import { connectPool } from "../../scripts/lib/connect.ts";
+import type { BacklinkRecord } from "../../scripts/lib/ppr.ts";
 import {
   targetsOf,
   poolMetrics,
@@ -34,7 +34,7 @@ import {
   type ConnectGold,
   type TriageResult,
   type CI,
-} from "./score.js";
+} from "./score.ts";
 
 const { values: args } = parseArgs({
   options: {

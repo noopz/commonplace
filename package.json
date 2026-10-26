@@ -5,33 +5,30 @@
   "private": true,
   "type": "module",
   "engines": {
-    "node": ">=22"
+    "node": ">=22.18"
   },
   "bin": {
     "commonplace": "./bin/commonplace"
   },
   "description": "LLM-maintained knowledge base for Obsidian vaults",
   "scripts": {
-    "test": "npm run typecheck && node --import tsx --test \"scripts/**/*.test.ts\" \"evals/**/*.test.ts\" \"hooks/**/*.test.ts\"",
-    "index": "tsx scripts/index.ts",
-    "lint": "tsx scripts/lint.ts",
-    "validate": "tsx scripts/validate.ts",
-    "scope-check": "tsx scripts/scope-check.ts",
-    "vault-score": "tsx scripts/vault-score.ts",
-    "prune": "tsx scripts/prune.ts",
-    "eval:retrieval": "tsx evals/retrieval/run.ts",
-    "eval:connection": "tsx evals/connection/run.ts",
-    "eval:judge": "tsx evals/judge/run.ts",
-    "eval:connect": "tsx evals/connect/run.ts",
-    "eval:scale": "tsx evals/scale/run.ts",
+    "test": "npm run typecheck && node --test \"scripts/**/*.test.ts\" \"evals/**/*.test.ts\" \"hooks/**/*.test.ts\"",
+    "index": "node scripts/index.ts",
+    "lint": "node scripts/lint.ts",
+    "validate": "node scripts/validate.ts",
+    "scope-check": "node scripts/scope-check.ts",
+    "vault-score": "node scripts/vault-score.ts",
+    "prune": "node scripts/prune.ts",
+    "eval:retrieval": "node evals/retrieval/run.ts",
+    "eval:connection": "node evals/connection/run.ts",
+    "eval:judge": "node evals/judge/run.ts",
+    "eval:connect": "node evals/connect/run.ts",
+    "eval:scale": "node evals/scale/run.ts",
     "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.hooks.json",
-    "test:ui": "tsx scripts/test-ui.ts",
-    "build": "tsx scripts/build.ts"
+    "test:ui": "node scripts/test-ui.ts"
   },
   "dependencies": {
-    "esbuild": "^0.28.2",
-    "pdfjs-dist": "^4.9.155",
-    "tsx": "^4.23.15"
+    "pdfjs-dist": "^4.9.155"
   },
   "devDependencies": {
     "@types/node": "^22.20.5",

@@ -17,14 +17,14 @@
  * Sandbox-safe.
  */
 
-import { unpackCsr } from "../graph/csr.js";
-import { cardChunk, CARDS_PER_CHUNK, type Card } from "./cards.js";
-import { P, peekManifestVersion, linkctxChunk, LINKCTX_PER_CHUNK, SCHEMA, type Manifest, type CsrFile, type NamesFile } from "./layout.js";
-import { TERMS, termSig, type PostingsRow } from "./postings.js";
-import type { LinkCtx, ShardArtefact, FileEntry } from "./model.js";
-import { parseJournal, pendingLines, type JournalNote, type JournalLine, COMPACT_BYTES, COMPACT_LINES } from "./journal.js";
-import { VaultView, type Patch } from "./view.js";
-import { MAIN, type DomainMap } from "../core/scope.js";
+import { unpackCsr } from "../graph/csr.ts";
+import { cardChunk, CARDS_PER_CHUNK, type Card } from "./cards.ts";
+import { P, peekManifestVersion, linkctxChunk, LINKCTX_PER_CHUNK, SCHEMA, type Manifest, type CsrFile, type NamesFile } from "./layout.ts";
+import { TERMS, termSig, type PostingsRow } from "./postings.ts";
+import type { LinkCtx, ShardArtefact, FileEntry } from "./model.ts";
+import { parseJournal, pendingLines, type JournalNote, type JournalLine, COMPACT_BYTES, COMPACT_LINES } from "./journal.ts";
+import { VaultView, type Patch } from "./view.ts";
+import { MAIN, type DomainMap } from "../core/scope.ts";
 
 export type IndexPorts = {
   /** Whole file under `.wiki/`, or null when absent/unreadable. */
@@ -78,11 +78,12 @@ export class VaultIndex {
   private sessionTag: string;
   private seq = 0;
 
-  constructor(
-    private ports: IndexPorts,
-    private domains: DomainMap,
-    sessionTag = "s",
-  ) {
+  private ports: IndexPorts;
+  private domains: DomainMap;
+
+  constructor(ports: IndexPorts, domains: DomainMap, sessionTag = "s") {
+    this.ports = ports;
+    this.domains = domains;
     this.sessionTag = sessionTag;
   }
 

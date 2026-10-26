@@ -1,7 +1,7 @@
-#!/usr/bin/env tsx
+#!/usr/bin/env node
 /**
  * Check wikilinks against domain scoping rules.
- * Usage: npx tsx scripts/scope-check.ts --vault <path> [<file>]
+ * Usage: node scripts/scope-check.ts --vault <path> [<file>]
  */
 
 import { parseArgs } from "util";
@@ -14,15 +14,15 @@ import {
   findAllNotes,
   loadIndexes,
   ensureIndex,
-} from "./lib/vault.js";
+} from "./lib/vault.ts";
 import {
   parseNote,
   extractWikilinks,
   extractFrontmatterWikilinks,
-} from "./lib/frontmatter.js";
-import { inferSourceDomain, lookupScope, canLink } from "./lib/domain.js";
-import { normalizeWikilinkTarget } from "./lib/resolve.js";
-import type { ScopeViolation, ConceptNote, SourceNote } from "./lib/types.js";
+} from "./lib/frontmatter.ts";
+import { inferSourceDomain, lookupScope, canLink } from "./lib/domain.ts";
+import { normalizeWikilinkTarget } from "./lib/resolve.ts";
+import type { ScopeViolation, ConceptNote, SourceNote } from "./lib/types.ts";
 
 const { values, positionals } = parseArgs({
   options: {

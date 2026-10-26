@@ -118,10 +118,10 @@ test("manualScriptPath ignores bare scripts/ paths in foreign repos", () => {
   // This hook is global. A basename allowlist here denied `npx tsx
   // scripts/seed.ts` in every Prisma/Drizzle project on the machine, which is
   // far worse than missing a hand-run inside commonplace itself.
-  assert.equal(manualScriptPath("npx tsx scripts/seed.ts"), null);
+  assert.equal(manualScriptPath("node scripts/seed.ts"), null);
   assert.equal(manualScriptPath("node scripts/index.ts --incremental"), null);
   assert.equal(manualScriptPath("tsx ./scripts/lint.ts"), null);
-  assert.equal(manualScriptPath("npx tsx scripts/migrate.ts"), null);
+  assert.equal(manualScriptPath("node scripts/migrate.ts"), null);
 });
 
 test("manualScriptPath recognises plugin scripts run by an explicit path", () => {
@@ -145,10 +145,10 @@ test("manualScriptPath recognises plugin scripts run by an explicit path", () =>
 
 test("manualScriptPath leaves foreign repos, tests, and the bin shim alone", () => {
   for (const s of [
-    "npx tsx scripts/migrate.ts",            // unknown basename, not in plugin
+    "node scripts/migrate.ts",            // unknown basename, not in plugin
     "node scripts/build.js",                 // .js, never a plugin script
     "node --import tsx --test scripts/lint.test.ts",
-    "npx tsx scripts/index.test.ts",
+    "node scripts/index.test.ts",
     "node ${CLAUDE_PLUGIN_ROOT}/bin/commonplace lint",
     "commonplace lint",
     "npx prettier scripts/lint.ts",          // npx of something other than tsx
@@ -309,7 +309,7 @@ test("checkBashCommand ignores quoted example text, comments, and data heredocs"
 
 test("checkBashCommand allows foreign-repo scripts and .js scripts", () => {
   for (const c of [
-    "npx tsx scripts/migrate.ts",
+    "node scripts/migrate.ts",
     "node scripts/build.js",
     "npm run build",
     "pnpm tsx scripts/deploy.ts",

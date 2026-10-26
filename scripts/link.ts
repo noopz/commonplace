@@ -1,4 +1,4 @@
-#!/usr/bin/env tsx
+#!/usr/bin/env node
 /**
  * Deterministic wikilink insertion across vault notes.
  *
@@ -19,10 +19,10 @@
 import { readFileSync, writeFileSync } from "fs";
 import { join, basename, relative } from "path";
 import { parseArgs } from "util";
-import { resolveVault, loadDomainRegistry, findAllNotes, classifyNote, readLegacyIndex } from "./lib/vault.js";
-import { inferSourceDomain } from "./lib/domain.js";
-import { linkNoteContent, type LinkTarget } from "./lib/linker.js";
-import { appendLineage } from "./lib/lineage.js";
+import { resolveVault, loadDomainRegistry, findAllNotes, classifyNote, readLegacyIndex } from "./lib/vault.ts";
+import { inferSourceDomain } from "./lib/domain.ts";
+import { linkNoteContent, type LinkTarget } from "./lib/linker.ts";
+import { appendLineage } from "./lib/lineage.ts";
 
 const { values } = parseArgs({
   options: {

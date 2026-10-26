@@ -24,10 +24,10 @@ import {
   isPrivate,
   MAIN,
   type DomainMap,
-} from "./scope.js";
-import { normalizePath, isUnder, type SealRoots } from "./seal.js";
-import { sanitizeIngestedBody, splitFrontmatterRaw } from "../index/sanitize.js";
-import { checkSealedLeak, type SealedName } from "../guard.js";
+} from "./scope.ts";
+import { normalizePath, isUnder, type SealRoots } from "./seal.ts";
+import { sanitizeIngestedBody, splitFrontmatterRaw } from "../index/sanitize.ts";
+import { checkSealedLeak, type SealedName } from "../guard.ts";
 
 export type GuardVault = {
   /** The registered path, normalised. */

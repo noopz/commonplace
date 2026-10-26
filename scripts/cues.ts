@@ -1,4 +1,4 @@
-#!/usr/bin/env tsx
+#!/usr/bin/env node
 /**
  * `commonplace cues` — draft `cues:` for notes (scripts/lib/cues.ts), without
  * touching a note.
@@ -27,10 +27,10 @@ import { readFileSync, existsSync, appendFileSync, writeFileSync, mkdirSync } fr
 import { join } from "path";
 import { spawn } from "child_process";
 import { parseArgs } from "node:util";
-import { matter } from "./lib/matter.js";
-import { resolveVault } from "./lib/vault.js";
-import { loadIndexNotes, viewInMemory } from "./lib/index-notes.js";
-import { cuesPrompt, parseCues, filterCues, insertFrontmatterCues, CUES_SYSTEM, BATCH, KEEP_TOP, type CueNote } from "./lib/cues.js";
+import { matter } from "./lib/matter.ts";
+import { resolveVault } from "./lib/vault.ts";
+import { loadIndexNotes, viewInMemory } from "./lib/index-notes.ts";
+import { cuesPrompt, parseCues, filterCues, insertFrontmatterCues, CUES_SYSTEM, BATCH, KEEP_TOP, type CueNote } from "./lib/cues.ts";
 
 const { values: args } = parseArgs({
   options: {

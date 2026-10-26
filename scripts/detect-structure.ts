@@ -1,18 +1,18 @@
-#!/usr/bin/env tsx
+#!/usr/bin/env node
 /**
  * Detect vault structure by sampling .md files and their frontmatter.
  * Infers sources/concepts/mocs directories, stub pattern, and MOC count pattern.
  *
- * Usage: npx tsx scripts/detect-structure.ts --vault <path>
+ * Usage: node scripts/detect-structure.ts --vault <path>
  * Output: WikiConfig-shaped JSON with _confidence metadata
  */
 
 import { parseArgs } from "util";
 import { readFileSync, existsSync } from "fs";
 import { join, dirname, relative } from "path";
-import { globFiles } from "./lib/glob.js";
-import { resolveVault } from "./lib/vault.js";
-import type { WikiConfig } from "./lib/types.js";
+import { globFiles } from "./lib/glob.ts";
+import { resolveVault } from "./lib/vault.ts";
+import type { WikiConfig } from "./lib/types.ts";
 
 const { values } = parseArgs({ options: { vault: { type: "string" } } });
 const config = resolveVault(values.vault);

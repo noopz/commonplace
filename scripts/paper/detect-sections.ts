@@ -1,12 +1,12 @@
-#!/usr/bin/env tsx
+#!/usr/bin/env node
 /**
  * Detect paper structure via section header matching.
- * Usage: npx tsx scripts/paper/detect-sections.ts <pdf-path> [--format json|human]
+ * Usage: node scripts/paper/detect-sections.ts <pdf-path> [--format json|human]
  */
 
 import { parseArgs } from "util";
-import { extractPages, getPdfInfo } from "./lib/pdf.js";
-import type { DetectedSection, SectionDetectionResult } from "./lib/types.js";
+import { extractPages, getPdfInfo } from "./lib/pdf.ts";
+import type { DetectedSection, SectionDetectionResult } from "./lib/types.ts";
 
 const { values, positionals } = parseArgs({
   options: {
@@ -17,7 +17,7 @@ const { values, positionals } = parseArgs({
 
 const pdfPath = positionals[0];
 if (!pdfPath) {
-  console.error("Usage: npx tsx scripts/paper/detect-sections.ts <pdf-path>");
+  console.error("Usage: node scripts/paper/detect-sections.ts <pdf-path>");
   process.exit(1);
 }
 

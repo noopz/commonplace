@@ -18,7 +18,7 @@
  * Sandbox-safe; deterministic (FIFO queue, ids visited in insertion order).
  */
 
-import { type Csr, type Adjacency, adj } from "./csr.js";
+import { type Csr, type Adjacency, adj } from "./csr.ts";
 
 export type PushOptions = {
   /** Restart (teleport) probability. 0.15 ≡ scripts/lib/ppr.ts alpha 0.85. */

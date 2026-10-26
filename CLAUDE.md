@@ -15,13 +15,14 @@ LLM-maintained knowledge base for any folder of notes. Transforms raw sources in
 2.1.288+). As of v2 it is the **whole** runtime plugin: the guards, the context
 block, the vault tools, post-write, the band and the connection pass all live
 there. `hooks/hooks.json` keeps exactly one shell hook, `SessionStart` →
-`commonplace session-check`, which does two things a module cannot:
-
-- rebuilds `dist/` (the esbuild bundle) when a source is newer than its stamp;
-- **watchdog**: it increments `<plugin>/.runtime/shell-sessions`; the module's
-  `session.start` resets it to 0 and writes `.runtime/module-alive.json`. Two
-  sessions in a row without the module (modules disabled by settings or policy)
-  print a systemMessage, because otherwise the plugin silently does nothing.
+`commonplace session-check`, the **watchdog**, which a module cannot be: it
+increments `<plugin>/.runtime/shell-sessions`; the module's `session.start`
+resets it to 0 and writes `.runtime/module-alive.json`. Two sessions in a row
+without the module (modules disabled by settings or policy) print a
+systemMessage, because otherwise the plugin silently does nothing. Nothing is
+built: Node 22.18+ runs the TypeScript directly, and Claude Code installs the
+npm dependencies from the lockfile (keep it in sync with package.json, or that
+install is skipped).
 
 The module gates itself on `$.session.version().base >= MIN_BUILD` (2.1.288);
 an older engine gets a toast, `tooOld: true` in `module-alive.json`, and no
@@ -457,11 +458,11 @@ Command hooks (shell subprocesses) don't inherit the Bash tool PATH, so they use
 
 All commands auto-discover the vault via cwd (`.obsidian/` or `.wiki/` marker) or `.vault-path` fallback. The `--vault <path>` flag is optional — only needed for `init` or when overriding auto-discovery.
 
-- `commonplace vault-path` — Print the configured vault path (no tsx spawn, instant).
+- `commonplace vault-path` — Print the configured vault path (no script spawn, instant).
 - `commonplace records --kind <kind> [--match <text>] [--path <rel>]` — Maintenance records as JSONL (public + `COMMONPLACE_OPEN` shards)
 - `commonplace vault [show|list|use <id> [--default]|unpin]` — Show or choose the active vault from a terminal (in a session: `/vault`)
 - `commonplace search --query "<text>"` · `note --ref "<title|path>"` · `links --ref "<…>" [--direction out|in|both]` · `path --from <ref> --to <ref>` · `neighbourhood --seed <ref>…` — CLI twins of the vault tools: same code, same output, `--json` for the structured result. Private domains stay sealed unless the PERSON passes `--open <domain>` (the guard denies it from the model).
-- `commonplace session-check` — The one shell hook (SessionStart): dist rebuild, module watchdog
+- `commonplace session-check` — The one shell hook (SessionStart): module watchdog
 - `commonplace synthetic --scale N --out <dir>` / `commonplace eval:scale` — Synthetic vaults and the scale benchmark
 - `commonplace test:ui` — Module UI tests under `claude plugin test` (terminal + desktop); also `npm run test:ui`
 - `commonplace eval:judge [--feedback] [--prime|--used] [--repeat N]` — The judge alone on stored (answer, note) pairs; `--feedback` uses your Read it / Not for me presses as the labels
@@ -471,7 +472,7 @@ All commands auto-discover the vault via cwd (`.obsidian/` or `.wiki/` marker) o
 - `commonplace dates [--dry-run] [--json]` — Backfill `published:` on source notes from their labelled source line (`**Published:**`, `**arXiv:**`, `**Source:**`…); never guesses; a note with `published:`/`date:` is left alone
 - `commonplace cues [--limit N] [--match <text>] [--concurrency N] | --filter-only | --write [--dry-run]` — Draft `cues:` (other phrasings a reader would search by) with haiku, public notes only, filtered by self-retrieval; `--write` inserts them as the last frontmatter line
 - `commonplace vaults [--match "<phrase>"] [--json]` — List registered vaults, or match one by name (used by wiki-query to resolve "search in <name>")
-- `commonplace config` — Print `.wiki/config.json` contents (no tsx spawn, instant)
+- `commonplace config` — Print `.wiki/config.json` contents (no script spawn, instant)
 - `commonplace index [--incremental] [--json]` — The single index writer: `.wiki/graph/` (v2 graph artefacts), `.wiki/sealed/`, and the per-shard records files (v1's `*-index.jsonl` are no longer written; stale ones are deleted). `--incremental` is a no-op when no note is newer than the last build.
 - `commonplace lint [--check <name>] [--json] [--rank-by-traffic]` — Vault health audit (human-readable summary by default, `--json` for machine-parseable; `--rank-by-traffic` sorts stub findings by backlink count, descending). Checks include `unresolved`, `stubs`, `orphans`, `frontmatter`, `moc-staleness`, `moc-size`, `scope-violations`, `duplicates`, `malformed-dates`, `filename-h1-mismatch`, `near-duplicate-names`, `near-duplicate-content`, `malformed-concept-names`, `underlinked`, `cluster-cohesion`, `bridge-thinness`, `weak-summary`, `cross-scope-bridge`, `concept-density-without-source-links`.
 - `commonplace validate <file>` — Single file frontmatter validation

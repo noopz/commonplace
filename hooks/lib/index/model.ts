@@ -19,13 +19,13 @@
  * names the right node after a rebuild.
  */
 
-import type { ParsedNote, NoteKind, LinkKind } from "./parse.js";
-import { buildNames, type Names, type NameNode } from "../graph/resolver.js";
-import { buildCsr, packCsr, KIND_INDEX, type Csr, type CsrPacked, type EdgeInput } from "../graph/csr.js";
-import { hitsCsr } from "../graph/hits.js";
-import { buildPostings, type PostingsInput, type PostingsRow, type TermConfig } from "./postings.js";
-import { makeCard, type Card } from "./cards.js";
-import { MAIN, isPrivate, shardOfDomain, type DomainMap } from "../core/scope.js";
+import type { ParsedNote, NoteKind, LinkKind } from "./parse.ts";
+import { buildNames, type Names, type NameNode } from "../graph/resolver.ts";
+import { buildCsr, packCsr, KIND_INDEX, type Csr, type CsrPacked, type EdgeInput } from "../graph/csr.ts";
+import { hitsCsr } from "../graph/hits.ts";
+import { buildPostings, type PostingsInput, type PostingsRow, type TermConfig } from "./postings.ts";
+import { makeCard, type Card } from "./cards.ts";
+import { MAIN, isPrivate, shardOfDomain, type DomainMap } from "../core/scope.ts";
 
 export const INDEX_VERSION = 2;
 

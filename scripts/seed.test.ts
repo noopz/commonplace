@@ -29,7 +29,7 @@ function makeVault(): string {
 }
 
 function run(vault: string, args: string[]): string {
-  return execFileSync(process.execPath, ["--import", "tsx", CLI, "--vault", vault, ...args], {
+  return execFileSync(process.execPath, [CLI, "--vault", vault, ...args], {
     encoding: "utf-8",
   });
 }

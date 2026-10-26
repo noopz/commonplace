@@ -1,4 +1,4 @@
-#!/usr/bin/env tsx
+#!/usr/bin/env node
 /**
  * commonplace eval:prime — the gate prime must clear before `primeContext`
  * defaults on (plan §8.6, §11 Phase 6).
@@ -20,10 +20,10 @@ import { parseArgs } from "node:util";
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
 import { join, dirname, resolve } from "path";
 import { spawnSync } from "child_process";
-import { resolveVault } from "../../scripts/lib/vault.js";
-import { logLinesSince } from "../hook-log.js";
-import { commonplaceIds } from "../plugin-ids.js";
-import { observePrime, scorePrimeCase, summarizePrime, formatPrimeSummary, type PrimeGold, type PrimeCaseResult, type LogLine } from "./score.js";
+import { resolveVault } from "../../scripts/lib/vault.ts";
+import { logLinesSince } from "../hook-log.ts";
+import { commonplaceIds } from "../plugin-ids.ts";
+import { observePrime, scorePrimeCase, summarizePrime, formatPrimeSummary, type PrimeGold, type PrimeCaseResult, type LogLine } from "./score.ts";
 
 const { values: args } = parseArgs({
   options: {

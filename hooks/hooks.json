@@ -1,5 +1,5 @@
 {
-  "description": "commonplace: the in-process module is the plugin; one SessionStart shell hook keeps dist/ fresh and warns if the module did not load (Claude Code installs the npm deps from the lockfile)",
+  "description": "commonplace: the in-process module is the plugin; one SessionStart shell hook warns if the module did not load (Claude Code installs the npm deps from the lockfile)",
   "modules": [
     "register.tsx"
   ],

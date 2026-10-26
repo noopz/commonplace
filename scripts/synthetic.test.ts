@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync, readFileSync, existsSync, readdirSync } from "node
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
-import { generateSynthetic, BASE, EXCLUDED_DIRS, LEXICON } from "./lib/synthetic.js";
+import { generateSynthetic, BASE, EXCLUDED_DIRS, LEXICON } from "./lib/synthetic.ts";
 
 function treeHash(root: string): string {
   const files: string[] = [];

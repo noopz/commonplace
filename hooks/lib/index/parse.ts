@@ -9,8 +9,8 @@
  * in `scripts/lib/frontmatter.ts parseNote` — Obsidian resolves by filename.
  */
 
-import { parseFrontmatter, type YamlMap, type YamlValue } from "./yaml.js";
-import { normalizeKey, stemOf } from "../graph/resolver.js";
+import { parseFrontmatter, type YamlMap, type YamlValue } from "./yaml.ts";
+import { normalizeKey, stemOf } from "../graph/resolver.ts";
 
 export type NoteKind = "source" | "concept" | "moc" | "other";
 

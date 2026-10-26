@@ -1,11 +1,11 @@
-#!/usr/bin/env tsx
+#!/usr/bin/env node
 /**
  * Fetch metadata from external sources (arXiv, Semantic Scholar, GitHub).
- * Usage: npx tsx scripts/paper/enrich-metadata.ts --arxiv-id <id> [--title <title>] [--no-github]
+ * Usage: node scripts/paper/enrich-metadata.ts --arxiv-id <id> [--title <title>] [--no-github]
  */
 
 import { parseArgs } from "util";
-import type { EnrichmentResult } from "./lib/types.js";
+import type { EnrichmentResult } from "./lib/types.ts";
 
 const { values } = parseArgs({
   options: {

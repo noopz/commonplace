@@ -434,7 +434,10 @@ class EndOfInput extends Error {}
 /** Flow collections and quoted scalars over one string that may contain newlines. */
 class FlowParser {
   p = 0;
-  constructor(public s: string) {}
+  s: string;
+  constructor(s: string) {
+    this.s = s;
+  }
 
   newlinesBefore(pos: number): number {
     let n = 0;

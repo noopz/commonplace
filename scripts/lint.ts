@@ -1,7 +1,7 @@
-#!/usr/bin/env tsx
+#!/usr/bin/env node
 /**
  * Vault health audit. Runs deterministic checks on all notes.
- * Usage: npx tsx scripts/lint.ts --vault <path> [--check <name>]
+ * Usage: node scripts/lint.ts --vault <path> [--check <name>]
  */
 
 import { readFileSync } from "fs";
@@ -15,7 +15,7 @@ import {
   classifyNote,
   ensureIndex,
   loadIndexes,
-} from "./lib/vault.js";
+} from "./lib/vault.ts";
 import {
   parseNote,
   extractH1,
@@ -25,25 +25,25 @@ import {
   isStub,
   hasMalformedDateLine,
   validateFrontmatter,
-} from "./lib/frontmatter.js";
+} from "./lib/frontmatter.ts";
 import {
   normalizeConceptSlug,
   isMalformedConceptName,
   canLink,
   inferSourceDomain,
   lookupScope,
-} from "./lib/domain.js";
-import { buildNameIndex, normalizeWikilinkTarget } from "./lib/resolve.js";
-import { currentHash } from "./lib/git-hash.js";
-import { loadConventions, matchGenre } from "./lib/conventions.js";
-import { abstractionSimilarity } from "./lib/consolidation.js";
+} from "./lib/domain.ts";
+import { buildNameIndex, normalizeWikilinkTarget } from "./lib/resolve.ts";
+import { currentHash } from "./lib/git-hash.ts";
+import { loadConventions, matchGenre } from "./lib/conventions.ts";
+import { abstractionSimilarity } from "./lib/consolidation.ts";
 import type {
   LintIssue,
   LintResult,
   ConceptNote,
   SourceNote,
   MocNote,
-} from "./lib/types.js";
+} from "./lib/types.ts";
 
 const { values } = parseArgs({
   options: {

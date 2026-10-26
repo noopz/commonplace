@@ -1,4 +1,4 @@
-import { parseFrontmatter, type YamlMap } from "../../hooks/lib/index/yaml.js";
+import { parseFrontmatter, type YamlMap } from "../../hooks/lib/index/yaml.ts";
 
 /**
  * gray-matter's `matter(raw)` on the module's own parser, so the CLI and the

@@ -1,4 +1,4 @@
-#!/usr/bin/env tsx
+#!/usr/bin/env node
 /**
  * PostToolUse hook for Research/ file writes.
  * Runs impact + cross-domain checks and returns additionalContext
@@ -11,8 +11,8 @@
 import { readFileSync } from "fs";
 import { join, dirname } from "path";
 import { spawnSync } from "child_process";
-import { discoverVault, loadDomainRegistry } from "./lib/vault.js";
-import { inferSourceDomain } from "./lib/domain.js";
+import { discoverVault, loadDomainRegistry } from "./lib/vault.ts";
+import { inferSourceDomain } from "./lib/domain.ts";
 
 // The file path arrives one of two ways. `--file <path>` is how `post-write`
 // invokes this as its last step, which is the only wiring hooks.json uses;
@@ -54,8 +54,8 @@ if (inferSourceDomain(filePath, vaultPath, registry) === "unknown") {
   process.exit(0);
 }
 
-// Through the CLI, which runs the esbuild bundle when it is fresh: `tsx` on
-// the .ts source paid a ~380 ms cold start per script, on every vault write.
+// Through the CLI, which runs each script on plain node: `npx tsx` on the .ts
+// source paid a ~380 ms cold start per script, on every vault write.
 const cli = (cmd: string, ...rest: string[]) =>
   spawnSync(process.execPath, [join(pluginRoot, "bin", "commonplace"), cmd, ...rest], {
     encoding: "utf-8",

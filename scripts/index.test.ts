@@ -48,7 +48,7 @@ function sealedRecords(root: string, kind: RecordKind): Array<Record<string, unk
 test("index persists HITS hub/authority on linked records", () => {
   const root = makeVault();
   try {
-    execFileSync(process.execPath, ["--import", "tsx", CLI, "--vault", root], { encoding: "utf-8" });
+    execFileSync(process.execPath, [CLI, "--vault", root], { encoding: "utf-8" });
 
     const concepts = records(root, "concept");
     const bridge = concepts.find((c) => c.name === "Shared Bridge Concept")!;
@@ -79,7 +79,7 @@ test("index run on a linkless vault emits records without hub/authority keys", (
     }
     writeFileSync(join(root, "03 - Concepts", "Shared Bridge Concept.md"),
       "---\ntags: [concept]\ncreated: '2026-01-01'\n---\n\n# Shared Bridge Concept\n\nA real definition here.\n");
-    execFileSync(process.execPath, ["--import", "tsx", CLI, "--vault", root], { encoding: "utf-8" });
+    execFileSync(process.execPath, [CLI, "--vault", root], { encoding: "utf-8" });
     for (const rec of [...records(root, "source"), ...records(root, "concept")]) {
       assert.ok(!("hub" in rec) && !("authority" in rec),
         `linkless record ${rec.title ?? rec.name} must omit hub/authority`);
@@ -122,7 +122,7 @@ test("concept records carry a scope derived from their domains", () => {
     writeFileSync(join(root, "03 - Concepts", "Omega Measure.md"),
       "---\ntags: [concept]\ncreated: '2026-01-01'\n---\n\n# Omega Measure\n\nA real definition here.\n");
 
-    execFileSync(process.execPath, ["--import", "tsx", CLI, "--vault", root], { encoding: "utf-8" });
+    execFileSync(process.execPath, [CLI, "--vault", root], { encoding: "utf-8" });
     // v2 splits private records out of the public records file entirely;
     // they live under .wiki/sealed/<shard>/, which only an opened scope reads.
     const publicNames = records(root, "concept").map((c) => c.name);
@@ -144,7 +144,7 @@ test("--incremental rebuilds a graph cut with another postings term shape, even 
   const root = makeVault();
   try {
     const run = (...extra: string[]) =>
-      execFileSync(process.execPath, ["--import", "tsx", CLI, "--vault", root, ...extra], { encoding: "utf-8" });
+      execFileSync(process.execPath, [CLI, "--vault", root, ...extra], { encoding: "utf-8" });
     run();
     const mPath = join(root, ".wiki", "graph", "manifest.json");
     const fresh = JSON.parse(readFileSync(mPath, "utf-8"));

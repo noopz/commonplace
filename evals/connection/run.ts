@@ -1,4 +1,4 @@
-#!/usr/bin/env tsx
+#!/usr/bin/env node
 /**
  * Ambient-connection eval runner.
  *
@@ -21,12 +21,12 @@
  */
 
 import { readFileSync, existsSync, mkdirSync, writeFileSync } from "fs";
-import { logLinesSince } from "../hook-log.js";
-import { commonplaceIds } from "../plugin-ids.js";
+import { logLinesSince } from "../hook-log.ts";
+import { commonplaceIds } from "../plugin-ids.ts";
 import { join, dirname, resolve } from "path";
 import { parseArgs } from "node:util";
 import { spawnSync } from "child_process";
-import { resolveVault } from "../../scripts/lib/vault.js";
+import { resolveVault } from "../../scripts/lib/vault.ts";
 import {
   observePass,
   scoreCase,
@@ -35,7 +35,7 @@ import {
   type GoldCase,
   type CaseResult,
   type LogLine,
-} from "./score.js";
+} from "./score.ts";
 
 const { values: args } = parseArgs({
   options: {

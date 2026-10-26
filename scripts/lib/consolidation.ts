@@ -6,7 +6,7 @@
  * identity and provenance and are NEVER auto-merged.
  */
 
-import type { SourceNote } from "./types.js";
+import type { SourceNote } from "./types.ts";
 
 // Self-contained stopword set: abstractions are 6-12 word noun phrases, so
 // only high-frequency glue words need excluding for Jaccard to be meaningful.

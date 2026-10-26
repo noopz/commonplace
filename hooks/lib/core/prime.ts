@@ -15,8 +15,8 @@
  * payload. Pure.
  */
 
-import { tokenize, isGeneric } from "./text.js";
-import { parseVerdict } from "../seed.js";
+import { tokenize, isGeneric } from "./text.ts";
+import { parseVerdict } from "../seed.ts";
 
 export const PRIME_JUDGE_SYSTEM =
   "You decide whether a note from someone's personal vault should be shown to them BEFORE they start the task below. " +

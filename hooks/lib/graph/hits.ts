@@ -7,7 +7,7 @@
  * PUBLIC subgraph only, so a sealed note's links never shape public ranks.
  */
 
-import type { Csr } from "./csr.js";
+import type { Csr } from "./csr.ts";
 
 export function hitsCsr(
   g: Csr,

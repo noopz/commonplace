@@ -44,13 +44,13 @@
 import { atom, read, update } from "claude-code";
 import type { Register, EngineInterface, ToolCallInput } from "claude-code";
 import type { CommonplaceBand, Commonplace, CommonplaceIndexStatus } from "../types/index.js";
-import { parseJsonl, stripFrontmatter } from "./lib/seed.js";
-import { runConnectionPass, type CompletionRequest } from "./lib/pipeline.js";
-import { statusLine, type Status } from "./lib/status.js";
-import { buildVaultBlock, mergeBlocks } from "./lib/context.js";
-import { checkBashCommand, checkScopeEscalation, withOpenShards, parseSealedNames, type SealedName } from "./lib/guard.js";
-import { checkSealedAccess, candidatePaths, normalizePath } from "./lib/core/seal.js";
-import { openFromStartCwd, type DomainMap } from "./lib/core/scope.js";
+import { parseJsonl, stripFrontmatter } from "./lib/seed.ts";
+import { runConnectionPass, type CompletionRequest } from "./lib/pipeline.ts";
+import { statusLine, type Status } from "./lib/status.ts";
+import { buildVaultBlock, mergeBlocks } from "./lib/context.ts";
+import { checkBashCommand, checkScopeEscalation, withOpenShards, parseSealedNames, type SealedName } from "./lib/guard.ts";
+import { checkSealedAccess, candidatePaths, normalizePath } from "./lib/core/seal.ts";
+import { openFromStartCwd, type DomainMap } from "./lib/core/scope.ts";
 import {
   sealRootsFor,
   sanitizeWrite,
@@ -59,16 +59,16 @@ import {
   namesFromLegacy,
   PRIVATE_VAULT_SHARD,
   type GuardVault,
-} from "./lib/core/vault-guard.js";
+} from "./lib/core/vault-guard.ts";
 import {
   looksVaultShaped,
   isSteerableSpawn,
   steerPrompt,
   SPAWN_LABELS,
   SPAWN_CLASSIFY_PROMPT,
-} from "./lib/agent.js";
-import { isSafeVaultPath } from "./lib/tools.js";
-import { TOOL_SPECS, PINNED_TOOLS } from "./lib/tools/specs.js";
+} from "./lib/agent.ts";
+import { isSafeVaultPath } from "./lib/tools.ts";
+import { TOOL_SPECS, PINNED_TOOLS } from "./lib/tools/specs.ts";
 import {
   formatSearch,
   formatNote,
@@ -77,16 +77,16 @@ import {
   formatNeighbourhood,
   formatList,
   unreadContext,
-} from "./lib/tools/format.js";
-import * as noun from "./lib/core/noun.js";
-import { connectPool } from "./lib/core/connect.js";
-import { RANK_LINEAR } from "./lib/index/postings.js";
-import { VaultIndex, type IndexPorts } from "./lib/index/load.js";
-import { parseNote as parseIndexNote } from "./lib/index/parse.js";
-import { journalNote } from "./lib/index/journal.js";
-import { shardFor } from "./lib/index/model.js";
-import { isExcluded, findNotesArgv } from "./lib/index/exclude.js";
-import { visibleSkills, skillBlock, sha256Hex, type VaultSkill, type SkillFile } from "./lib/skills/load.js";
+} from "./lib/tools/format.ts";
+import * as noun from "./lib/core/noun.ts";
+import { connectPool } from "./lib/core/connect.ts";
+import { RANK_LINEAR } from "./lib/index/postings.ts";
+import { VaultIndex, type IndexPorts } from "./lib/index/load.ts";
+import { parseNote as parseIndexNote } from "./lib/index/parse.ts";
+import { journalNote } from "./lib/index/journal.ts";
+import { shardFor } from "./lib/index/model.ts";
+import { isExcluded, findNotesArgv } from "./lib/index/exclude.ts";
+import { visibleSkills, skillBlock, sha256Hex, type VaultSkill, type SkillFile } from "./lib/skills/load.ts";
 import {
   PRIME_JUDGE_SYSTEM,
   PRIME_JUDGE_PROMPT,
@@ -100,12 +100,12 @@ import {
   pickPrimeCandidate,
   primeBlock,
   type SegmentState,
-} from "./lib/core/prime.js";
-import { resolveOpenRef, listableDomains, shardOfDomain, proposeFromPrompt, isPrivate as isPrivateDomain } from "./lib/core/scope.js";
-import { maskSealed } from "./lib/core/noun.js";
-import { wikiRefs, linkWikiRefs, fileHref, citationFooter, citationCounts, type CitedNote } from "./lib/surfaces/wikilinks.js";
-import { pastedUrls, sameUrl, triagePrompt, parseTriage, triageLine, addLater, formatLater, TRIAGE_NOTE_CHARS, type Triage, type LaterItem } from "./lib/surfaces/triage.js";
-import { Witness, renderWitness } from "./lib/surfaces/witness.js";
+} from "./lib/core/prime.ts";
+import { resolveOpenRef, listableDomains, shardOfDomain, proposeFromPrompt, isPrivate as isPrivateDomain } from "./lib/core/scope.ts";
+import { maskSealed } from "./lib/core/noun.ts";
+import { wikiRefs, linkWikiRefs, fileHref, citationFooter, citationCounts, type CitedNote } from "./lib/surfaces/wikilinks.ts";
+import { pastedUrls, sameUrl, triagePrompt, parseTriage, triageLine, addLater, formatLater, TRIAGE_NOTE_CHARS, type Triage, type LaterItem } from "./lib/surfaces/triage.ts";
+import { Witness, renderWitness } from "./lib/surfaces/witness.ts";
 
 // ---------------------------------------------------------------------------
 // Tunables
@@ -275,10 +275,9 @@ const buildGuard = async ($: EngineInterface, now: number): Promise<{ vaults: Gu
     entries = [];
     registryOk = false;
   }
-  // `vaults` runs through dist/ or tsx, and on the first session after an
-  // install dist/ is not built yet, and tsx is missing if Claude Code's
-  // dependency install failed. An empty registry turns every guard off, so fall back to
-  // the default vault from `vault-path`, a bin built-in that needs neither.
+  // `vaults` is a script spawn and can fail (an old Node, a broken install). An
+  // empty registry turns every guard off, so fall back to the default vault
+  // from `vault-path`, a bin built-in that runs no script.
   if (!registryOk) {
     try {
       const vp = (await $.process.run(["node", `${$.plugin.root}/bin/commonplace`, "vault-path"])).stdout.trim();

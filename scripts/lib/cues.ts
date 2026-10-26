@@ -10,7 +10,7 @@
  * Pure: the CLI (scripts/cues.ts) does the reads, the model calls and writes.
  */
 
-import { wordKeys, TERMS } from "../../hooks/lib/index/postings.js";
+import { wordKeys, TERMS } from "../../hooks/lib/index/postings.ts";
 
 export const KEEP_TOP = 3;
 export const BATCH = 10;

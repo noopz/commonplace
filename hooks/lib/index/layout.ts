@@ -21,9 +21,9 @@
  * Sandbox-safe.
  */
 
-import { CARDS_PER_CHUNK, cardChunk, cardChunkName, type Card } from "./cards.js";
-import type { BuildResult, LinkCtx } from "./model.js";
-import { TERMS, termSig } from "./postings.js";
+import { CARDS_PER_CHUNK, cardChunk, cardChunkName, type Card } from "./cards.ts";
+import type { BuildResult, LinkCtx } from "./model.ts";
+import { TERMS, termSig } from "./postings.ts";
 
 export const GRAPH_DIR = "graph";
 export const SEALED_DIR = "sealed";

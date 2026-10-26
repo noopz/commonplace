@@ -1,4 +1,4 @@
-#!/usr/bin/env tsx
+#!/usr/bin/env node
 /**
  * Deterministic MOC reconciliation. Updates each MOC's "## Papers (N)"
  * header to match the indexed sourceCount and ensures every source in
@@ -11,8 +11,8 @@
 import { readFileSync, writeFileSync } from "fs";
 import { relative } from "path";
 import { parseArgs } from "util";
-import { resolveVault, ensureIndex, loadIndexes } from "./lib/vault.js";
-import { appendLineage } from "./lib/lineage.js";
+import { resolveVault, ensureIndex, loadIndexes } from "./lib/vault.ts";
+import { appendLineage } from "./lib/lineage.ts";
 
 const { values } = parseArgs({
   options: {

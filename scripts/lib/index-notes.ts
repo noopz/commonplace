@@ -10,17 +10,17 @@
 
 import { readFileSync, statSync } from "fs";
 import { join, relative, sep } from "path";
-import { matter } from "./matter.js";
-import { findAllNotes, loadDomainRegistry, loadWikiConfig } from "./vault.js";
-import type { VaultConfig } from "./types.js";
-import { computeIsStub } from "./frontmatter.js";
-import { parseNote } from "../../hooks/lib/index/parse.js";
-import { buildIndex, type IndexNote, type BuildResult } from "../../hooks/lib/index/model.js";
-import { P, type Manifest } from "../../hooks/lib/index/layout.js";
-import type { TermConfig } from "../../hooks/lib/index/postings.js";
-import type { DomainMap } from "../../hooks/lib/core/scope.js";
-import { VaultView } from "../../hooks/lib/index/view.js";
-import { unpackCsr } from "../../hooks/lib/graph/csr.js";
+import { matter } from "./matter.ts";
+import { findAllNotes, loadDomainRegistry, loadWikiConfig } from "./vault.ts";
+import type { VaultConfig } from "./types.ts";
+import { computeIsStub } from "./frontmatter.ts";
+import { parseNote } from "../../hooks/lib/index/parse.ts";
+import { buildIndex, type IndexNote, type BuildResult } from "../../hooks/lib/index/model.ts";
+import { P, type Manifest } from "../../hooks/lib/index/layout.ts";
+import type { TermConfig } from "../../hooks/lib/index/postings.ts";
+import type { DomainMap } from "../../hooks/lib/core/scope.ts";
+import { VaultView } from "../../hooks/lib/index/view.ts";
+import { unpackCsr } from "../../hooks/lib/graph/csr.ts";
 
 export type LoadedVault = {
   notes: IndexNote[];

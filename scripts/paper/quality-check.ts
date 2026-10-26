@@ -1,12 +1,12 @@
-#!/usr/bin/env tsx
+#!/usr/bin/env node
 /**
  * Verify analysis completeness and quality (0-100 score).
- * Usage: npx tsx scripts/paper/quality-check.ts <analysis-file> [--min-score 60]
+ * Usage: node scripts/paper/quality-check.ts <analysis-file> [--min-score 60]
  */
 
 import { readFileSync } from "fs";
 import { parseArgs } from "util";
-import type { QualityScore } from "./lib/types.js";
+import type { QualityScore } from "./lib/types.ts";
 
 const { values, positionals } = parseArgs({
   options: {
@@ -18,7 +18,7 @@ const { values, positionals } = parseArgs({
 
 const filePath = positionals[0];
 if (!filePath) {
-  console.error("Usage: npx tsx scripts/paper/quality-check.ts <analysis-file>");
+  console.error("Usage: node scripts/paper/quality-check.ts <analysis-file>");
   process.exit(1);
 }
 

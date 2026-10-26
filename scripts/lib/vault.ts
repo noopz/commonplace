@@ -1,8 +1,8 @@
 import { readFileSync, writeFileSync, existsSync, statSync, readdirSync, mkdirSync } from "fs";
-import { recordsOfKind, type RecordKind } from "../../hooks/lib/index/records.js";
+import { recordsOfKind, type RecordKind } from "../../hooks/lib/index/records.ts";
 import { join, resolve, dirname, relative as relPath } from "path";
-import { globFiles } from "./glob.js";
-import { isExcluded } from "../../hooks/lib/index/exclude.js";
+import { globFiles } from "./glob.ts";
+import { isExcluded } from "../../hooks/lib/index/exclude.ts";
 import type {
   VaultConfig,
   WikiConfig,
@@ -11,7 +11,7 @@ import type {
   SourceNote,
   ConceptNote,
   MocNote,
-} from "./types.js";
+} from "./types.ts";
 import {
   type VaultRegistry,
   EMPTY_REGISTRY as EMPTY_VAULT_REGISTRY,
@@ -23,7 +23,7 @@ import {
   parsePins,
   pinFor,
   type VaultPins,
-} from "./registry.js";
+} from "./registry.ts";
 
 const EMPTY_REGISTRY: DomainRegistry = { domains: {} };
 

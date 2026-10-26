@@ -64,7 +64,7 @@ interface Finding { check: string; severity: string; file: string; message: stri
 function runMocSize(vault: string): Finding[] {
   const stdout = execFileSync(
     process.execPath,
-    ["--import", "tsx", CLI, "--vault", vault, "--check", "moc-size", "--json"],
+    [CLI, "--vault", vault, "--check", "moc-size", "--json"],
     { encoding: "utf-8" },
   );
   const out = JSON.parse(stdout);
@@ -225,7 +225,7 @@ test("near-duplicate-content: flags abstraction twins, skips linked pairs and di
   try {
     const stdout = execFileSync(
       process.execPath,
-      ["--import", "tsx", CLI, "--vault", vault, "--check", "near-duplicate-content", "--json"],
+      [CLI, "--vault", vault, "--check", "near-duplicate-content", "--json"],
       { encoding: "utf-8" },
     );
     const out = JSON.parse(stdout);

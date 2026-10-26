@@ -1,4 +1,4 @@
-#!/usr/bin/env tsx
+#!/usr/bin/env node
 /**
  * commonplace records --kind source|concept|moc|domain|backlink [--match <text>] [--path <rel>]
  *
@@ -10,8 +10,8 @@
  * grepping v1's `.wiki/*-index.jsonl`, which v2 no longer writes.
  */
 import { parseArgs } from "node:util";
-import { resolveVault, readLegacyIndex } from "./lib/vault.js";
-import { RECORD_KINDS, type RecordKind } from "../hooks/lib/index/records.js";
+import { resolveVault, readLegacyIndex } from "./lib/vault.ts";
+import { RECORD_KINDS, type RecordKind } from "../hooks/lib/index/records.ts";
 
 const { values } = parseArgs({
   options: {

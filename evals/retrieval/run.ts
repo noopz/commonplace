@@ -1,4 +1,4 @@
-#!/usr/bin/env tsx
+#!/usr/bin/env node
 /**
  * Retrieval eval runner — commonplace's analog of Memora's ablation table.
  *
@@ -25,8 +25,8 @@ import { readFileSync, existsSync, appendFileSync, mkdirSync } from "fs";
 import { join, relative, dirname } from "path";
 import { parseArgs } from "node:util";
 import { execFileSync } from "child_process";
-import { resolveVault, loadIndexes } from "../../scripts/lib/vault.js";
-import { extractKeyTerms, seedCandidates } from "../../scripts/lib/seed.js";
+import { resolveVault, loadIndexes } from "../../scripts/lib/vault.ts";
+import { extractKeyTerms, seedCandidates } from "../../scripts/lib/seed.ts";
 import {
   seedRecall,
   aggregate,
@@ -34,7 +34,7 @@ import {
   reciprocalRankOfFirstExpected,
   type GoldQuestion,
   type QuestionResult,
-} from "./score.js";
+} from "./score.ts";
 
 const { values: args } = parseArgs({
   options: {

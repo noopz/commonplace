@@ -9,9 +9,9 @@
  * top-k pool. See scripts/connect.ts for the score rationale.
  */
 
-import type { SourceNote, ConceptNote, MocNote } from "./types.js";
-import { buildContentGraph, personalizedPageRank, type BacklinkRecord } from "./ppr.js";
-import { lexicalScores, topLexicalSeeds, type LexNode } from "./lexical.js";
+import type { SourceNote, ConceptNote, MocNote } from "./types.ts";
+import { buildContentGraph, personalizedPageRank, type BacklinkRecord } from "./ppr.ts";
+import { lexicalScores, topLexicalSeeds, type LexNode } from "./lexical.ts";
 
 export interface ConnectInput {
   sources: SourceNote[];

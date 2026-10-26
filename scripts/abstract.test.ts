@@ -114,7 +114,7 @@ function makeVault(): string {
 }
 
 function runCli(vault: string, args: string[]): string {
-  return execFileSync(process.execPath, ["--import", "tsx", CLI, "--vault", vault, "--json", ...args], {
+  return execFileSync(process.execPath, [CLI, "--vault", vault, "--json", ...args], {
     encoding: "utf-8",
   });
 }

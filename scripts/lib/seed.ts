@@ -8,8 +8,8 @@
  */
 
 import { relative, sep } from "node:path";
-import type { SourceNote, ConceptNote, MocNote } from "./types.js";
-import { tokenize } from "../../hooks/lib/core/text.js";
+import type { SourceNote, ConceptNote, MocNote } from "./types.ts";
+import { tokenize } from "../../hooks/lib/core/text.ts";
 
 /**
  * Extract deterministic key terms from a question: quoted phrases,

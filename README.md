@@ -129,4 +129,4 @@ Three-tier cost model:
 
 Then, in any session, point it at your notes: "set up commonplace for ~/Notes" (the wiki-init skill runs `commonplace init` and builds the index).
 
-Needs Claude Code 2.1.288 or later and Node.js 22 or later. `wiki-deep-link` also needs [Ollama](https://ollama.com) with `nomic-embed-text`; nothing else does.
+Needs Claude Code 2.1.288 or later and Node.js 22.18 or later (it runs the TypeScript directly). `wiki-deep-link` also needs [Ollama](https://ollama.com) with `nomic-embed-text`; nothing else does.

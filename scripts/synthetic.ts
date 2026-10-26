@@ -1,4 +1,4 @@
-#!/usr/bin/env tsx
+#!/usr/bin/env node
 /**
  * commonplace synthetic --scale N --out <dir> [--seed S] [--json]
  *
@@ -9,7 +9,7 @@
 import { parseArgs } from "node:util";
 import { existsSync, readdirSync } from "fs";
 import { resolve } from "path";
-import { generateSynthetic } from "./lib/synthetic.js";
+import { generateSynthetic } from "./lib/synthetic.ts";
 
 const { values } = parseArgs({
   options: {

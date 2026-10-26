@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { extractKeyTerms, seedCandidates, type SeedIndexes } from "./seed.ts";
-import type { SourceNote } from "./types.js";
+import type { SourceNote } from "./types.ts";
 
 function src(title: string, extra: Partial<SourceNote> = {}): SourceNote {
   return {

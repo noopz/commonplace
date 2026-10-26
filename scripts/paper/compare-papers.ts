@@ -1,7 +1,7 @@
-#!/usr/bin/env tsx
+#!/usr/bin/env node
 /**
  * Compare methodologies, results, and research progression across papers.
- * Usage: npx tsx scripts/paper/compare-papers.ts <analysis1.md> <analysis2.md> [...]
+ * Usage: node scripts/paper/compare-papers.ts <analysis1.md> <analysis2.md> [...]
  */
 
 import { readFileSync } from "fs";
@@ -16,7 +16,7 @@ const { values, positionals } = parseArgs({
 });
 
 if (positionals.length < 2) {
-  console.error("Usage: npx tsx scripts/paper/compare-papers.ts <file1> <file2> [...]");
+  console.error("Usage: node scripts/paper/compare-papers.ts <file1> <file2> [...]");
   process.exit(1);
 }
 

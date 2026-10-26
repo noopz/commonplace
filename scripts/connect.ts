@@ -1,4 +1,4 @@
-#!/usr/bin/env tsx
+#!/usr/bin/env node
 /**
  * commonplace connect — the "Connect" substrate. Given a query (or a starting
  * note), returns a small ranked POOL of notes that are graph-close to where you
@@ -19,9 +19,9 @@
 import { parseArgs } from "node:util";
 import { readFileSync, existsSync } from "fs";
 import { join, relative } from "path";
-import { resolveVault, loadIndexes, readLegacyIndex } from "./lib/vault.js";
-import { connectPool } from "./lib/connect.js";
-import type { BacklinkRecord } from "./lib/ppr.js";
+import { resolveVault, loadIndexes, readLegacyIndex } from "./lib/vault.ts";
+import { connectPool } from "./lib/connect.ts";
+import type { BacklinkRecord } from "./lib/ppr.ts";
 
 const { values } = parseArgs({
   options: {

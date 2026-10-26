@@ -1,4 +1,4 @@
-#!/usr/bin/env tsx
+#!/usr/bin/env node
 /**
  * Vault pruning — dream-inspired consolidation for the knowledge base.
  * Identifies low-value concept stubs and removes them (or reports candidates).
@@ -9,16 +9,16 @@
  *   Consolidate: Check for broader concepts that can absorb references
  *   Prune:       Delete files (with --execute), output cleanup instructions
  *
- * Usage: npx tsx scripts/prune.ts --vault <path> [--execute] [--verbose]
+ * Usage: node scripts/prune.ts --vault <path> [--execute] [--verbose]
  */
 
 import { readFileSync, unlinkSync, existsSync } from "fs";
 import { basename } from "path";
 import { parseArgs } from "util";
-import { resolveVault, ensureIndex, loadIndexes, findAllNotes } from "./lib/vault.js";
-import { parseNote, extractWikilinks, extractAllFrontmatterLinks } from "./lib/frontmatter.js";
-import { isMalformedConceptName } from "./lib/domain.js";
-import type { ConceptNote, PruneResult } from "./lib/types.js";
+import { resolveVault, ensureIndex, loadIndexes, findAllNotes } from "./lib/vault.ts";
+import { parseNote, extractWikilinks, extractAllFrontmatterLinks } from "./lib/frontmatter.ts";
+import { isMalformedConceptName } from "./lib/domain.ts";
+import type { ConceptNote, PruneResult } from "./lib/types.ts";
 
 const { values } = parseArgs({
   options: {

@@ -1,4 +1,4 @@
-#!/usr/bin/env tsx
+#!/usr/bin/env node
 /**
  * Tiered lexical seed helper — the deterministic seed step for wiki-query.
  * Matches query terms against explicit key spaces in order (A abstraction,
@@ -10,8 +10,8 @@
 
 import { parseArgs } from "node:util";
 import { relative } from "path";
-import { resolveVault, loadIndexes } from "./lib/vault.js";
-import { extractKeyTerms, seedCandidates, type SeedOptions } from "./lib/seed.js";
+import { resolveVault, loadIndexes } from "./lib/vault.ts";
+import { extractKeyTerms, seedCandidates, type SeedOptions } from "./lib/seed.ts";
 
 const { values } = parseArgs({
   options: {

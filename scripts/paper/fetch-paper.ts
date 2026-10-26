@@ -1,13 +1,13 @@
-#!/usr/bin/env tsx
+#!/usr/bin/env node
 /**
  * Download papers from arXiv, HuggingFace, or direct URLs.
- * Usage: npx tsx scripts/paper/fetch-paper.ts <url-or-arxiv-id> [--output-dir <dir>]
+ * Usage: node scripts/paper/fetch-paper.ts <url-or-arxiv-id> [--output-dir <dir>]
  */
 
 import { writeFileSync, mkdirSync, existsSync } from "fs";
 import { join, basename } from "path";
 import { parseArgs } from "util";
-import { getPdfInfo } from "./lib/pdf.js";
+import { getPdfInfo } from "./lib/pdf.ts";
 
 const { values, positionals } = parseArgs({
   options: {
@@ -18,7 +18,7 @@ const { values, positionals } = parseArgs({
 
 const input = positionals[0];
 if (!input) {
-  console.error("Usage: npx tsx scripts/paper/fetch-paper.ts <url-or-arxiv-id> [--output-dir <dir>]");
+  console.error("Usage: node scripts/paper/fetch-paper.ts <url-or-arxiv-id> [--output-dir <dir>]");
   process.exit(1);
 }
 

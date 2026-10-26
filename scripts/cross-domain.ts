@@ -1,13 +1,13 @@
-#!/usr/bin/env tsx
+#!/usr/bin/env node
 /**
  * Find cross-domain bridge concepts and recent sources that activate them.
  * Bridge concept = a concept that appears in 2+ domains.
- * Usage: npx tsx scripts/cross-domain.ts --vault <path> [--since <ISO-date>]
+ * Usage: node scripts/cross-domain.ts --vault <path> [--since <ISO-date>]
  */
 
 import { parseArgs } from "util";
-import { resolveVault, ensureIndex, loadIndexes, loadDomainRegistry } from "./lib/vault.js";
-import { canLink } from "./lib/domain.js";
+import { resolveVault, ensureIndex, loadIndexes, loadDomainRegistry } from "./lib/vault.ts";
+import { canLink } from "./lib/domain.ts";
 
 const { values } = parseArgs({
   options: {

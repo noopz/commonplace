@@ -17,8 +17,8 @@
  * Pure.
  */
 
-import type { VaultView } from "../index/view.js";
-import { pushPpr } from "../graph/walk.js";
+import type { VaultView } from "../index/view.ts";
+import { pushPpr } from "../graph/walk.ts";
 
 export type ConnectCandidate = { id: number; ppr: number; lex: number; score: number };
 

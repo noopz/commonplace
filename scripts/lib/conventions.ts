@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from "fs";
 import { join } from "path";
-import type { ParsedNote } from "./types.js";
+import type { ParsedNote } from "./types.ts";
 
 /**
  * Vault-specific quality conventions, read from `.wiki/conventions.json`.

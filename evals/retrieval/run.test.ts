@@ -14,7 +14,7 @@ function runEval(extraArgs: string[]): { stdout: string } {
   try {
     const stdout = execFileSync(
       process.execPath,
-      ["--import", "tsx", RUN, "--vault", vaultRoot, "--gold", GOLD, "--json", ...extraArgs],
+      [RUN, "--vault", vaultRoot, "--gold", GOLD, "--json", ...extraArgs],
       { encoding: "utf-8" },
     );
     return { stdout };
@@ -58,7 +58,7 @@ test("--history appends a JSONL record to the vault's .wiki", () => {
   try {
     execFileSync(
       process.execPath,
-      ["--import", "tsx", RUN, "--vault", vaultRoot, "--gold", GOLD, "--history"],
+      [RUN, "--vault", vaultRoot, "--gold", GOLD, "--history"],
       { encoding: "utf-8" },
     );
     const historyPath = join(vaultRoot, ".wiki", "eval-history.jsonl");
@@ -84,7 +84,7 @@ test("--answers scores transcripts for citation overlap and groundedness", () =>
     }));
     const stdout = execFileSync(
       process.execPath,
-      ["--import", "tsx", RUN, "--vault", vaultRoot, "--gold", GOLD, "--json", "--answers", answersDir],
+      [RUN, "--vault", vaultRoot, "--gold", GOLD, "--json", "--answers", answersDir],
       { encoding: "utf-8" },
     );
     const out = JSON.parse(stdout);
@@ -107,21 +107,21 @@ test("unknown --seed-mode fails loudly", () => {
     assert.throws(() =>
       execFileSync(
         process.execPath,
-        ["--import", "tsx", RUN, "--vault", vaultRoot, "--gold", GOLD, "--seed-mode", "vector"],
+        [RUN, "--vault", vaultRoot, "--gold", GOLD, "--seed-mode", "vector"],
         { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] },
       ),
     );
     assert.throws(() =>
       execFileSync(
         process.execPath,
-        ["--import", "tsx", RUN, "--vault", vaultRoot, "--gold", GOLD, "--seed-mode", "flat", "--no-abstraction"],
+        [RUN, "--vault", vaultRoot, "--gold", GOLD, "--seed-mode", "flat", "--no-abstraction"],
         { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] },
       ),
     );
     assert.throws(() =>
       execFileSync(
         process.execPath,
-        ["--import", "tsx", RUN, "--vault", vaultRoot, "--gold", GOLD, "--seed-mode", "flat", "--no-authority"],
+        [RUN, "--vault", vaultRoot, "--gold", GOLD, "--seed-mode", "flat", "--no-authority"],
         { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] },
       ),
     );
@@ -136,7 +136,7 @@ test("tiered seeding closes the paraphrase gap via the abstraction tier (Memora 
     const runWith = (extra: string[]) => {
       const stdout = execFileSync(
         process.execPath,
-        ["--import", "tsx", RUN, "--vault", vaultRoot, "--gold", GOLD, "--json", ...extra],
+        [RUN, "--vault", vaultRoot, "--gold", GOLD, "--json", ...extra],
         { encoding: "utf-8" },
       );
       const out = JSON.parse(stdout);

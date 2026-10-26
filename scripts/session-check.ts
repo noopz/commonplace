@@ -1,28 +1,24 @@
-#!/usr/bin/env tsx
+#!/usr/bin/env node
 /**
- * The one remaining shell hook (SessionStart). Two jobs (Claude Code itself
- * installs node_modules from the lockfile and sweeps orphaned versions):
+ * The one remaining shell hook (SessionStart): the module WATCHDOG. Claude Code
+ * itself installs node_modules from the lockfile and sweeps orphaned versions,
+ * and Node runs the TypeScript directly, so nothing is built here.
  *
- *   1. Keep `dist/` fresh: rebuild the esbuild bundle when a source is newer
- *      than its stamp (after a plugin update), so `commonplace <cmd>` runs on
- *      plain node instead of a tsx cold start.
- *   2. WATCHDOG. v2 has no shell fallback for the guards and context — the
- *      in-process module IS the plugin. If modules are disabled (org policy, an
- *      old build), the plugin silently does almost nothing. So: this script
- *      increments `.runtime/shell-sessions` every session; the module resets it
- *      to 0 at its own session.start and writes `.runtime/module-alive.json`.
- *      Two consecutive sessions without the module → print a systemMessage.
- *      The counter (not this session's stamp) is what's checked, because this
- *      hook and the module's session.start run concurrently. `compact` and
- *      `clear` are skipped: they fire this hook but not the module's start.
+ * v2 has no shell fallback for the guards and context — the in-process module
+ * IS the plugin. If modules are disabled (org policy, an old build), the plugin
+ * silently does almost nothing. So: this script increments
+ * `.runtime/shell-sessions` every session; the module resets it to 0 at its
+ * own session.start and writes `.runtime/module-alive.json`. Two consecutive
+ * sessions without the module → print a systemMessage. The counter (not this
+ * session's stamp) is what's checked, because this hook and the module's
+ * session.start run concurrently. `compact` and `clear` are skipped: they fire
+ * this hook but not the module's start.
  *
  * Prints at most one JSON line on stdout (`{"systemMessage": ...}`); never
  * fails the session.
  */
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
-import { spawnSync } from "node:child_process";
-import { newestSourceMtime } from "./lib/build-stamp.js";
 
 const root = join(import.meta.dirname!, "..");
 const runtime = join(root, ".runtime");
@@ -32,19 +28,7 @@ function readJson<T>(p: string): T | null {
   try { return JSON.parse(readFileSync(p, "utf-8")) as T; } catch { return null; }
 }
 
-// 1. dist freshness
-try {
-  const stamp = readJson<{ newestSourceMtime: number }>(join(root, "dist", "stamp.json"));
-  const stale = !stamp || newestSourceMtime(root) > stamp.newestSourceMtime;
-  const esbuild = join(root, "node_modules", "esbuild");
-  if (stale && existsSync(esbuild)) {
-    spawnSync(process.execPath, [join(root, "node_modules", ".bin", "tsx"), join(root, "scripts", "build.ts")], {
-      cwd: root, stdio: "ignore", timeout: 60_000,
-    });
-  }
-} catch { /* tsx fallback still works */ }
-
-// 2. watchdog. The shell SessionStart also fires on `compact` and `clear`,
+// The shell SessionStart also fires on `compact` and `clear`,
 // where the module's session.start does not (module memory survives both), so
 // counting those would report a live module as missing after two compacts.
 function hookSource(): string {

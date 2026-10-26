@@ -58,7 +58,7 @@ function viaBin(data: string, cwd: string, extra: string[] = []): string | null 
 }
 
 function viaResolver(data: string, cwd: string): string | null {
-  const out = execFileSync(process.execPath, ["--import", "tsx", vaultCli, "show", "--json"], {
+  const out = execFileSync(process.execPath, [vaultCli, "show", "--json"], {
     encoding: "utf-8",
     cwd: repo,
     env: { ...process.env, CLAUDE_PLUGIN_DATA: data, COMMONPLACE_CALLER_CWD: cwd, HOME: data },

@@ -7,7 +7,7 @@
  */
 
 import { basename } from "path";
-import { parseNote } from "./frontmatter.js";
+import { parseNote } from "./frontmatter.ts";
 import {
   ATTACHMENT_EXTS,
   buildNames,
@@ -17,7 +17,7 @@ import {
   stemOf,
   type NameNode,
   type Names,
-} from "../../hooks/lib/graph/resolver.js";
+} from "../../hooks/lib/graph/resolver.ts";
 
 export { ATTACHMENT_EXTS, buildNames, claimants, normalizeKey, resolve, stemOf };
 export type { NameNode, Names };

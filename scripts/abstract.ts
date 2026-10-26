@@ -1,4 +1,4 @@
-#!/usr/bin/env tsx
+#!/usr/bin/env node
 /**
  * Backfill `abstraction:` frontmatter across a vault's source + concept
  * notes, deriving deterministically from existing body text (## Summary
@@ -17,15 +17,15 @@
 import { readFileSync, writeFileSync, existsSync } from "fs";
 import { join } from "path";
 import { parseArgs } from "node:util";
-import { resolveVault, findAllNotes, classifyNote } from "./lib/vault.js";
-import { parseNote, isStub } from "./lib/frontmatter.js";
+import { resolveVault, findAllNotes, classifyNote } from "./lib/vault.ts";
+import { parseNote, isStub } from "./lib/frontmatter.ts";
 import {
   deriveAbstraction,
   extractSummaryParagraph,
   extractConceptDefinition,
   insertFrontmatterAbstraction,
   hasClosedFrontmatter,
-} from "./lib/abstract.js";
+} from "./lib/abstract.ts";
 
 const { values } = parseArgs({
   options: {

@@ -1,4 +1,4 @@
-#!/usr/bin/env tsx
+#!/usr/bin/env node
 /**
  * `commonplace dates [--dry-run] [--json]` — backfill `published:` on source
  * notes from their labelled source line (scripts/lib/dates.ts). A note that
@@ -9,10 +9,10 @@
 import { readFileSync, writeFileSync } from "fs";
 import { join } from "path";
 import { parseArgs } from "node:util";
-import { matter } from "./lib/matter.js";
-import { resolveVault } from "./lib/vault.js";
-import { loadIndexNotes } from "./lib/index-notes.js";
-import { derivePublished, insertFrontmatterPublished } from "./lib/dates.js";
+import { matter } from "./lib/matter.ts";
+import { resolveVault } from "./lib/vault.ts";
+import { loadIndexNotes } from "./lib/index-notes.ts";
+import { derivePublished, insertFrontmatterPublished } from "./lib/dates.ts";
 
 const { values: args } = parseArgs({
   options: {

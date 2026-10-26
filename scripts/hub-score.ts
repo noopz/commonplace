@@ -1,4 +1,4 @@
-#!/usr/bin/env tsx
+#!/usr/bin/env node
 /**
  * HITS hub/authority scoring over the vault's link graph.
  * Separates administrative aggregators (MOCs that link to everything — high
@@ -6,14 +6,14 @@
  * regardless of how much they link out) — the fix for in-degree alone
  * conflating "connects to everything" with "is actually important".
  *
- * Usage: npx tsx scripts/hub-score.ts --vault <path> [--top <n>] [--json]
+ * Usage: node scripts/hub-score.ts --vault <path> [--top <n>] [--json]
  */
 
 import { readFileSync, existsSync } from "fs";
 import { join, relative } from "path";
 import { parseArgs } from "util";
-import { resolveVault, ensureIndex, loadIndexes, readLegacyIndex } from "./lib/vault.js";
-import { computeHITS, type HitsEdge, type HitsScore } from "./lib/hits.js";
+import { resolveVault, ensureIndex, loadIndexes, readLegacyIndex } from "./lib/vault.ts";
+import { computeHITS, type HitsEdge, type HitsScore } from "./lib/hits.ts";
 
 const { values } = parseArgs({
   options: {

@@ -1,4 +1,4 @@
-#!/usr/bin/env tsx
+#!/usr/bin/env node
 /**
  * commonplace eval:scale [--scales 1,10,50] [--seed S] [--json] [--keep]
  *
@@ -9,7 +9,7 @@
  * scratch HOME / CLAUDE_PLUGIN_DATA so registry lookups see nothing.
  *
  * Timings are wall-clock of a spawned `node bin/commonplace <cmd>`, so they
- * include process start (tsx, or the dist bundle when fresh). The
+ * include process start (node with type stripping). The
  * `cli.startup` row measures that floor so the per-op rows can be read net.
  *
  * The OPS table is the extension point: later phases flip a `pending` row to
@@ -18,11 +18,11 @@
  */
 import { parseArgs } from "node:util";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, rmSync, readdirSync, statSync, existsSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, readdirSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { generateSynthetic, sampleQueries, type SyntheticResult } from "../../scripts/lib/synthetic.js";
-import { measureModule, type ModuleRows } from "./module-ops.js";
+import { generateSynthetic, sampleQueries, type SyntheticResult } from "../../scripts/lib/synthetic.ts";
+import { measureModule, type ModuleRows } from "./module-ops.ts";
 
 const ROOT = join(import.meta.dirname!, "..", "..");
 const BIN = join(ROOT, "bin", "commonplace");
@@ -195,7 +195,6 @@ async function main() {
   }
   const seed = Number(values.seed);
   const log = (s: string) => { if (!values.json) process.stderr.write(s + "\n"); };
-  const distFresh = existsSync(join(ROOT, "dist", "stamp.json")) && !process.env.COMMONPLACE_NO_DIST;
 
   const results: Record<string, ScaleResult> = {};
   for (const s of scales) {
@@ -208,7 +207,7 @@ async function main() {
     console.log(JSON.stringify({ scales, seed, results }, null, 2));
   } else {
     console.log(renderTable(scales, results));
-    console.log(`\nseed ${seed}; CLI runner: ${distFresh ? "dist bundle if fresh, else tsx" : "tsx"}; node ${process.version}`);
+    console.log(`\nseed ${seed}; node ${process.version}`);
   }
 }
 

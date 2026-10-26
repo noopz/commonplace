@@ -1,7 +1,7 @@
 import { readFileSync } from "fs";
-import { matter } from "./matter.js";
-import type { ParsedNote, NoteType, ValidationError } from "./types.js";
-import { classifyNote } from "./vault.js";
+import { matter } from "./matter.ts";
+import type { ParsedNote, NoteType, ValidationError } from "./types.ts";
+import { classifyNote } from "./vault.ts";
 
 /**
  * Strip malformed date lines (P25-11-07) from raw content before parsing.

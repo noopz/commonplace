@@ -1,14 +1,14 @@
-#!/usr/bin/env tsx
+#!/usr/bin/env node
 /**
  * Intelligently extract critical paper content based on structure.
  * Adapts strategy to paper length: <20 pages (full), 20-50 (critical), 50+ (minimal).
- * Usage: npx tsx scripts/paper/smart-extract.ts <pdf-path> [--plan-only] [--max-tokens 100000]
+ * Usage: node scripts/paper/smart-extract.ts <pdf-path> [--plan-only] [--max-tokens 100000]
  */
 
 import { writeFileSync } from "fs";
 import { parseArgs } from "util";
-import { extractPages, getPdfInfo, estimateTokens } from "./lib/pdf.js";
-import type { DetectedSection, ExtractionStrategy, ExtractedContent } from "./lib/types.js";
+import { extractPages, getPdfInfo, estimateTokens } from "./lib/pdf.ts";
+import type { DetectedSection, ExtractionStrategy, ExtractedContent } from "./lib/types.ts";
 
 const { values, positionals } = parseArgs({
   options: {
@@ -21,7 +21,7 @@ const { values, positionals } = parseArgs({
 
 const pdfPath = positionals[0];
 if (!pdfPath) {
-  console.error("Usage: npx tsx scripts/paper/smart-extract.ts <pdf-path> [--plan-only] [--max-tokens N]");
+  console.error("Usage: node scripts/paper/smart-extract.ts <pdf-path> [--plan-only] [--max-tokens N]");
   process.exit(1);
 }
 

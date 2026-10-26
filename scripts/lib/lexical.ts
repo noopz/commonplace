@@ -5,7 +5,7 @@
  * Lexical only, no embeddings (CLAUDE.md "No RAG").
  */
 
-import { tokenize as coreTokenize } from "../../hooks/lib/core/text.js";
+import { tokenize as coreTokenize } from "../../hooks/lib/core/text.ts";
 
 /** node id -> tokenizable text (title + abstraction + tags/anchors, caller's choice). */
 export interface LexNode {

@@ -1,4 +1,4 @@
-#!/usr/bin/env tsx
+#!/usr/bin/env node
 /**
  * wiki-supersede CLI — deterministic file ops + heuristic-classified scan.
  *
@@ -37,7 +37,7 @@ import {
   existsSync,
   appendFileSync,
 } from "fs";
-import { appendLineage } from "./lib/lineage.js";
+import { appendLineage } from "./lib/lineage.ts";
 import { basename, dirname, join, resolve, relative } from "path";
 import { parseArgs } from "util";
 import {
@@ -45,9 +45,9 @@ import {
   ensureIndex,
   loadIndexes,
   findAllNotes,
-} from "./lib/vault.js";
-import { parseNote, extractWikilinks } from "./lib/frontmatter.js";
-import { buildNameIndex, normalizeWikilinkTarget } from "./lib/resolve.js";
+} from "./lib/vault.ts";
+import { parseNote, extractWikilinks } from "./lib/frontmatter.ts";
+import { buildNameIndex, normalizeWikilinkTarget } from "./lib/resolve.ts";
 
 const { values } = parseArgs({
   options: {

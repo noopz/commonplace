@@ -1,4 +1,4 @@
-#!/usr/bin/env tsx
+#!/usr/bin/env node
 /**
  * Inspect the vault registry.
  *   commonplace vaults [--list] [--json]
@@ -9,8 +9,8 @@
  * ask which vault; 1 → use it; >1 → ask the user to disambiguate.
  */
 import { parseArgs } from "node:util";
-import { loadVaultRegistry } from "./lib/vault.js";
-import { matchByPhrase } from "./lib/registry.js";
+import { loadVaultRegistry } from "./lib/vault.ts";
+import { matchByPhrase } from "./lib/registry.ts";
 
 const { values } = parseArgs({
   options: {

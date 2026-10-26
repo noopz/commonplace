@@ -1,14 +1,14 @@
-#!/usr/bin/env tsx
+#!/usr/bin/env node
 /**
  * Scan the vault's raw/ folder and report ingest status per file.
  * A file is "ingested" if any source note body contains a reference to its filename.
- * Usage: npx tsx scripts/raw.ts --vault <path>
+ * Usage: node scripts/raw.ts --vault <path>
  */
 
 import { readdirSync, readFileSync, statSync, existsSync } from "fs";
 import { join, extname, basename } from "path";
 import { parseArgs } from "util";
-import { resolveVault, loadWikiConfig, findAllNotes, classifyNote } from "./lib/vault.js";
+import { resolveVault, loadWikiConfig, findAllNotes, classifyNote } from "./lib/vault.ts";
 
 const { values } = parseArgs({
   options: {

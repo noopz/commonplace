@@ -1,24 +1,24 @@
-#!/usr/bin/env tsx
+#!/usr/bin/env node
 /**
  * Vault quality score — the val_bpb for knowledge bases.
  * Computes a deterministic 0-100 score from indexes, lint, and git state.
  * Zero LLM cost (Tier 1). Appends to .wiki/score-history.json for trend tracking.
  *
- * Usage: npx tsx scripts/vault-score.ts --vault <path> [--verbose]
+ * Usage: node scripts/vault-score.ts --vault <path> [--verbose]
  */
 
 import { readFileSync, writeFileSync, existsSync } from "fs";
 import { join } from "path";
 import { parseArgs } from "util";
-import { execSync } from "child_process";
-import { resolveVault, ensureIndex, loadIndexes, findAllNotes } from "./lib/vault.js";
-import { parseNote, extractWikilinks } from "./lib/frontmatter.js";
-import { buildNameIndex, normalizeWikilinkTarget } from "./lib/resolve.js";
+import { execFileSync, execSync } from "child_process";
+import { resolveVault, ensureIndex, loadIndexes, findAllNotes } from "./lib/vault.ts";
+import { parseNote, extractWikilinks } from "./lib/frontmatter.ts";
+import { buildNameIndex, normalizeWikilinkTarget } from "./lib/resolve.ts";
 import type {
   LintResult,
   VaultScore,
   VaultScoreDimension,
-} from "./lib/types.js";
+} from "./lib/types.ts";
 
 const { values } = parseArgs({
   options: {
@@ -50,10 +50,10 @@ const { sources: sourceIndex, concepts: conceptIndex, mocs: mocIndex } = indexes
 
 let lintResult: LintResult | null = null;
 try {
-  const scriptDir = new URL(".", import.meta.url).pathname;
-  const lintOutput = execSync(
-    `npx tsx ${scriptDir}lint.ts --vault ${config.vaultPath} --json`,
-    { stdio: "pipe", timeout: 60000 }
+  const lintOutput = execFileSync(
+    process.execPath,
+    [join(import.meta.dirname!, "lint.ts"), "--vault", config.vaultPath, "--json"],
+    { stdio: "pipe", timeout: 60000 },
   );
   lintResult = JSON.parse(lintOutput.toString());
 } catch {

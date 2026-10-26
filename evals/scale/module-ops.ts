@@ -10,14 +10,14 @@
 import { readFileSync, appendFileSync, statSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { join } from "node:path";
-import { parseNote } from "../../hooks/lib/index/parse.js";
-import { buildIndex, shardFor, type IndexNote } from "../../hooks/lib/index/model.js";
-import { serializeIndex } from "../../hooks/lib/index/layout.js";
-import { journalNote } from "../../hooks/lib/index/journal.js";
-import { VaultIndex, type IndexPorts } from "../../hooks/lib/index/load.js";
-import { findNotesArgv } from "../../hooks/lib/index/exclude.js";
-import type { DomainMap } from "../../hooks/lib/core/scope.js";
-import * as noun from "../../hooks/lib/core/noun.js";
+import { parseNote } from "../../hooks/lib/index/parse.ts";
+import { buildIndex, shardFor, type IndexNote } from "../../hooks/lib/index/model.ts";
+import { serializeIndex } from "../../hooks/lib/index/layout.ts";
+import { journalNote } from "../../hooks/lib/index/journal.ts";
+import { VaultIndex, type IndexPorts } from "../../hooks/lib/index/load.ts";
+import { findNotesArgv } from "../../hooks/lib/index/exclude.ts";
+import type { DomainMap } from "../../hooks/lib/core/scope.ts";
+import * as noun from "../../hooks/lib/core/noun.ts";
 
 export type ModuleRows = {
   graphRebuild: number;

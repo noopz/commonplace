@@ -12,7 +12,7 @@
  *   1. "Never use Python or shell one-liners to parse JSON" — the vault's
  *      `.wiki/*.jsonl` indexes are for Grep, JSON config is for Read, and the
  *      plugin's scripts are reached through the `commonplace` CLI, never by
- *      `npx tsx scripts/...`.
+ *      `node scripts/...`.
  *   2. Private vault content must never land in a public repo — test fixtures
  *      are invented, not copied.
  *
@@ -255,15 +255,15 @@ function isCommonplaceJsonStage(stage: string): boolean {
 
 /*
  * There used to be a PLUGIN_SCRIPTS basename allowlist here, so that a bare
- * `npx tsx scripts/lint.ts` was recognised as a plugin script without knowing
+ * `node scripts/lint.ts` was recognised as a plugin script without knowing
  * the cwd. It was removed: this hook is GLOBAL, and the list contained
  * `seed`, `index`, `init`, `lint`, `validate` and `log` — so it denied
- * `npx tsx scripts/seed.ts` in every Prisma or Drizzle project on the machine.
+ * `node scripts/seed.ts` in every Prisma or Drizzle project on the machine.
  * A guard that blocks unrelated repos' ordinary work is worse than a guard
  * that occasionally misses.
  *
  * It was also wrong for the one repo it targeted: inside commonplace itself,
- * running `npx tsx scripts/<name>.ts` by hand is the only way to exercise
+ * running `node scripts/<name>.ts` by hand is the only way to exercise
  * UNCOMMITTED script code, because the `commonplace` bin runs the installed
  * plugin's copy. Only an explicit plugin path is denied now.
  */

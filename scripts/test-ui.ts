@@ -1,4 +1,4 @@
-#!/usr/bin/env tsx
+#!/usr/bin/env node
 /**
  * `commonplace test:ui` — run `ui-tests/*.test.tsx` under `claude plugin test`.
  *

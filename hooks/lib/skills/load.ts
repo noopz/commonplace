@@ -18,8 +18,8 @@
  * Pure: register.tsx finds and reads the files and computes the hashes.
  */
 
-import { parseFrontmatter } from "../index/yaml.js";
-import { findPrivateMatches } from "../guard.js";
+import { parseFrontmatter } from "../index/yaml.ts";
+import { findPrivateMatches } from "../guard.ts";
 
 export const SKILL_NAME_RE = /^[a-z0-9][a-z0-9-]{0,39}$/;
 export const SKILL_BODY_MAX = 20_000;
