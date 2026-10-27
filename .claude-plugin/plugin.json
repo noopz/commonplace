@@ -1,6 +1,6 @@
 {
   "name": "commonplace",
-  "version": "2.4.2",
+  "version": "2.4.3",
   "description": "A knowledge vault Claude reads and keeps for any folder of notes: graph-indexed vault tools, private domains that stay sealed, connections to what you already wrote surfaced under answers, and [[note]] links in replies that are checked against the vault.",
   "homepage": "https://github.com/noopz/commonplace",
   "license": "MIT",

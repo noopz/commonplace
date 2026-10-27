@@ -2471,16 +2471,22 @@ export const register: Register = (on, options) => {
     // Props are a strict allowlist (BoxProps / TextProps) and ONE bad prop
     // fails the whole tree — at which point the engine silently draws its own
     // component instead. No `key` anywhere: only Button accepts one.
+    // A card asks for a press, so it is drawn in the vault tools' cyan with the
+    // first (primary) button bold; a gray card read as ordinary reply text.
     const ours = card ? (
       <Box flexDirection="row">
         <Box flexShrink={1}>
-          <Text wrap="truncate-end">
+          <Text color="cyan" wrap="truncate-end">
             {line.text}
           </Text>
         </Box>
         <Box flexShrink={0} flexDirection="row">
-          {cardButtons(card).map(([action, label]) => (
-            <Button key={`cp-${card.kind}-${action}`} label={label} onPress={() => void bandPress($, action)} />
+          {cardButtons(card).map(([action, label], i) => (
+            <Button key={`cp-${card.kind}-${action}`} label={label} onPress={() => void bandPress($, action)}>
+              <Text color="cyan" bold={i === 0} dimColor={i !== 0}>
+                {label}
+              </Text>
+            </Button>
           ))}
         </Box>
       </Box>
