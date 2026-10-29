@@ -133,6 +133,22 @@ export const VAULT_SKILL_SPEC = {
   },
 } as const;
 
+export const VAULT_LINEAGE_SPEC = {
+  name: "vault_lineage",
+  description:
+    "History of how the user's vault revised a note's claims: which newer notes corrected, changed, bounded, contested or " +
+    "withdrew support from them, why, in what order, and what was reverted or left pending. Use before relying on an old claim, " +
+    "or to answer what the vault believed earlier.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      note: { type: "string", description: "Path or title of a note; omit for the most recent revisions vault-wide." },
+      limit: { type: "number", description: "Maximum entries (default 15)." },
+      vault: VAULT_ARG,
+    },
+  },
+} as const;
+
 export const TOOL_SPECS = [
   VAULT_SEARCH_SPEC,
   VAULT_NOTE_SPEC,
@@ -141,6 +157,7 @@ export const TOOL_SPECS = [
   VAULT_NEIGHBOURHOOD_SPEC,
   VAULT_LIST_SPEC,
   VAULT_SKILL_SPEC,
+  VAULT_LINEAGE_SPEC,
 ] as const;
 
 /** Tools listed in every prompt; the rest are found through ToolSearch. */

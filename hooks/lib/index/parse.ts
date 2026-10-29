@@ -11,6 +11,7 @@
 
 import { parseFrontmatter, type YamlMap, type YamlValue } from "./yaml.ts";
 import { normalizeKey, stemOf } from "../graph/resolver.ts";
+import { fmEdges, type EdgeRel } from "../revision/edges.ts";
 
 export type NoteKind = "source" | "concept" | "moc" | "other";
 
@@ -22,7 +23,9 @@ export type LinkKind =
   | "comparesWith"
   | "usesMethod"
   | "supersedes"
-  | "contests";
+  | "contests"
+  | "bounds"
+  | "withdrawsSupport";
 
 export interface ParsedLink {
   /** Inner text as written: `Target#h|display` (table `\|` unescaped). */
@@ -37,6 +40,8 @@ export interface ParsedLink {
   sentence: string;
   /** 1-based ordinal among this note's links with the same kind and target. */
   n: number;
+  /** A revision edge's claim, reason and conditions (mapping-form frontmatter). */
+  rel?: EdgeRel;
 }
 
 export interface ParsedNote {
@@ -90,6 +95,10 @@ const FM_LINK_FIELDS: Array<[string, LinkKind]> = [
   ["usesMethod", "usesMethod"],
   ["supersedes", "supersedes"],
   ["contests", "contests"],
+  ["bounds", "bounds"],
+  ["withdraws_support", "withdrawsSupport"],
+  ["withdraws-support", "withdrawsSupport"],
+  ["withdrawsSupport", "withdrawsSupport"],
 ];
 
 export function classify(relPath: string, fm: YamlMap, opts: ParseOptions = {}): NoteKind {
@@ -241,23 +250,6 @@ function fallbackAbstraction(lines: string[], inFence: boolean[]): string {
   return "";
 }
 
-/** Strings named by a frontmatter link field: `"[[X]]"`, `[[X]]` (YAML nested list), arrays of either. */
-function fmLinkStrings(v: YamlValue | undefined): string[] {
-  if (typeof v === "string") return [...v.matchAll(/\[\[([^\[\]]+)\]\]/g)].map((m) => m[1]);
-  if (!Array.isArray(v)) return [];
-  const out: string[] = [];
-  for (const item of v) {
-    if (typeof item === "string") out.push(...fmLinkStrings(item));
-    // Unquoted wikilinks parse (in YAML and gray-matter alike) as nested lists:
-    // `field: [[X]]` → [["X"]] (item ["X"]); `- [[X]]` → [[["X"]]] (item [["X"]]).
-    else if (Array.isArray(item) && item.length === 1) {
-      const inner = Array.isArray(item[0]) && item[0].length === 1 ? item[0][0] : item[0];
-      if (typeof inner === "string") out.push(inner);
-    }
-  }
-  return out;
-}
-
 /**
  * A frontmatter date as `YYYY`, `YYYY-MM` or `YYYY-MM-DD`, else undefined.
  * The shared parser keeps a date as the string written; a Date from any other
@@ -302,16 +294,18 @@ export function parseNote(path: string, text: string, opts: ParseOptions = {}): 
 
   // Frontmatter relations first: they are the note's declared structure.
   for (const [field, lk] of FM_LINK_FIELDS) {
-    for (const inner of fmLinkStrings(fm[field])) {
+    for (const { inner, rel } of fmEdges(fm[field])) {
       const rl = readLink(inner, false);
       if (!rl) continue;
+      const claim = rel?.claim ? ` — claim "${rel.claim}"` : "";
       push({
         raw: rl.raw,
         target: rl.target,
         ...(rl.display ? { display: rl.display } : {}),
         kind: lk,
         heading: "",
-        sentence: `${field}: [[${rl.raw}]]`.slice(0, SENTENCE_MAX),
+        sentence: `${field}: [[${rl.raw}]]${claim}`.slice(0, SENTENCE_MAX),
+        ...(rel ? { rel } : {}),
       });
     }
   }

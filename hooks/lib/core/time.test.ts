@@ -87,13 +87,13 @@ test("search pointers carry both clocks and the status; age alone never labels a
   assert.ok(!text.includes("Gamma"), text);
 });
 
-test("vault_note heads the note with its clocks and status", async () => {
+test("vault_note heads the note with its status, then its clocks", async () => {
   const { index, ctx } = setup();
   await index.load();
   const n = await noun.note(ctx(), { ref: "Kestrel Ledger Result" });
   assert.ok(!("error" in n));
   const text = formatNote(n);
-  assert.match(text.split("\n").slice(0, 3).join("\n"), /published 2025-11-02 · added 2026-02-10\n⚠ superseded by \[\[Kestrel Ledger Revisited\]\]/);
+  assert.match(text.split("\n").slice(0, 3).join("\n"), /⚠ superseded by \[\[Kestrel Ledger Revisited\]\].*\[unreviewed\]\npublished 2025-11-02 · added 2026-02-10/);
 });
 
 test("timeLines: nothing to say means no lines", () => {

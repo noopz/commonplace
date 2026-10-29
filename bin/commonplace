@@ -38,6 +38,8 @@ const SCRIPTS = {
   'session-check':       'scripts/session-check.ts',
   'moc:sync':            'scripts/moc-sync.ts',
   'supersede':           'scripts/supersede.ts',
+  'commit':              'scripts/commit.ts',
+  'revise':              'scripts/revise.ts',
   'vaults':              'scripts/vaults.ts',
   'vault':               'scripts/vault.ts',
   'eval:retrieval':      'evals/retrieval/run.ts',
@@ -205,6 +207,8 @@ if (!cmd || cmd === '--help' || cmd === '-h') {
   console.error('  connect       Ranked pool of notes graph-close to a query/note (PPR substrate for wiki-query)');
   console.error('  moc:sync      Reconcile MOC headers/bullet lists with the source index');
   console.error('  supersede     Retire an entity superseded by a successor; propagate live-framing rewrites');
+  console.error('  commit        Commit this agent\'s unit of work (only the files it wrote)');
+  console.error('  revise        Vault revision: propose, accept, revert, log, status');
   console.error('  vaults        List registered vaults or match one by name');
   console.error('  vault         Show/choose the active vault: show | list | use <id> [--default] | unpin');
   console.error('  records       Maintenance records as JSONL: --kind source|concept|moc|domain|backlink [--match t] [--path rel]');

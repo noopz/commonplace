@@ -72,9 +72,10 @@ export type Manifest = {
 
 /**
  * Bump when cards or edge kinds change shape (2: dates on cards, `contests`
- * edges; 3: cards drop `p`, abstraction never clipped).
+ * edges; 3: cards drop `p`, abstraction never clipped; 4: `bounds` and
+ * `withdrawsSupport` edges, claim-scoped reasons on link contexts).
  */
-export const SCHEMA = 3;
+export const SCHEMA = 4;
 
 export type NamesFile = {
   v: 2;

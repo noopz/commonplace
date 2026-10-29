@@ -14,6 +14,7 @@ import { resolve, dirname, join } from "path";
 import { discoverVault, getVaultConfig, isInVault, classifyNote } from "./lib/vault.ts";
 import { parseNote, validateFrontmatter } from "./lib/frontmatter.ts";
 import { execFileSync } from "child_process";
+import { blobOfFile, readUnit, recordTouch, repoOf } from "./lib/git-unit.ts";
 
 /**
  * The plugin CLI, which runs each script on plain node; the old `npx tsx
@@ -29,6 +30,13 @@ const { values } = parseArgs({
     // schedules the rebuild; it passes this so the write path does not pay for
     // a full reindex on every note.
     "no-index": { type: "boolean", default: false },
+    // The module records each vault write into the writing agent's unit of
+    // work (scripts/lib/git-unit.ts): it hashes the file before the write and
+    // passes that blob here; the blob after is taken below.
+    unit: { type: "string" },
+    actor: { type: "string" },
+    session: { type: "string" },
+    before: { type: "string" },
   },
 });
 
@@ -98,6 +106,41 @@ if (!vaultPath) process.exit(0);
 const config = getVaultConfig(vaultPath);
 
 if (!isInVault(filePath, config.vaultPath)) {
+  process.exit(0);
+}
+
+// Record the write into its unit before anything can exit early: a deleted or
+// "other" note is still a change the unit must commit.
+let unitNote = "";
+if (values.unit) {
+  try {
+    const repo = repoOf(config.vaultPath);
+    if (repo) {
+      const rel = filePath.startsWith(config.vaultPath + "/") ? filePath.slice(config.vaultPath.length + 1) : "";
+      const fresh = !readUnit(config.vaultPath, values.unit);
+      const before = !values.before || values.before === "none" ? null : values.before;
+      if (rel) {
+        const u = recordTouch(
+          config.vaultPath,
+          values.unit,
+          { actor: values.actor || "main", session: values.session || "" },
+          rel,
+          before,
+          blobOfFile(repo, rel, true),
+          repo,
+        );
+        if (fresh) {
+          unitNote = `This write opened a unit of work (${u.id}). When the task is done — the ingest, compile or edit finished — commit it yourself with \`commonplace commit --message "<one line: what this unit did>"\`. Only the files this unit wrote are committed; anyone else's edits stay out.`;
+        }
+      }
+    }
+  } catch {
+    // Recording is best-effort: a missed touch means the unit will not commit
+    // that file, never that the write is lost.
+  }
+}
+if (unitNote && (!existsSync(filePath) || classifyNote(filePath, config.vaultPath) === "other")) {
+  console.log(JSON.stringify({ hookSpecificOutput: { hookEventName: "PostToolUse", additionalContext: unitNote } }));
   process.exit(0);
 }
 
@@ -204,6 +247,7 @@ try {
 // Only output if there were issues or signals to surface
 if (
   researchContext ||
+  unitNote ||
   output.validate ||
   output.scopeCheck ||
   output.supersede ||
@@ -222,6 +266,7 @@ if (
     );
   }
   if (researchContext) notes.push(researchContext);
+  if (unitNote) notes.push(unitNote);
   if (notes.length > 0) {
     console.log(
       JSON.stringify({

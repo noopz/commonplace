@@ -25,19 +25,29 @@ const t = (c: CommonplaceCard) => `[[${c.title}]]`;
 const priv = (c: CommonplaceCard) => (c.isPrivate ? " 🔒" : "");
 
 /**
- * The note's two clocks and its status, as facts for the reader to weigh — no
- * age decay is applied anywhere. Old is not stale (a paper can matter more
+ * The note's status, then its two clocks, as facts for the reader to weigh —
+ * no age decay is applied anywhere. Old is not stale (a paper can matter more
  * years later) and new is not current (it can be superseded); only an explicit
- * `supersedes:`/`contests:` link says a note was overtaken.
+ * revision edge says a claim was overtaken. Status comes FIRST: LLM readers
+ * shift toward newer dates when a date is the first thing they see.
  */
 export function timeLines(c: CommonplaceCard): string[] {
   const out: string[] = [];
+  if (c.revisions?.length) for (const r of c.revisions) out.push(r.line);
+  else {
+    if (c.supersededBy?.length) out.push(`⚠ superseded by ${c.supersededBy.map((x) => `[[${x}]]`).join(", ")} — kept for history; read the newer note before relying on this one`);
+    if (c.contestedBy?.length) out.push(`⚠ contested by ${c.contestedBy.map((x) => `[[${x}]]`).join(", ")} — read both before relying on either`);
+  }
+  if (c.mayRelyOnDisplaced?.length) {
+    out.push(`⚠ may still rely on a displaced claim of ${c.mayRelyOnDisplaced.map((x) => `[[${x}]]`).join(", ")} — check before relying on this summary`);
+  }
   const clock = [c.published ? `published ${c.published}` : "", c.added ? `added ${c.added}` : ""].filter(Boolean);
   if (clock.length) out.push(clock.join(" · "));
-  if (c.supersededBy?.length) out.push(`⚠ superseded by ${c.supersededBy.map((x) => `[[${x}]]`).join(", ")} — kept for history; read the newer note before relying on this one`);
-  if (c.contestedBy?.length) out.push(`⚠ contested by ${c.contestedBy.map((x) => `[[${x}]]`).join(", ")} — read both before relying on either`);
   return out;
 }
+
+/** Status lines only (no clock), for one-line surfaces. */
+export const statusOnly = (c: CommonplaceCard): string[] => timeLines({ ...c, published: undefined, added: undefined });
 
 function whyLine(l: CommonplaceLink, direction: "out" | "in"): string {
   const count = l.kind === "body" && l.weight > 1 ? ` ×${Math.round(l.weight)}` : "";
@@ -128,6 +138,40 @@ export function formatNeighbourhood(r: CommonplaceNeighbourhoodResult, seeds: st
     lines.push(`${p.rank}. ${t(p.card)}${priv(p.card)}${via}${p.card.abstraction ? ` — ${p.card.abstraction}` : ""}`);
   }
   lines.push("Pool, not answer: read with vault_note.");
+  return lines.join("\n");
+}
+
+/** One `commonplace revise log` row. */
+export type LineageRow = {
+  status: string;
+  old: string;
+  new: string;
+  claim: string;
+  relation?: string;
+  because?: string;
+  reason?: string;
+  accept?: string;
+  commit?: string;
+};
+
+const RELATION_WORDS: Record<string, string> = {
+  supersedes: "corrected or changed by",
+  bounds: "bounded by",
+  contests: "contested by",
+  withdrawsSupport: "lost its support in",
+};
+
+export function formatLineage(rows: readonly LineageRow[], note?: string): string {
+  if (rows.length === 0) return note ? `No revisions recorded for [[${note}]].` : "No revisions recorded yet.";
+  const lines = [note ? `Revision history touching [[${note}]] (newest first):` : "Recent revisions (newest first):"];
+  for (const r of rows) {
+    const rel = r.relation ? RELATION_WORDS[r.relation] ?? r.relation : "judged against";
+    lines.push(`- ${r.status}: [[${r.old}]] claim "${r.claim}" — ${rel} [[${r.new}]]`);
+    if (r.because) lines.push(`  because: ${r.because}`);
+    if (r.reason) lines.push(`  note: ${r.reason}`);
+    if (r.accept) lines.push(`  event ${r.accept}${r.commit ? ` · commit ${r.commit.slice(0, 10)}` : ""}`);
+  }
+  lines.push("Accepted entries are what the vault currently relies on; reverted and pending ones are kept for history.");
   return lines.join("\n");
 }
 

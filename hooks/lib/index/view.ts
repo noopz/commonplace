@@ -30,6 +30,8 @@ import { makeCard, type Card } from "./cards.ts";
 import { noteTerms, queryKeys, keyScore, rankHits, authorityPrior, localRerank, LOCAL_POOL, TERMS, RANK, type PostingsRow, type TermConfig, type RankConfig } from "./postings.ts";
 import { domainOf, type ShardArtefact } from "./model.ts";
 import type { JournalNote } from "./journal.ts";
+import type { LinkKind } from "./parse.ts";
+import type { EdgeRel } from "../revision/edges.ts";
 import { MAIN, type DomainMap } from "../core/scope.ts";
 
 type Row = { v: number; w: number; k: number };
@@ -160,6 +162,22 @@ export class VaultView implements Adjacency {
   setPatches(list: readonly Patch[]): void {
     this.patches.clear();
     if (!this.applyPatches(list).length) this.refresh();
+  }
+
+  /**
+   * Revision-edge reasons from a PATCHED note `from` to `to` (journal lines
+   * carry them), or undefined when `from` is not patched — the caller then
+   * reads the built link contexts.
+   */
+  patchedRels(from: number, to: number, kind: LinkKind): Array<EdgeRel | undefined> | undefined {
+    const rel = this.relOf.get(from);
+    const p = rel === undefined ? undefined : this.patches.get(rel);
+    if (!p || p.id !== from) return undefined;
+    if (!p.note) return [];
+    const visibleNow = (id: number) => !this.sentinels.has(id) && !this.deleted.has(id) && this.relOf.has(id);
+    return p.note.links
+      .filter((l) => l.k === kind && (this.names.get(l.t) ?? []).find(visibleNow) === to)
+      .map((l) => l.r);
   }
 
   patchCount(): number {

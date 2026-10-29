@@ -60,7 +60,30 @@ export type CommonplaceEdgeKind =
   | "comparesWith"
   | "usesMethod"
   | "supersedes"
-  | "contests";
+  | "contests"
+  | "bounds"
+  | "withdrawsSupport";
+
+/**
+ * One revision status of a note (apiVersion 1.1): a newer note corrects,
+ * changes, bounds, contests or withdraws support from one of its claims.
+ */
+export type CommonplaceRevision = {
+  relation: "supersedes" | "bounds" | "contests" | "withdrawsSupport";
+  /** Title of the newer note carrying the edge. */
+  by: string;
+  claim?: string;
+  because?: string;
+  /** `bounds`: the conditions the claim is supported within. */
+  within?: string;
+  /** `supersedes`: a correction, or a change in the world. */
+  kind?: "correction" | "world-change";
+  effective?: string;
+  /** Accepted by commonplace's reviewer; false = unreviewed (hand-written or legacy). */
+  reviewed: boolean;
+  /** Ready-made status line, status before date. */
+  line: string;
+};
 
 export type CommonplaceCard = {
   id: number;
@@ -83,6 +106,10 @@ export type CommonplaceCard = {
   supersededBy?: string[];
   /** Titles of visible notes whose `contests:` names this one (disputed, not replaced). */
   contestedBy?: string[];
+  /** Every revision status, claim-scoped, with its reason (1.1). */
+  revisions?: CommonplaceRevision[];
+  /** Titles of notes whose displaced claims this concept/MOC may still rely on (1.1). */
+  mayRelyOnDisplaced?: string[];
   /** Present only for an OPEN private note; a sealed note never appears. */
   isPrivate?: true;
 };
@@ -205,7 +232,9 @@ export type CommonplaceBand = {
     | "reindexed"
     // Cards: a line with buttons (a surfaced connection, a pasted link's verdict).
     | "connection"
-    | "triage";
+    | "triage"
+    // A notice: one line with Details (opens the activity pane) and, for an accepted revision, Undo.
+    | "notice";
 };
 
 export type Commonplace = {

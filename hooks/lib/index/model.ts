@@ -20,6 +20,7 @@
  */
 
 import type { ParsedNote, NoteKind, LinkKind } from "./parse.ts";
+import type { EdgeRel } from "../revision/edges.ts";
 import { buildNames, type Names, type NameNode } from "../graph/resolver.ts";
 import { buildCsr, packCsr, KIND_INDEX, type Csr, type CsrPacked, type EdgeInput } from "../graph/csr.ts";
 import { hitsCsr } from "../graph/hits.ts";
@@ -46,7 +47,7 @@ export type PrevIds = {
 };
 
 /** One link's context line (§3.2). */
-export type LinkCtx = { s: number; t: number; k: LinkKind; raw: string; h: string; sent: string; n: number };
+export type LinkCtx = { s: number; t: number; k: LinkKind; raw: string; h: string; sent: string; n: number; r?: EdgeRel };
 
 export type EdgeTuple = [from: number, to: number, kind: number, w: number];
 
@@ -244,6 +245,7 @@ export function buildIndex(notes: readonly IndexNote[], opts: BuildOptions): Bui
         h: l.heading,
         sent: l.sentence.slice(0, LINKCTX_SENTENCE_MAX),
         n: l.n,
+        ...(l.rel ? { r: l.rel } : {}),
       });
     }
   }

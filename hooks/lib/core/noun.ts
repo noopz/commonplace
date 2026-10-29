@@ -37,6 +37,8 @@ import { pushPpr, topPool } from "../graph/walk.ts";
 import { KIND_INDEX, KIND_WEIGHT, type EdgeKind } from "../graph/csr.ts";
 import { findPrivateMatches } from "../guard.ts";
 import { listableDomains, MAIN, type DomainMap } from "./scope.ts";
+import { REVISION_RELATIONS, statusLine, type RevisionRelation } from "../revision/edges.ts";
+import { statusesFor, staleFor, type GraphEdge } from "../revision/projection.ts";
 
 export type NounCtx = {
   vaultId: string;
@@ -116,10 +118,69 @@ export function maskSealed(text: string, sealedNames: readonly string[]): string
   return out;
 }
 
+const REVISION_KIND = new Map<number, RevisionRelation>(REVISION_RELATIONS.map((r) => [KIND_INDEX[r], r]));
+const titleOf = (rel: string) => rel.split("/").pop()!.replace(/\.md$/, "");
+
+/**
+ * The card's claim-scoped revision statuses (status before date): frontmatter
+ * edges into the note, filtered through the accepted projection's mode, plus
+ * the "may rely on a displaced claim" marks on concepts and MOCs.
+ */
+export async function withRevisions(c: CommonplaceCard, ctx: Pick<NounCtx, "index">): Promise<CommonplaceCard> {
+  const v = ctx.index.view;
+  if (!v) return c;
+  const ins: Array<{ from: number; relation: RevisionRelation }> = [];
+  v.eachIn(c.id, (from, _w, ki) => {
+    const r = REVISION_KIND.get(ki);
+    if (r && v.visible(from)) ins.push({ from, relation: r });
+  });
+  const proj = await ctx.index.projection();
+  const stale = staleFor(c.path, proj);
+  if (ins.length === 0 && proj.accepted.length === 0 && stale.length === 0) return c;
+  const edges: GraphEdge[] = [];
+  for (const e of ins) {
+    const fromRel = v.relOfId(e.from);
+    if (!fromRel) continue;
+    for (const rel of await ctx.index.revisionRels(e.from, c.id, e.relation)) {
+      edges.push({ fromRel, fromTitle: titleOf(fromRel), relation: e.relation, fromShard: v.shard(e.from), ...(rel ? { rel } : {}) });
+    }
+  }
+  const titleOfRel = (rel: string) => {
+    const id = v.idOfRel(rel);
+    return id !== undefined && v.visible(id) ? titleOf(rel) : undefined;
+  };
+  const statuses = statusesFor(c.title, [], edges, proj, titleOfRel);
+  const { supersededBy: _s, contestedBy: _c, ...rest } = c;
+  const sup = statuses.filter((s) => s.relation === "supersedes").map((s) => s.by);
+  const con = statuses.filter((s) => s.relation === "contests").map((s) => s.by);
+  const displaced = [...new Set(stale.map((s) => s.displaced))];
+  return {
+    ...rest,
+    ...(sup.length ? { supersededBy: [...new Set(sup)] } : {}),
+    ...(con.length ? { contestedBy: [...new Set(con)] } : {}),
+    ...(statuses.length
+      ? {
+          revisions: statuses.map((s) => ({
+            relation: s.relation,
+            by: s.by,
+            ...(s.rel?.claim ? { claim: s.rel.claim } : {}),
+            ...(s.rel?.because ? { because: s.rel.because } : {}),
+            ...(s.rel?.within ? { within: s.rel.within } : {}),
+            ...(s.rel?.kind ? { kind: s.rel.kind } : {}),
+            ...(s.rel?.effective ? { effective: s.rel.effective } : {}),
+            reviewed: s.reviewed,
+            line: statusLine(s),
+          })),
+        }
+      : {}),
+    ...(displaced.length ? { mayRelyOnDisplaced: displaced } : {}),
+  };
+}
+
 async function cardsFor(ctx: NounCtx, ids: number[]): Promise<Map<number, CommonplaceCard>> {
   const raw = await ctx.index.cards(ids);
   const out = new Map<number, CommonplaceCard>();
-  for (const [id, c] of raw) out.set(id, toCard(c, ctx));
+  for (const [id, c] of raw) out.set(id, await withRevisions(toCard(c, ctx), ctx));
   return out;
 }
 

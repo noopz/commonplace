@@ -168,9 +168,16 @@ export function proposeFromPrompt(
  * shard is not open, plus `<vault>/.wiki/sealed` (always — the model never
  * reads sealed artefacts, open or not; commonplace serves them).
  */
+/**
+ * Folders of private artefacts commonplace itself serves: the sealed index and
+ * the private revision ledgers. Always denied to the model's file tools,
+ * whatever is open; they come first in `sealedRoots`.
+ */
+export const ARTEFACT_ROOTS = [".wiki/sealed", ".revision/sealed"] as const;
+
 export function sealedRoots(domains: DomainMap, vaultPath: string, open: ReadonlySet<string>): string[] {
   const v = strip(vaultPath);
-  const roots = [`${v}/.wiki/sealed`];
+  const roots = ARTEFACT_ROOTS.map((r) => `${v}/${r}`);
   for (const [id, d] of Object.entries(domains)) {
     if (!isPrivate(d) || !d.path) continue;
     if (isVisible(shardOfDomain(domains, id), open)) continue;
@@ -181,7 +188,9 @@ export function sealedRoots(domains: DomainMap, vaultPath: string, open: Readonl
 
 export function protectedRoots(vaultPath: string): string[] {
   const v = strip(vaultPath);
-  return [`${v}/.wiki/skills`, `${v}/.wiki/agents`];
+  // Ledgers, units and revision state are written by commonplace's CLI only:
+  // a model edit there would forge history git and the reducer then trust.
+  return [`${v}/.wiki/skills`, `${v}/.wiki/agents`, `${v}/.revision`, `${v}/.wiki/units`, `${v}/.wiki/revision`];
 }
 
 /** Public domain ids — the only ones any listing may name while sealed. */

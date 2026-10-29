@@ -22,6 +22,9 @@ import { cardChunk, CARDS_PER_CHUNK, type Card } from "./cards.ts";
 import { P, peekManifestVersion, linkctxChunk, LINKCTX_PER_CHUNK, SCHEMA, type Manifest, type CsrFile, type NamesFile } from "./layout.ts";
 import { TERMS, termSig, type PostingsRow } from "./postings.ts";
 import type { LinkCtx, ShardArtefact, FileEntry } from "./model.ts";
+import type { LinkKind } from "./parse.ts";
+import type { EdgeRel } from "../revision/edges.ts";
+import { PROJECTION_FILE, shardProjectionFile, parseProjection, mergeProjections, type Projection } from "../revision/projection.ts";
 import { parseJournal, pendingLines, type JournalNote, type JournalLine, COMPACT_BYTES, COMPACT_LINES } from "./journal.ts";
 import { VaultView, type Patch } from "./view.ts";
 import { MAIN, type DomainMap } from "../core/scope.ts";
@@ -77,6 +80,7 @@ export class VaultIndex {
   private openArts = new Map<string, ShardArtefact>();
   private sessionTag: string;
   private seq = 0;
+  private proj: { at: number; key: string; value: Projection } | null = null;
 
   private ports: IndexPorts;
   private domains: DomainMap;
@@ -287,6 +291,53 @@ export class VaultIndex {
       }
     }
     return out;
+  }
+
+  /**
+   * Revision-edge reasons from `s` to `t` with `kind`, one per edge (a note can
+   * revise several claims of the same older note). A patched note answers
+   * from its journal line; otherwise the built link contexts.
+   */
+  async revisionRels(s: number, t: number, kind: LinkKind): Promise<Array<EdgeRel | undefined>> {
+    const v = this.view;
+    if (!v) return [];
+    const patched = v.patchedRels(s, t, kind);
+    if (patched) return patched;
+    const shard = v.shard(s);
+    const lists: LinkCtx[][] = [];
+    if (shard === MAIN) {
+      const key = `main:${linkctxChunk(s)}`;
+      let list = this.ctxCache.get(key);
+      if (!list) {
+        list = jsonl<LinkCtx>(await this.ports.read(P.linkctx(linkctxChunk(s))));
+        this.ctxCache.set(key, list);
+        if (this.ctxCache.size > CTX_CHUNKS) this.ctxCache.delete(this.ctxCache.keys().next().value as string);
+      }
+      lists.push(list);
+    }
+    for (const art of this.openArts.values()) lists.push(art.linkctx);
+    const out: Array<EdgeRel | undefined> = [];
+    const seen = new Set<number>();
+    for (const list of lists) {
+      for (const c of list) {
+        if (c.s !== s || c.t !== t || c.k !== kind || seen.has(c.n)) continue;
+        seen.add(c.n);
+        out.push(c.r);
+      }
+    }
+    return out.length ? out : [undefined];
+  }
+
+  /** The accepted projection: public + open shards, re-read at most every 5 s. */
+  async projection(): Promise<Projection> {
+    const shards = [...this.openArts.keys()].sort();
+    const key = shards.join(",");
+    const now = Date.now();
+    if (this.proj && this.proj.key === key && now - this.proj.at < 5_000) return this.proj.value;
+    const texts = await Promise.all([this.ports.read(PROJECTION_FILE), ...shards.map((s) => this.ports.read(shardProjectionFile(s)))]);
+    const value = mergeProjections(texts.map(parseProjection));
+    this.proj = { at: now, key, value };
+    return value;
   }
 
   // ------------------------------------------------------------------- patch

@@ -132,11 +132,14 @@ export function pickPrimeCandidate(
 }
 
 /** The appended block (§8.3), 60-120 tokens. */
-export function primeBlock(p: { title: string; vault: string; domain: string; abstraction: string; why: string; path: string }): string {
+export function primeBlock(p: { title: string; vault: string; domain: string; abstraction: string; why: string; path: string; status?: string[] }): string {
   const where = [p.vault, p.domain].filter(Boolean).join(", ");
   return [
     `<commonplace-prime unverified="true">`,
     `Your notes may bear on this task: [[${p.title}]]${where ? ` (${where})` : ""}`,
+    // Status before anything else about the note: a corrected claim must not
+    // arrive looking current.
+    ...(p.status ?? []),
     p.abstraction,
     `Why: ${p.why}`,
     `Path: ${p.path}. Unverified pointer — open with vault_note before relying on it; ignore if irrelevant.`,

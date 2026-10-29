@@ -384,6 +384,23 @@ export function withOpenShards(command: string, shards: readonly string[]): stri
   return `export COMMONPLACE_OPEN=${safe.join(",")}; ${command}`;
 }
 
+/**
+ * Prefix `commonplace` commands with the calling agent's unit of work and
+ * identity, so `commonplace commit` and `commonplace revise` know which unit
+ * and actor they act for without the model having to carry an id around.
+ */
+export function withUnit(command: string, unit: { id: string; actor: string; session: string } | null): string {
+  if (!unit || !/\bcommonplace\b/.test(command)) return command;
+  const ok = (s: string) => /^[A-Za-z0-9_.:+-]+$/.test(s);
+  if (!ok(unit.id) || !ok(unit.actor) || !ok(unit.session)) return command;
+  return `export COMMONPLACE_UNIT=${unit.id} COMMONPLACE_ACTOR=${unit.actor} COMMONPLACE_SESSION=${unit.session}; ${command}`;
+}
+
+/** True when a Bash command ran `commonplace commit` (not `--list`). */
+export function isUnitCommit(command: string): boolean {
+  return /(^|[\s;&|(])commonplace\s+commit\b(?![^;&|]*--list)/.test(String(command ?? ""));
+}
+
 // ---------------------------------------------------------------------------
 // Rule 2 — private vault material in a public repo
 // ---------------------------------------------------------------------------

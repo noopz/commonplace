@@ -48,7 +48,7 @@ import { parseJsonl, stripFrontmatter } from "./lib/seed.ts";
 import { runConnectionPass, type CompletionRequest } from "./lib/pipeline.ts";
 import { statusLine, type Status } from "./lib/status.ts";
 import { buildVaultBlock, mergeBlocks } from "./lib/context.ts";
-import { checkBashCommand, checkScopeEscalation, withOpenShards, parseSealedNames, type SealedName } from "./lib/guard.ts";
+import { checkBashCommand, checkScopeEscalation, withOpenShards, withUnit, isUnitCommit, parseSealedNames, type SealedName } from "./lib/guard.ts";
 import { checkSealedAccess, candidatePaths, normalizePath } from "./lib/core/seal.ts";
 import { openFromStartCwd, type DomainMap } from "./lib/core/scope.ts";
 import {
@@ -76,7 +76,10 @@ import {
   formatPath,
   formatNeighbourhood,
   formatList,
+  formatLineage,
+  type LineageRow,
   unreadContext,
+  statusOnly,
 } from "./lib/tools/format.ts";
 import * as noun from "./lib/core/noun.ts";
 import { connectPool } from "./lib/core/connect.ts";
@@ -106,6 +109,8 @@ import { maskSealed } from "./lib/core/noun.ts";
 import { wikiRefs, linkWikiRefs, fileHref, citationFooter, citationCounts, type CitedNote } from "./lib/surfaces/wikilinks.ts";
 import { pastedUrls, sameUrl, triagePrompt, parseTriage, triageLine, addLater, formatLater, TRIAGE_NOTE_CHARS, type Triage, type LaterItem } from "./lib/surfaces/triage.ts";
 import { Witness, renderWitness } from "./lib/surfaces/witness.ts";
+import { runTrigger, type TriggerPorts } from "./lib/revision/trigger.ts";
+import { runSteps, type RunnerPorts } from "./lib/revision/runner.ts";
 
 // ---------------------------------------------------------------------------
 // Tunables
@@ -435,6 +440,246 @@ const building = new Map<string, Promise<boolean>>();
 const BUILD_WAIT_MS = 30_000;
 const BUILD_COOLDOWN_MS = 60_000;
 
+/**
+ * The current unit of work per agent (main loop = "main"): the vault writes a
+ * `commonplace commit` will commit together. Created on the first vault write,
+ * rotated once a commit succeeds (scripts/lib/git-unit.ts).
+ */
+const units = new Map<string, { id: string; actor: string; session: string }>();
+const agentKey = (agentId: string | undefined) => (agentId ? agentId.replace(/[^A-Za-z0-9_.-]/g, "_").slice(0, 24) : "main");
+async function unitFor($: EngineInterface, agentId: string | undefined, agentType?: string) {
+  const key = agentKey(agentId);
+  let u = units.get(key);
+  if (!u) {
+    const session = String(await $.session.id()).replace(/[^A-Za-z0-9_.-]/g, "").slice(0, 12) || "s";
+    const actor = (agentType || (agentId ? "subagent" : "main")).replace(/[^A-Za-z0-9_.:-]/g, "_").slice(0, 60);
+    u = { id: `${session}-${key}-${Date.now().toString(36)}`, actor, session };
+    units.set(key, u);
+  }
+  return u;
+}
+
+// ---------------------------------------------------------------------------
+// Vault revision (docs/revision-design.md): the trigger's inputs, the runner,
+// and the activity log that notices open. The decisions live in
+// hooks/lib/revision/* and the `commonplace revise` CLI; this is the adapter.
+// ---------------------------------------------------------------------------
+
+/**
+ * What each agent's unit of work wrote and read in each vault, waiting for
+ * that agent's turn to end. Reads count only when the whole note was read
+ * (a Read without offset/limit, or vault_note) — a slice is not the note.
+ */
+const revisionWork = new Map<string, { vp: string; agent: string; written: Set<string>; reads: Set<string> }>();
+const workOf = (vp: string, agentId: string | undefined) => {
+  const key = `${agentKey(agentId)}\u0000${vp}`;
+  let w = revisionWork.get(key);
+  if (!w) revisionWork.set(key, (w = { vp, agent: agentKey(agentId), written: new Set(), reads: new Set() }));
+  return w;
+};
+const noteWrite = (_$: EngineInterface, vp: string, rel: string, agentId: string | undefined) => {
+  const w = workOf(vp, agentId);
+  w.written.add(rel);
+  w.reads.delete(rel);
+};
+const noteRead = (vp: string, rel: string, agentId: string | undefined) => {
+  const w = workOf(vp, agentId);
+  if (!w.written.has(rel) && w.reads.size < 64) w.reads.add(rel);
+};
+
+/** `revise ensure` ran this module lifetime, per vault (recovery + baseline are idempotent but not free). */
+const revisionEnsured = new Map<string, Promise<boolean>>();
+/** The running trigger/runner chain per vault: single-flight, later jobs queue behind it. */
+const revisionChain = new Map<string, Promise<void>>();
+
+/** `commonplace revise <args>` for this session's scope; the parsed last JSON line, or null. */
+const revCli = async ($: EngineInterface, vp: string, args: string[], stdin?: Record<string, unknown>): Promise<Record<string, unknown> | null> => {
+  try {
+    const session = String(await $.session.id()).replace(/[^A-Za-z0-9_.-]/g, "").slice(0, 12) || "s";
+    const open = [...openOf(vp)].filter((s) => /^[A-Za-z0-9_.-]+$/.test(s) && s !== "loose" && s !== "quarantine");
+    const r = await $.process.run(["node", `${$.plugin.root}/bin/commonplace`, "revise", ...args, "--json", "--vault", vp], {
+      env: { COMMONPLACE_OPEN: open.join(","), COMMONPLACE_ACTOR: "commonplace", COMMONPLACE_SESSION: session },
+      ...(stdin ? { stdin: JSON.stringify(stdin) } : {}),
+      timeoutMs: 300_000,
+    });
+    const last = String(r.stdout ?? "").trim().split("\n").pop() ?? "";
+    if (!last) return null;
+    const v = JSON.parse(last);
+    return Array.isArray(v) ? { rows: v } : (v as Record<string, unknown>);
+  } catch {
+    return null;
+  }
+};
+
+const ensureRevision = ($: EngineInterface, vp: string): Promise<boolean> => {
+  let p = revisionEnsured.get(vp);
+  if (!p) {
+    p = revCli($, vp, ["ensure"]).then((r) => {
+      const ok = r !== null && r.ok !== false;
+      traceTo($, vp, "revision:ensure", { ok, enabled: r?.enabled === true, paused: r?.paused === true, work: Number(r?.work ?? 0) });
+      if (!ok) revisionEnsured.delete(vp);
+      return ok;
+    });
+    revisionEnsured.set(vp, p);
+  }
+  return p;
+};
+
+/** Ports for runTrigger over this session's view of `vp`. */
+const triggerPorts = ($: EngineInterface, vp: string): TriggerPorts => ({
+  info: async (rel) => {
+    const ctx = await nounCtx($, vp);
+    if ("error" in ctx) return null;
+    const view = ctx.index.view;
+    const id = view?.idOfRel(rel);
+    if (!view || id === undefined || !view.visible(id)) return null;
+    const card = (await ctx.index.cards([id])).get(id);
+    if (!card) return null;
+    return { rel, title: card.t, abstraction: card.a ?? "", kind: String(card.k), shard: view.shard(id) };
+  },
+  text: async (rel) => {
+    if (!isSafeVaultPath(rel)) return null;
+    try {
+      return stripFrontmatter(String(await $.fs.read(`${vp}/${rel}`)));
+    } catch {
+      return null;
+    }
+  },
+  neighbours: async (rel, k) => {
+    const ctx = await nounCtx($, vp);
+    if ("error" in ctx) return [];
+    const r = await noun.neighbourhood(ctx, { seeds: [rel], k });
+    return "error" in r ? [] : r.pool.map((p) => p.card.path);
+  },
+  search: async (query, limit) => {
+    const ctx = await nounCtx($, vp);
+    if ("error" in ctx) return [];
+    const r = await noun.search(ctx, { query, limit });
+    return "error" in r ? [] : r.hits.map((h) => h.path);
+  },
+  complete: async (req) => {
+    const r = await $.model.complete({ ...req, timeoutMs: 180_000 } as CompletionRequest);
+    return r.isAnswered ? r.text : null;
+  },
+  propose: async (p) => {
+    const r = await revCli($, vp, ["propose"], { ...p, origin: "trigger" });
+    return { status: String(r?.status ?? "error"), ...(r?.reason ? { reason: String(r.reason) } : {}) };
+  },
+  log: (stage, data) => traceTo($, vp, stage, data),
+  random: () => Math.random(),
+});
+
+const runnerPorts = ($: EngineInterface, vp: string): RunnerPorts => ({
+  cli: (args, stdin) => revCli($, vp, args, stdin),
+  complete: async (req) => {
+    const r = await $.model.complete({ ...req, timeoutMs: 300_000 } as CompletionRequest);
+    return r.isAnswered ? r.text : null;
+  },
+  log: (stage, data) => traceTo($, vp, stage, data),
+  onAccepted: (a) => {
+    const line = a.line ? `[[${a.old}]] ${a.line}` : `[[${a.old}]] revised by [[${a.new}]]`;
+    notice(
+      $,
+      `revised ${line}`,
+      [
+        `**Revision accepted** — ${line}.`,
+        `The edge was written into [[${a.new}]] and committed${a.commit ? ` (\`${a.commit.slice(0, 10)}\`)` : ""}; nothing in [[${a.old}]] was edited.`,
+        a.stale ? `${a.stale} concept or MOC note${a.stale === 1 ? "" : "s"} citing it ${a.stale === 1 ? "is" : "are"} marked to recheck.` : "",
+        `Undo reverts that commit's edge (\`/vault revise undo ${a.accept}\`); \`/vault revise log\` has the full history.`,
+      ]
+        .filter(Boolean)
+        .join("\n\n"),
+      { vp, event: a.accept },
+    );
+  },
+});
+
+/** Queue one unit of work's trigger, then advance pending revisions. Never awaited by a hook. */
+const queueRevision = ($: EngineInterface, vp: string, job: { written: string[]; reads: string[] } | null) => {
+  const prev = revisionChain.get(vp) ?? Promise.resolve();
+  const run = prev
+    .then(async () => {
+      if (!(await ensureRevision($, vp))) return;
+      if (job && job.written.length) {
+        const res = await runTrigger(triggerPorts($, vp), job);
+        traceTo($, vp, "revision:trigger", { ...res });
+        // Paths of private notes stay out of the public ledger; the job line carries counts.
+        const ctx = await nounCtx($, vp);
+        const pub = "error" in ctx ? [] : job.written.filter((rel) => {
+          const id = ctx.index.view?.idOfRel(rel);
+          return id !== undefined && ctx.index.view?.shard(id) === "main";
+        });
+        await revCli($, vp, ["job"], { written: pub, poolSize: res.pool, truncated: res.truncated, proposals: res.proposed });
+      }
+      const steps = await runSteps(runnerPorts($, vp));
+      traceTo($, vp, "revision:steps", { steps });
+    })
+    .catch((err) => traceTo($, vp, "revision:error", { err: String(err).slice(0, 80) }));
+  revisionChain.set(vp, run);
+  void run.finally(() => {
+    if (revisionChain.get(vp) === run) revisionChain.delete(vp);
+  });
+};
+
+/** Hand every finished unit of work for this agent to the trigger. */
+const flushRevisionWork = ($: EngineInterface, agentId: string | undefined) => {
+  const agent = agentKey(agentId);
+  for (const [key, w] of revisionWork) {
+    if (w.agent !== agent || w.written.size === 0) continue;
+    revisionWork.delete(key);
+    queueRevision($, w.vp, { written: [...w.written], reads: [...w.reads] });
+  }
+};
+
+/**
+ * The activity log: everything commonplace did on its own that the person
+ * might want to look at — a revision accepted, a reindex, a quarantine. A
+ * notice puts one line on the band with Details (this pane) and, for a
+ * revision, Undo. Module memory: an entry can name an open private note.
+ */
+type ActivityEntry = { id: number; at: string; text: string; details: string; revert?: { vp: string; event: string }; undone?: boolean };
+const vaultActivity: ActivityEntry[] = [];
+let activitySeq = 0;
+const ACTIVITY_PANE = "commonplace-activity";
+const ACTIVITY_MAX = 50;
+
+const notice = ($: EngineInterface, text: string, details: string, revert?: { vp: string; event: string }, opts: { card?: boolean } = {}) => {
+  const entry: ActivityEntry = { id: ++activitySeq, at: new Date().toISOString(), text, details, ...(revert ? { revert } : {}) };
+  vaultActivity.unshift(entry);
+  if (vaultActivity.length > ACTIVITY_MAX) vaultActivity.length = ACTIVITY_MAX;
+  bumpPanes($);
+  if (opts.card === false) return;
+  // A connection or triage card is waiting on a press; a notice never covers it.
+  if (bandCard && bandCard.kind !== "notice") return;
+  showCard($, { kind: "notice", entry: entry.id }, text);
+};
+
+const renderActivity = (): string => {
+  if (vaultActivity.length === 0) return "# Vault activity\n\nNothing yet this session.";
+  return [
+    "# Vault activity",
+    ...vaultActivity.map((a) => `## ${a.at.slice(11, 16)} · ${a.text}${a.undone ? " (undone)" : ""}\n\n${a.details}`),
+  ].join("\n\n");
+};
+
+const openActivity = async ($: EngineInterface): Promise<boolean> => {
+  try {
+    return (await $.ui.open({ id: ACTIVITY_PANE, title: "⟡ vault · activity" })).isPlaced;
+  } catch {
+    return false;
+  }
+};
+
+const undoRevision = async ($: EngineInterface, vp: string, event: string): Promise<string> => {
+  const r = await revCli($, vp, ["revert", "--event", event, "--reason", "undone by the person"]);
+  traceTo($, vp, "revision:undo", { status: String(r?.status ?? "error") });
+  if (r?.status !== "reverted") return `Not undone: ${String(r?.reason ?? "the revert failed")}`;
+  for (const a of vaultActivity) if (a.revert?.event === event) a.undone = true;
+  const msg = `Undone${r.commit ? ` (commit ${String(r.commit).slice(0, 10)})` : ""}${r.conflict ? `; the file kept its edge: ${String(r.conflict)}` : ""}.`;
+  notice($, "revision undone", msg, undefined, { card: false });
+  return msg;
+};
+
 /** Notes read with vault_note this session, per vault (the "unread" hint). */
 const trails = new Map<string, Set<number>>();
 const trailOf = (vp: string) => {
@@ -492,7 +737,7 @@ const startBuild = ($: EngineInterface, vp: string, why: string) => {
       // the index, where a toast is noise about work nobody requested.
       if (ok && why === "command") {
         try {
-          $.ui.toast("⟡ vault index refreshed");
+          notice($, "vault index refreshed", `\`commonplace index\` rebuilt \`.wiki/graph/\` for ${vp.split("/").pop()} after /vault reindex.`);
         } catch {}
       }
       return ok;
@@ -557,7 +802,13 @@ const getIndex = async ($: EngineInterface, vp: string, domains: DomainMap): Pro
     try {
       const sm = JSON.parse(String(await $.fs.read(`${vp}/.wiki/sealed/manifest.json`)));
       const n = Number(sm?.shards?.quarantine?.nodes ?? 0);
-      if (n > 0) $.ui.toast(`🔒 ${n} note${n === 1 ? "" : "s"} in new folders quarantined — /vault domain public|private <id>`);
+      if (n > 0) {
+        notice(
+          $,
+          `🔒 ${n} note${n === 1 ? "" : "s"} in new folders quarantined`,
+          `${n} note${n === 1 ? "" : "s"} live in folders that appeared after the first index. They stay sealed (no vault tool sees them) until you classify the folder: \`/vault domain public <id>\` or \`/vault domain private <id>\`. The ids are in \`.wiki/domains.json\`.`,
+        );
+      }
     } catch {}
   }
   // Splice exactly the shards this session has open (loose/quarantine never open).
@@ -782,8 +1033,8 @@ const impl_skill = async ($: EngineInterface, args: { name?: string; vault?: str
 const VAULT_COMMANDS = [
   {
     name: "vault",
-    description: "commonplace vault: status · use · list · open · close · reindex · skills · domain · witness · later",
-    argumentHint: "[use <id> | list | open <domain> | close [domain] | reindex | skills [trust|untrust <name>] | domain public|private <id> | witness | later]",
+    description: "commonplace vault: status · use · list · open · close · reindex · skills · domain · witness · later · revise · activity",
+    argumentHint: "[use <id> | list | open <domain> | close [domain] | reindex | skills [trust|untrust <name>] | domain public|private <id> | witness | later | revise [log [note] | undo <event|last> | pause | resume] | activity]",
   },
 ];
 
@@ -798,6 +1049,10 @@ const VAULT_HELP = [
   "/vault domain public|private <id>      classify a domain (e.g. a quarantined folder)",
   "/vault witness [clear]         everything commonplace added to context that the transcript does not show",
   "/vault later [clear]           links saved with Later on a link card",
+  "/vault revise [log [note]]     revision status, or the history of what was revised and why",
+  "/vault revise undo <event|last>  revert an accepted revision (git keeps both)",
+  "/vault revise pause|resume     stop or restart autonomous acceptance",
+  "/vault activity                what commonplace did on its own this session (the notices)",
 ].join("\n");
 
 const scopeMirror = async ($: EngineInterface, vp: string) => {
@@ -833,7 +1088,7 @@ const runVaultCommand = async ($: EngineInterface, argsText: string): Promise<{ 
     const out = String(r.stdout ?? r.stderr ?? "").trim();
     if (r.exitCode !== 0) return { text: out || `Could not switch to "${id}".` };
     try {
-      $.ui.toast(`⟡ switched to ${id}`);
+      notice($, `switched to ${id}`, `This project now uses the vault "${id}".`, undefined, { card: false });
       void showVaultStatus($);
     } catch {}
     return { text: out || `Using vault ${id}.`, context: [`The active commonplace vault is now "${id}".`] };
@@ -851,8 +1106,37 @@ const runVaultCommand = async ($: EngineInterface, argsText: string): Promise<{ 
     } catch {}
     return { text: renderWitness(witness) };
   }
+  if (sub === "activity") {
+    if (await openActivity($)) return { text: `Activity pane open: ${vaultActivity.length} entries this session.` };
+    return { text: renderActivity() };
+  }
   if (!vault) return { text: "No vault configured. Run `commonplace init --vault <path>`." };
   const vp = vault.path;
+  if (sub === "revise") {
+    const [action = "status", ...more] = rest;
+    if (action === "undo") {
+      const ev = more[0];
+      if (!ev) return { text: "Usage: /vault revise undo <event|last>" };
+      return { text: await undoRevision($, vp, ev) };
+    }
+    if (action === "pause" || action === "resume") {
+      const r = await revCli($, vp, [action]);
+      if (action === "resume") queueRevision($, vp, null);
+      return { text: r ? (action === "pause" ? "Revision paused: nothing will be accepted until /vault revise resume." : "Revision resumed.") : "The revision CLI failed." };
+    }
+    if (action === "log") {
+      const out = await revCli($, vp, ["log", ...(more.length ? ["--note", more.join(" ")] : []), "--limit", "20"]);
+      const rows = Array.isArray(out?.rows) ? (out!.rows as LineageRow[]) : [];
+      return { text: out === null ? "The revision log could not be read." : formatLineage(rows, more.join(" ") || undefined) };
+    }
+    await ensureRevision($, vp);
+    const st = await revCli($, vp, ["status"]);
+    if (!st) return { text: "The revision CLI failed." };
+    const counts = Object.entries((st.counts ?? {}) as Record<string, number>).map(([k, n]) => `${k} ${n}`).join(" · ");
+    return {
+      text: `revision: ${String(st.mode)}${st.paused ? " (paused)" : ""} · accepted ${Number(st.accepted ?? 0)}${counts ? ` · ${counts}` : ""}${Number(st.stale ?? 0) ? ` · ${Number(st.stale)} summaries to recheck` : ""}\n/vault revise log · /vault revise undo last · /vault revise pause`,
+    };
+  }
   if (sub === "open") {
     const ref = rest.join(" ");
     const hit = resolveOpenRef(vault.domains, ref);
@@ -868,9 +1152,7 @@ const runVaultCommand = async ($: EngineInterface, argsText: string): Promise<{ 
     await getIndex($, vp, vault.domains).catch(() => null);
     setBand($, { kind: "open", text: `open: ${group.join(" + ")} · /vault close to seal` });
     await scopeMirror($, vp);
-    try {
-      $.ui.toast(`🔒 opened ${group.join(" + ")} — /vault close to seal`);
-    } catch {}
+    notice($, `🔒 opened ${group.join(" + ")}`, `Private domain${group.length > 1 ? "s" : ""} ${group.join(", ")} opened for this session by /vault open. \`/vault close\` seals ${group.length > 1 ? "them" : "it"} again; a reload, /clear or a new session also re-seals.`, undefined, { card: false });
     return {
       text: `Opened ${group.join(" + ")} for this session. Vault tools now include ${group.length > 1 ? "these domains" : "this domain"}. /vault close seals it again (it cannot unread what this conversation already holds).`,
       context: [
@@ -1027,7 +1309,8 @@ const noteReindexed = ($: EngineInterface) => {
   if (reindexedCount === 1) {
     $.clock.after(2000, () => {
       try {
-        $.ui.toast(`⟡ reindexed ${reindexedCount} note${reindexedCount === 1 ? "" : "s"}`);
+        // The band already says it; the activity log keeps it.
+        notice($, `reindexed ${reindexedCount} note${reindexedCount === 1 ? "" : "s"}`, `A vault write was patched into the loaded graph (${reindexedCount} note${reindexedCount === 1 ? "" : "s"} in this burst); a background \`commonplace index\` follows.`, undefined, { card: false });
       } catch {}
     });
   }
@@ -1217,7 +1500,8 @@ const primeAsync = async (
       traceTo($, vp, "prime:late-drop", {});
       return;
     }
-    const primed = primeBlock({ title: card.t, vault: p.vaultId, domain: card.d, abstraction: card.a, why, path: rel });
+    const status = statusOnly(await noun.withRevisions(noun.toCard(card, { vaultId: p.vaultId, index: idx }), { index: idx }));
+    const primed = primeBlock({ title: card.t, vault: p.vaultId, domain: card.d, abstraction: card.a, why, path: rel, status });
     await $.session.append({ message: { type: "user", content: [{ type: "text", text: primed }] } });
     witnessAdd($, "prime", primed);
     segment = { ...segment, touches: segment.touches + 1 };
@@ -1287,9 +1571,10 @@ const witnessAdd = ($: EngineInterface, kind: string, text: string) => {
  */
 type BandCard =
   | { kind: "connection"; vp: string; path: string; title: string; answer: string }
-  | { kind: "triage"; vp: string; url: string; triage: Triage };
+  | { kind: "triage"; vp: string; url: string; triage: Triage }
+  | { kind: "notice"; entry: number };
 let bandCard: BandCard | null = null;
-const CARD_KINDS = new Set<string>(["connection", "triage"]);
+const CARD_KINDS = new Set<string>(["connection", "triage", "notice"]);
 
 const showCard = ($: EngineInterface, card: BandCard, text: string) => {
   bandCard = card;
@@ -1299,6 +1584,10 @@ const showCard = ($: EngineInterface, card: BandCard, text: string) => {
 /** The buttons each card offers, as [action, label]. */
 const cardButtons = (card: BandCard): Array<[string, string]> => {
   if (card.kind === "connection") return [["read", "Read it"], ["not-for-me", "Not for me"]];
+  if (card.kind === "notice") {
+    const entry = vaultActivity.find((a) => a.id === card.entry);
+    return entry?.revert && !entry.undone ? [["details", "Details"], ["undo", "Undo"]] : [["details", "Details"]];
+  }
   return card.triage.verdict === "in-vault"
     ? [["read", "Read it"], ["skip", "Dismiss"]]
     : [["ingest", "Ingest"], ["later", "Later"], ["skip", "Skip"]];
@@ -1337,6 +1626,15 @@ const bandPress = async ($: EngineInterface, action: string) => {
     await update($, band, (b) => ({ ...b, visible: false }));
   } catch {}
   try {
+    if (card.kind === "notice") {
+      const entry = vaultActivity.find((a) => a.id === card.entry);
+      if (action === "undo" && entry?.revert && !entry.undone) await undoRevision($, entry.revert.vp, entry.revert.event);
+      if (action === "details" && !(await openActivity($)) && entry) {
+        // No surface can seat the pane: the one line of detail it would have shown.
+        $.ui.toast(entry.details.replace(/[*`]/g, "").slice(0, 240));
+      }
+      return;
+    }
     if (card.kind === "connection") {
       const label = action === "read" ? "useful" : "not-for-me";
       traceTo($, card.vp, `feedback:${label}`, { path: card.path });
@@ -1346,7 +1644,7 @@ const bandPress = async ($: EngineInterface, action: string) => {
       } else {
         const list = ((await $.store.get(suppressedKey(card.vp))) ?? []) as string[];
         await $.store.set(suppressedKey(card.vp), [...list.filter((p) => p !== card.path), card.path].slice(-SUPPRESSED_MAX));
-        $.ui.toast(`⟡ won't surface [[${card.title}]] again`);
+        notice($, `won't surface [[${card.title}]] again`, `[[${card.title}]] was marked Not for me; the connection pass skips it from now on in this vault.`);
       }
       return;
     }
@@ -1359,7 +1657,7 @@ const bandPress = async ($: EngineInterface, action: string) => {
       const list = ((await $.store.get(laterKey(card.vp))) ?? []) as LaterItem[];
       const t = card.triage;
       await $.store.set(laterKey(card.vp), addLater(list, { url: card.url, verdict: t.verdict, note: t.note, why: t.why, at: new Date().toISOString() }));
-      $.ui.toast("⟡ saved for later · /vault later");
+      notice($, "saved for later", `${card.url} saved. \`/vault later\` lists saved links.`);
     }
   } catch {
     /* a card is a convenience; a failed press must never surface as an error */
@@ -1447,7 +1745,7 @@ const decorateReply = async ($: EngineInterface, text: string): Promise<{ text: 
       cited.push({ title: r.title, status: "missing" });
       continue;
     }
-    const full = noun.toCard(card, { vaultId: "", index: idx });
+    const full = await noun.withRevisions(noun.toCard(card, { vaultId: "", index: idx }), { index: idx });
     const href = fileHref(`${vp}/${rel}`);
     hrefs.set(k, href);
     cited.push({
@@ -1778,15 +2076,24 @@ export const register: Register = (on, options) => {
     }
     // `commonplace` CLI runs see the shards this session opened, exactly as
     // the vault tools do (legacy readers merge `sealed/legacy` rows by shard).
+    let command = e.command;
     try {
       const vault = await pickVault($);
       const shards = vault ? [...openOf(vault.path)] : [];
-      const command = withOpenShards(e.command, shards);
-      if (command !== e.command) return next({ ...e, command });
+      command = withOpenShards(command, shards);
+      // `commonplace commit` / `revise` act for this agent's unit of work.
+      if (/\bcommonplace\b/.test(command)) command = withUnit(command, await unitFor($, e.agentId));
     } catch {
       /* fall through unchanged */
     }
-    return next(e);
+    const r = await next(command !== e.command ? { ...e, command } : e);
+    // A successful commit closes the unit: the agent's next write opens a new one.
+    try {
+      if (isUnitCommit(e.command) && !r.isError && /Committed \d+ file|Nothing to commit/.test(String((r as { result?: { stdout?: string } }).result?.stdout ?? ""))) {
+        units.delete(agentKey(e.agentId));
+      }
+    } catch {}
+    return r;
   });
 
   /**
@@ -1802,6 +2109,29 @@ export const register: Register = (on, options) => {
    * to its own shard only.
    */
   on("tool.call", { tool: ["Write", "Edit"] }, async ($, e, next) => {
+    // The blob BEFORE the write, for the agent's unit of work: taken here,
+    // ahead of `next`, because afterwards the old content is gone. `-w`
+    // stores it so the unit can name it later. Outside a git repo the call
+    // fails and the write simply is not part of any unit.
+    let before: string | null | undefined;
+    try {
+      const target = e.file_path;
+      if (target && target.endsWith(".md")) {
+        const { vaults } = await loadGuard($);
+        const vault = vaults.find((v) => target.startsWith(`${v.path}/`) || (v.real && target.startsWith(`${v.real}/`)));
+        if (vault && !isExcluded(target.slice((target.startsWith(`${vault.path}/`) ? vault.path : vault.real!).length + 1))) {
+          const st = await $.fs.stat(target).catch(() => null);
+          if (!st) before = null;
+          else {
+            const h = await $.process.run(["git", "-C", vault.path, "hash-object", "-w", "--", target], { timeoutMs: 5_000 });
+            const blob = String(h.stdout ?? "").trim();
+            if (h.exitCode === 0 && /^[0-9a-f]{40,64}$/.test(blob)) before = blob;
+          }
+        }
+      }
+    } catch {
+      before = undefined;
+    }
     const built = await next(e);
     try {
       if (!built || built.deny !== undefined || built.isError) return built;
@@ -1813,12 +2143,18 @@ export const register: Register = (on, options) => {
       const root = target.startsWith(`${vault.path}/`) ? vault.path : vault.real!;
       const rel = target.slice(root.length + 1);
       if (isExcluded(rel)) return built;
+      noteWrite($, vault.path, rel, e.agentId);
 
       if ((await patchVaultFile($, vault, root, rel)) === "patched") noteReindexed($);
       scheduleRebuild($, vault.path);
 
+      const unitArgs: string[] = [];
+      if (before !== undefined) {
+        const u = await unitFor($, e.agentId);
+        unitArgs.push("--unit", u.id, "--actor", u.actor, "--session", u.session, "--before", before ?? "none");
+      }
       const res = await $.process.run(
-        ["node", `${$.plugin.root}/bin/commonplace`, "post-write", "--no-index", "--vault", vault.path],
+        ["node", `${$.plugin.root}/bin/commonplace`, "post-write", "--no-index", "--vault", vault.path, ...unitArgs],
         { stdin: JSON.stringify({ file_path: target }), timeoutMs: 120_000 },
       );
       const out = String(res.stdout ?? "").trim();
@@ -1842,6 +2178,42 @@ export const register: Register = (on, options) => {
    * model's tool call and our data. Recoverable failures are `ERROR: …`
    * results; only policy refusals are `{ deny }`.
    */
+  /**
+   * A whole vault note read with the built-in Read tool counts as read for
+   * the revision trigger, and a note whose claims were revised says so beside
+   * the text — the reader should not have to call another tool to learn that
+   * a sentence it is about to rely on was corrected.
+   */
+  on("tool.call", { tool: "Read" }, async ($, e, next) => {
+    const r = await next(e);
+    try {
+      if (r.deny !== undefined || r.isError) return r;
+      const target = String(e.file_path ?? "");
+      if (!target.endsWith(".md")) return r;
+      const { vaults } = await loadGuard($);
+      const vault = vaults.find((v) => target.startsWith(`${v.path}/`) || (v.real && target.startsWith(`${v.real}/`)));
+      if (!vault) return r;
+      const rel = target.slice((target.startsWith(`${vault.path}/`) ? vault.path : vault.real!).length + 1);
+      if (isExcluded(rel)) return r;
+      const whole = (e as { offset?: number }).offset === undefined && (e as { limit?: number }).limit === undefined;
+      if (whole) noteRead(vault.path, rel, e.agentId);
+      const idx = indexes.get(vault.path);
+      const id = idx?.state === "ready" ? idx.view?.idOfRel(rel) : undefined;
+      if (!idx || id === undefined || !idx.view?.visible(id)) return r;
+      // Counts toward the citation check's "read this session".
+      trailOf(vault.path).add(id);
+      const card = (await idx.cards([id])).get(id);
+      if (!card) return r;
+      const status = statusOnly(await noun.withRevisions(noun.toCard(card, { vaultId: "", index: idx }), { index: idx }));
+      if (status.length === 0) return r;
+      const note = `Revision status of [[${card.t}]]:\n${status.join("\n")}`;
+      witnessAdd($, "Read note", note);
+      return { ...r, context: [...(r.context ?? []), note] };
+    } catch {
+      return r;
+    }
+  });
+
   /** Link triage: a pasted link this turn fetched is one the fork can judge. */
   on("tool.call", { tool: "WebFetch" }, async (_$, e, next) => {
     const r = await next(e);
@@ -1891,6 +2263,7 @@ export const register: Register = (on, options) => {
         } else {
           result = formatNote(r);
           trailOf(vp).add(r.card.id);
+          noteRead(vp, r.card.path, e.agentId);
           const hint = unreadContext(r);
           if (hint) context = [hint];
           summary = r.card.title;
@@ -1924,6 +2297,19 @@ export const register: Register = (on, options) => {
         const r = await noun.neighbourhood(ctx, { seeds, k: Number(arg("k") ?? 12) });
         result = "error" in r ? `ERROR: ${r.error}` : formatNeighbourhood(r, seeds);
         summary = "error" in r ? "no match" : `${r.pool.length} related`;
+      } else if (name === "vault_lineage") {
+        const ref = arg("note") ? String(arg("note")) : undefined;
+        let rel: string | undefined;
+        if (ref) {
+          const nr = await noun.note(ctx, { ref, maxChars: 1 });
+          if ("error" in nr) return { result: `ERROR: ${nr.error} Use a path from vault_search.` };
+          rel = nr.card.path;
+          logSummary = nr.card.isPrivate ? "private" : nr.card.title;
+        }
+        const out = await revCli($, vp, ["log", ...(rel ? ["--note", rel] : []), "--limit", String(Number(arg("limit") ?? 15) || 15)]);
+        const rows = Array.isArray(out?.rows) ? (out!.rows as LineageRow[]) : [];
+        result = out === null ? "ERROR: the revision log could not be read." : maskSealed(formatLineage(rows, ref), ctx.sealedNames);
+        summary = `${rows.length} revisions`;
       } else if (name === "vault_list") {
         const what = String(arg("what") ?? "domains") as "domains" | "mocs" | "recent" | "stubs" | "vaults";
         const r = await noun.list(ctx, { what, limit: Number(arg("limit") ?? 50) }, await listExtras($, ctx, what));
@@ -2571,6 +2957,29 @@ export const register: Register = (on, options) => {
     );
   });
 
+  /** The activity pane: what commonplace did on its own, with Undo for revisions. */
+  on("ui.render", { component: "Pane", requestId: ACTIVITY_PANE }, async ($, e, next) => {
+    await read($, paneRev);
+    const { Box, Markdown, Button, Text } = $.ui.resolve(e);
+    const undoable = vaultActivity.filter((a) => a.revert && !a.undone).slice(0, 5);
+    return (
+      <Box flexDirection="column">
+        <Markdown text={renderActivity()} />
+        {undoable.length ? (
+          <Box flexDirection="column" marginTop={1}>
+            {undoable.map((a) => (
+              <Button key={`cp-undo-${a.id}`} label={`Undo: ${a.text}`} onPress={() => void undoRevision($, a.revert!.vp, a.revert!.event)}>
+                <Text color="cyan" wrap="truncate-end">{`Undo · ${a.text}`}</Text>
+              </Button>
+            ))}
+          </Box>
+        ) : (
+          <Text dimColor>{" "}</Text>
+        )}
+      </Box>
+    );
+  });
+
   /**
    * The connection pass.
    *
@@ -2588,6 +2997,10 @@ export const register: Register = (on, options) => {
     const base = await next(e);
     completedTurns.add(e.turnId);
     if (completedTurns.size > 100) completedTurns.delete(completedTurns.values().next().value as string);
+    // Every agent's unit of work goes to the revision trigger when its turn ends.
+    try {
+      flushRevisionWork($, e.agentId);
+    } catch {}
     // The main loop's answers only. A subagent's turn ends here too, and the
     // pass would judge (and surface under) a reply the person never read.
     if (e.agentId !== undefined) return base;
@@ -2758,13 +3171,21 @@ export const register: Register = (on, options) => {
     if (!surfaced) return base;
     // The why is already in the line under the answer, which outlasts the
     // card; the card names the note and carries the buttons.
+    // A connection to a corrected or bounded claim says so up front.
+    let status: string[] = [];
+    try {
+      const idx = await getIndex($, vp, (await pickVault($))?.domains ?? {});
+      const id = idx.view?.idOfRel(surfaced.path);
+      const card = id === undefined ? undefined : (await idx.cards([id])).get(id);
+      if (card) status = statusOnly(await noun.withRevisions(noun.toCard(card, { vaultId: "", index: idx }), { index: idx }));
+    } catch {}
     showCard(
       $,
       { kind: "connection", vp, path: surfaced.path, title: surfaced.title, answer: String(e.answer ?? "").slice(0, 1500) },
-      `[[${surfaced.title}]]`,
+      status.length ? `[[${surfaced.title}]] · ${status[0].replace(/^⚠\s*/, "⚠ ")}` : `[[${surfaced.title}]]`,
     );
     // Keep the engine's `usage` beside the replaced text: a hook that drops
     // it hides the turn's cost from every hook above.
-    return { ...base, text: surfaced.text };
+    return { ...base, text: status.length ? `${surfaced.text}\n${status.join("\n")}` : surfaced.text };
   });
 };

@@ -12,8 +12,10 @@
  */
 
 import type { ParsedNote, NoteKind, LinkKind } from "./parse.ts";
+import type { EdgeRel } from "../revision/edges.ts";
 
-export type JournalLink = { t: string; k: LinkKind; d?: string };
+/** `r`: a revision edge's claim and reason, so a patched note's status reads right before the next rebuild. */
+export type JournalLink = { t: string; k: LinkKind; d?: string; r?: EdgeRel };
 
 export type JournalNote = {
   title: string;
@@ -43,7 +45,7 @@ export function journalNote(p: ParsedNote, stub: boolean): JournalNote {
   const links: JournalLink[] = [];
   for (const l of p.links) {
     if (links.length >= MAX_LINKS) break;
-    links.push({ t: l.target, k: l.kind, ...(l.display ? { d: l.display } : {}) });
+    links.push({ t: l.target, k: l.kind, ...(l.display ? { d: l.display } : {}), ...(l.rel ? { r: l.rel } : {}) });
   }
   const scope = typeof p.fm.scope === "string" ? p.fm.scope : undefined;
   return {

@@ -19,6 +19,9 @@ export const EDGE_KINDS = [
   "usesMethod",
   "supersedes",
   "contests",
+  // Appended, never inserted: the packed CSR stores kinds by index.
+  "bounds",
+  "withdrawsSupport",
 ] as const;
 export type EdgeKind = (typeof EDGE_KINDS)[number];
 export const KIND_INDEX: Record<EdgeKind, number> = Object.fromEntries(
@@ -35,6 +38,8 @@ export const KIND_WEIGHT: Record<EdgeKind, number> = {
   usesMethod: 3,
   supersedes: 3,
   contests: 3,
+  bounds: 3,
+  withdrawsSupport: 3,
 };
 
 export type EdgeInput = { from: number; to: number; kind: EdgeKind; w?: number };

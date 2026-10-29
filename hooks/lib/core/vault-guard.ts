@@ -18,6 +18,7 @@
 
 import {
   sealedRoots,
+  ARTEFACT_ROOTS,
   protectedRoots,
   shardOfNote,
   isVisible,
@@ -49,9 +50,9 @@ const strip = (p: string) => p.replace(/\/+$/, "");
 /** Both spellings of a vault: registered and resolved. */
 const spellings = (v: GuardVault) => [...new Set([strip(v.path), ...(v.real ? [strip(v.real)] : [])])];
 
-/** `sealedRoots` always lists `.wiki/sealed`; anything more is a sealed domain. */
+/** `sealedRoots` always lists the artefact folders; anything more is a sealed domain. */
 const anySealed = (v: GuardVault, open: ReadonlySet<string>) =>
-  sealedRoots(v.domains, v.path, open).length > 1;
+  sealedRoots(v.domains, v.path, open).length > ARTEFACT_ROOTS.length;
 
 /**
  * Seal roots for every vault. `.wiki/sealed` is always under-denied (the
@@ -69,9 +70,9 @@ export function sealRootsFor(vaults: readonly GuardVault[], openOf: OpenOf): Sea
     const scanBlocked = anySealed(v, open);
     for (const base of spellings(v)) {
       const roots = sealedRoots(v.domains, base, open);
-      const wikiSealed = `${base}/.wiki/sealed`;
+      const artefacts = new Set(ARTEFACT_ROOTS.map((a) => `${base}/${a}`));
       for (const r of roots) {
-        if (r === wikiSealed && !scanBlocked) noScan.push(r);
+        if (artefacts.has(r) && !scanBlocked) noScan.push(r);
         else sealed.push(r);
       }
       protectedWrite.push(...protectedRoots(base));
