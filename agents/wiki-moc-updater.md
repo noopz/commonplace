@@ -79,6 +79,7 @@ The link text is always the filename stem of the source note. See "Critical: wik
 - Don't modify anything outside the Papers section
 - Update the date line at the bottom if one exists (format: `*Last updated YYYY-MM-DD*`)
 - **Skip private sources** — read `.wiki/domains.json` and exclude sources from private domains (or with `scope: private` in frontmatter). MOCs are public-facing; private notes can reference a MOC in their own frontmatter but must not appear in the MOC listing.
+- When you are done, commit what you wrote as one unit: `commonplace commit --message "wiki-moc-updater: <one-line summary>"`. It commits only your own edits; never `git add` or `git commit` in the vault yourself. Skip it if you wrote nothing.
 
 ## How to work
 

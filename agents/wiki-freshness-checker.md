@@ -63,3 +63,7 @@ For login-wall or unreachable pages: still record with `stale: false` so the not
    d. If stale and no existing `[!stale]` callout: Edit the note to add the callout
    e. Record the result via Bash script
 4. Report: N checked, N flagged stale, N skipped (login walls / unreachable)
+
+## Commit
+
+- When you are done, commit what you wrote as one unit: `commonplace commit --message "wiki-freshness-checker: <one-line summary>"`. It commits only your own edits; never `git add` or `git commit` in the vault yourself. Skip it if you wrote nothing.

@@ -42,3 +42,7 @@ Count the actual `- [[Paper Name]]` entries under `## Papers` and update the `(N
 ## Pattern: Fixing duplicates
 
 Remove the second occurrence of any duplicate entry in frontmatter arrays, keeping the first.
+
+## Commit
+
+- When you are done, commit what you wrote as one unit: `commonplace commit --message "wiki-linter: <one-line summary>"`. It commits only your own edits; never `git add` or `git commit` in the vault yourself. Skip it if you wrote nothing.

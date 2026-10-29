@@ -77,7 +77,7 @@ a feature that needs a switch to be tolerable usually needs cutting instead.
   session's open shards into `commonplace` commands itself.
 - **The vault tools** (`hooks/lib/tools/*`, served by one regex `tool.call`
   hook): `vault_search`, `vault_note` (pinned), `vault_links`, `vault_path`,
-  `vault_neighbourhood`, `vault_list`, `vault_skill` (deferred). `vault_search`
+  `vault_neighbourhood`, `vault_list`, `vault_skill`, `vault_lineage` (deferred). `vault_search`
   pages (`offset`; the reply says when more exist). No numeric
   score ever reaches the model. Sealed titles in returned text are masked to
   `[[…]]`. Each has a CLI twin on the same code: `commonplace search|note|
@@ -99,7 +99,7 @@ a feature that needs a switch to be tolerable usually needs cutting instead.
   does the same by hand. A nested skills folder holding or inside a private
   domain is offered only while that domain is open (`skillGateShards`).
 - **`/vault`** — `status · list · use · open · close · reindex · skills ·
-  domain`, answered by `command.run`.
+  domain · witness · later · revise · activity`, answered by `command.run`.
 - **Prime** (`hooks/lib/core/prime.ts`, off by default): the sync lane in
   `prompt.submit` picks at most one strong, clearly-leading postings hit per
   segment with no model call; the async lane judges it with haiku and appends
@@ -123,8 +123,18 @@ was actually consulted, and **`prompt.submit`** lowers it as soon as the user
 types again — except the `open` band and a paused breaker, which re-announce
 every turn while they are true. Also: a `ToolUse` row for vault tools
 (`⟡ vault_links [[X]] · 13 links · 6 ms`), the Spinner message "Reading the
-vault" while one runs, toasts, and `$.ui.status("⟡ <vault>")` only when more
+vault" while one runs, and `$.ui.status("⟡ <vault>")` only when more
 than one vault is registered.
+
+**Notices, not toasts.** A toast looks clickable and is not: a click only
+dismisses it. Everything commonplace does on its own (a revision accepted, a
+reindex the person asked for, a quarantine, a card press) goes through
+`notice()`: an entry in the module-memory activity log, and — unless it is a
+receipt the transcript already shows — a band card of kind `notice` with
+**Details** (opens the `commonplace-activity` pane, also `/vault activity`)
+and, for an accepted revision, **Undo**. A notice never covers a connection
+or triage card that is waiting on a press. The only toast left is the
+version gate, which fires before anything else is registered.
 
 **`turn.complete` ambient connection surfacing**.
 At the end of a turn a cheap classify decides whether the answer is technical
@@ -290,7 +300,7 @@ judge replies the person never saw.
 `skill:delivered`, `prime:sync|skip-cold|appended|judged-no|unanswered|late-drop|no-turn|error`,
 `skip:segment-budget`, `feedback:useful|not-for-me`,
 `triage:verdict|not-fetched|unanswered|ingest|later|skip|read|error`, `cite:check`
-(counts only). A private note's path is never logged.
+(counts only), `revision:ensure|trigger|detect|audit|proposed|propose-none|pool-empty|skip|written-truncated|proposal-cap|review|verify|escalate|wording|accept|steps|stuck|undo|error`. A private note's path is never logged.
 
 **Measure it with `commonplace eval:connection`.** It drives real `claude -p`
 sessions and scores the trace log, because the pass is a chain of guards, a
@@ -360,18 +370,71 @@ the rest first-page reshuffles, and a Connect regression — so cues stay
 dormant until a larger paraphrase gold set and a rephrase-once eval say
 otherwise (then: wiki-ingest writes them for new notes, not a bulk backfill).
 
-**Note age is shown, never decayed.** Every card carries two clocks —
-`published` (`published:`, else `date:`: when the knowledge was produced) and
-`added` (`created:`: when it entered the vault) — and a status read from
-incoming `supersedes:` / `contests:` frontmatter links on NEWER notes. Search
-pointers and `vault_note` print them (`published 2019-03 · added 2026-01-05`,
-`⚠ superseded by [[X]]`); ranking ignores all three. The research says why:
-time since publication predicts badly both ways (late-recognised papers are a
-continuous spectrum, Ke et al. 2015), a global recency boost overwhelms
-relevance, and overtaken knowledge should be invalidated and labelled, not
-decayed or evicted (Zep's bi-temporal edges; eviction lost recall over 9 weeks).
-The impact checker PROPOSES `supersedes`/`contests` at ingest and the person
-confirms; `wiki-supersede` stays for entities the user switched away from.
+**Revision: decisions about claims, accepted on git.** (docs/revision-design.md.)
+Four things stay apart in the data: the **artifact** (the captured source,
+never rewritten), the **extract** (a source note — an LLM's reading of it),
+the **decision** (how one claim relates to a newer note's, in the ledger), and
+the **summary** (concepts and MOCs, revised with receipts).
+
+- **Edges are claim-scoped and live on the NEWER note**: `supersedes`
+  (`kind: correction | world-change`, `effective:`), `bounds` (`within:`),
+  `contests`, `withdraws_support`, each a mapping item `{note, claim,
+  because, …}` (`hooks/lib/revision/edges.ts`). The plain `["[[X]]"]` form is a
+  whole-note edge. The older note is never edited. Status wording is per
+  relation: bounds says only where a claim is supported, a world change keeps
+  the earlier state true for its period, lost support is not refutation.
+- **Status before date.** Every model-facing line (pointers, `vault_note`,
+  prime, the connection card, a plain `Read` of a vault note) prints the status
+  first, then `published … · added …`. LLM rerankers drift toward newer dates
+  (arXiv 2509.11353); ranking ignores status and both clocks. Age is never a
+  reason: overtaken knowledge is labelled, not decayed or evicted.
+- **Units of work** (`scripts/lib/git-unit.ts`, `commonplace commit`): each
+  agent's vault writes are recorded per path (blob before → after) and
+  committed together through a temporary index and `update-ref` against the
+  expected parent, retried when HEAD moves. A path commits only when HEAD
+  still holds its `before` and the worktree its `after`; the person's own
+  uncommitted or staged edits are never swept in. The Write/Edit hook takes the
+  before-blob, the Bash hook injects `COMMONPLACE_UNIT/ACTOR/SESSION`, and
+  skills/agents end with `commonplace commit --message …`. Never `git add -A`.
+- **The ledger** (`<vault>/.revision/<session>.jsonl`, private ledgers in
+  `.revision/sealed/<shard>/`; outside `.wiki/` so it is versioned) is
+  append-only; the **reducer** (`scripts/lib/revision/reducer.ts`) is the
+  only source of accepted state. Stages: blind review (sonnet) → evidence
+  verify against passages commonplace itself retrieved from the artifacts
+  (sonnet) → wording, checked for added facts (sonnet + haiku) → accept. An
+  unsure review or an unconfirmed verify gets ONE escalation (opus, full
+  sources); still unsure → `pending`. Nobody is asked; owner intervention is a
+  failure metric, not a step.
+- **Accept** (`engine.accept`, under a pid-liveness lock): rechecks both note
+  versions and that the claim occurs exactly once, defers while the newer note
+  has uncommitted changes, writes the edge into the newer note's frontmatter
+  (`fm-edit.ts`, round-trip checked), commits note + ledger as unit
+  `rev-<event>` with a `Revision-Event:` trailer, then publishes `committed`
+  and **stale marks** for concepts/MOCs citing the older note. **Revert**
+  (`/vault revise undo`, the notice's Undo) is a compensating commit; a manual
+  `git revert` is reconciled by `revise ensure`. A vault that is not a git repo
+  on a branch, or `revision: "manual"` in `.wiki/config.json`, runs propose-only.
+- **Projection** (`.wiki/revision/projection.json` + sealed per shard): in an
+  auto scope an unaccepted frontmatter edge is NOT shown (it is a candidate);
+  legacy edges present when the scope was enabled are the baseline, shown
+  `[unreviewed]`; manual scopes show every edge `[unreviewed]`.
+- **Scope**: a public note's revision may rest only on public inputs; inputs
+  may include at most one private shard; commit messages carry event ids only.
+- **Triggers**: the module records each agent's vault writes and WHOLE reads
+  (Read without offset/limit, `vault_note`), and at that agent's `turn.complete`
+  runs `runTrigger` (pool: reads + graph neighbours + a search, same-scope
+  source notes only, ≤12; haiku detects, 10% of "nothing changed" re-asked of
+  sonnet as an audit; sonnet quotes the exact claim) and then `runSteps`,
+  single-flight per vault. The impact checker proposes at ingest the same way.
+  The model may run `revise propose|log|status|checked`; the Bash guard denies
+  `record|accept|revert|pause|resume|…`, and the file guard denies writes to
+  `.revision/`, `.wiki/units`, `.wiki/revision` and every read of `.revision/sealed`.
+- **Dependents**: `stale-derivation` lint lists a concept/MOC citing a note
+  whose claim was revised until `commonplace revise checked` records a receipt
+  for its CURRENT version (citing the replacement does not clear it);
+  `revision-claim-missing` lists accepted edges whose quote left the note.
+  `wiki-supersede` stays for entities the user switched away from.
+
 `commonplace dates` backfills `published:` from labelled source lines only.
 Not built yet, and only behind a time-aware gold set: CiteRank over the vault
 graph (PageRank with recency-biased restarts, so an old note stays "current"
@@ -474,7 +537,7 @@ All commands auto-discover the vault via cwd (`.obsidian/` or `.wiki/` marker) o
 - `commonplace vaults [--match "<phrase>"] [--json]` — List registered vaults, or match one by name (used by wiki-query to resolve "search in <name>")
 - `commonplace config` — Print `.wiki/config.json` contents (no script spawn, instant)
 - `commonplace index [--incremental] [--json]` — The single index writer: `.wiki/graph/` (v2 graph artefacts), `.wiki/sealed/`, and the per-shard records files (v1's `*-index.jsonl` are no longer written; stale ones are deleted). `--incremental` is a no-op when no note is newer than the last build.
-- `commonplace lint [--check <name>] [--json] [--rank-by-traffic]` — Vault health audit (human-readable summary by default, `--json` for machine-parseable; `--rank-by-traffic` sorts stub findings by backlink count, descending). Checks include `unresolved`, `stubs`, `orphans`, `frontmatter`, `moc-staleness`, `moc-size`, `scope-violations`, `duplicates`, `malformed-dates`, `filename-h1-mismatch`, `near-duplicate-names`, `near-duplicate-content`, `malformed-concept-names`, `underlinked`, `cluster-cohesion`, `bridge-thinness`, `weak-summary`, `cross-scope-bridge`, `concept-density-without-source-links`.
+- `commonplace lint [--check <name>] [--json] [--rank-by-traffic]` — Vault health audit (human-readable summary by default, `--json` for machine-parseable; `--rank-by-traffic` sorts stub findings by backlink count, descending). Checks include `unresolved`, `stubs`, `orphans`, `frontmatter`, `moc-staleness`, `moc-size`, `scope-violations`, `duplicates`, `malformed-dates`, `filename-h1-mismatch`, `near-duplicate-names`, `near-duplicate-content`, `malformed-concept-names`, `underlinked`, `cluster-cohesion`, `bridge-thinness`, `weak-summary`, `cross-scope-bridge`, `concept-density-without-source-links`, `stale-derivation`, `revision-claim-missing`.
 - `commonplace validate <file>` — Single file frontmatter validation
 - `commonplace scope-check [<file>]` — Domain scope enforcement
 - `commonplace score [--json]` — Compute vault quality score (human-readable by default, `--json` for machine-parseable)
@@ -490,6 +553,8 @@ All commands auto-discover the vault via cwd (`.obsidian/` or `.wiki/` marker) o
 - `commonplace eval:retrieval [--gold <path>] [--seed-mode flat|tiered] [--no-abstraction] [--no-authority] [--answers <dir>] [--history] [--json]` — Deterministic retrieval eval: seed recall over a gold question set (default `$VAULT/.wiki/evals/gold.jsonl`, never committed — the committed fixture set is CI-only), optional answer-transcript citation/groundedness scoring, optional history append to `.wiki/eval-history.jsonl`. Reports seed recall and mean reciprocal rank (position-sensitive, for ranking ablations).
 - `commonplace abstract [--dry-run] [--json]` — Backfill `abstraction:` frontmatter (deterministic derivation from Summary/definition text) across source + concept notes; on completion sets the vault's `abstractions: true` adoption flag (switches `isStub` to also key on missing abstractions and makes validation require the field). Run `commonplace index` afterwards.
 - `commonplace seed --query "<text>" [--mode tiered|flat] [--no-abstraction] [--no-authority] [--json]` — Deterministic tiered seed helper for wiki-query: matches query terms against explicit key spaces in order (A `abstraction`, B cue anchors = tags/MOC names/wikilink display texts, C names/titles, D whole-record grep only when A–C yield <3 seeds); prints candidates with tier + matched terms. Seeds are jumping-off points — read the notes before judging relevance. Tiered hits are ordered by HITS authority within each tier (`--no-authority` disables the ordering).
+- `commonplace commit --message "<what>" [--unit <id>] | --list [--json]` — Commit this agent's unit of work (the files it wrote this unit, nothing else); the unit id comes from `COMMONPLACE_UNIT`, which the module injects
+- `commonplace revise status | log [--note <ref>] | propose --old <ref> --new <ref> --claim "<exact quote>" [--rationale …] [--input <ref>]… | checked --note <rel> --event <id>` — Vault revision. The module alone runs `ensure|next|record|accept|job|projection`; the person runs `revert --event <id|last>`, `pause|resume` (as `/vault revise …`)
 - `commonplace log --entry "<text>"` — Append an entry to `.wiki/log.md` (use instead of printf/bash redirection)
 - `commonplace supersede --scan --old <name> [--new <name>] [--scope <path>] [--json]` — Find + classify prose mentions of a soon-to-be-retired entity (buckets: historical, comparison, already-retired, live, live-in-code, needs-review)
 - `commonplace supersede --retire --old <name> --new <name> --reason "..." [--date YYYY-MM-DD] [--dry-run]` — Rename old to "(Retired) <title>", inject warning callout, add `retired` tag, update wikilinks across vault, write breadcrumb to `.wiki/supersessions.jsonl`

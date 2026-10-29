@@ -177,7 +177,7 @@ contests:
   - note: "[[Gamma Survey]]"
     claim: "method X outperforms Y"
     because: "a larger replication under the same conditions finds the reverse; neither has been reconciled"
-withdraws-support:
+withdraws_support:
   - note: "[[Delta Analysis]]"
     claim: "the effect is causal"
     because: "the dataset it relied on was retracted; no replacement evidence either way"
@@ -247,7 +247,7 @@ The vault is already a git repository, but commits are manual and infrequent. **
 - The new commit's parent is the expected `HEAD`, and the branch moves with `git update-ref <ref> <new> <expected-old>`. If someone committed in between, manual commits included, the step rebases the unit's blobs onto the new `HEAD` when the paths are disjoint, and otherwise reruns the check.
 - A unit that fails retries a bounded number of times. One that still conflicts is logged with the conflicting paths and left uncommitted for its own session to redo; nothing is overwritten and nothing asks the owner.
 - An empty unit is refused. `git add -A` is never run.
-- Units that must write a file another unit also holds dirty work in a separate worktree, and their result is applied as a patch checked against the current blob before it lands.
+- A unit whose path another writer changed since (another unit, or the owner) is not committed for that path set: the check fails, the files stay as written, and the conflict is logged. Built without worktrees; a patch-in-worktree path is only worth adding if conflicts turn out common in the logs.
 - The pinned branch is the vault's current branch at session start. A detached `HEAD` or a different branch pauses committing and logs why.
 
 **Trailers** carry only opaque ids: `Revision-Event: <id>`, `Unit: <id>`, `Actor: <agent type>`. Reasons, relations and titles stay in the scoped ledger, so a commit message never carries private text. Git history is shared across scopes, so `vault_lineage` and every history tool enforce the session's scope before showing a commit's content.
@@ -262,7 +262,7 @@ Recovery at each boundary:
 - A commit whose `Revision-Event` trailer has no `committed` event gets one; the projection is rebuilt.
 - The projection is always rebuildable from committed accepts and nothing else.
 
-**Rollback is a compensating revision.** `/vault revert <event>` (agent- or owner-invoked):
+**Rollback is a compensating revision.** `/vault revise undo <event|last>` (or the notice's Undo; agent- or owner-invoked):
 - appends a `revert` event; the ledger stays append-only;
 - withdraws the decision from the projection immediately;
 - marks every dependent passage unverified at once, then queues them for recompile;
@@ -346,7 +346,7 @@ The frontmatter labels, cards and `## Changes` lines are views generated from co
 5. Only after committing does the reviewer see the proposer's rationale, and only to improve the wording of `because`. The final `because` may state only what the verifier confirmed; a check rejects wording that adds a claim. Any reviewer whose verdict would have flipped on seeing the rationale is logged.
 
 **Accept**, in one deterministic step with no model calls inside it:
-- Take the lock: an OS-held lock owned by the process for the short prepare-and-commit section (an `flock`ed file, released when the process exits), plus a fencing token (the expected parent commit and `seq`) checked again at publication. A process that lost the lock can't publish, because its fence no longer matches.
+- Take the lock: a lock directory created by one atomic `mkdir`, owned by the process for the short prepare-and-commit section and taken over only when its owner process is dead (same host, `kill(pid, 0)` fails) or it has no owner file for 30 s — never on age (Node has no `flock`; `scripts/lib/revision/lock.ts`). The fence is the commit itself: it lands with `update-ref` against the expected parent, and a holder that lost the lock does not publish.
 - Recheck:
   - both notes' content hashes;
   - the cited evidence hashes;
@@ -395,7 +395,7 @@ Because every accept is a single revertible commit, acceptance is autonomous fro
 
 **Owner:** no step in the process requires the owner. Acceptance, rejection, escalation, commit, rollback and recovery are all done by agents.
 - **Optional actions:**
-  - `/vault revert <event>` and `/vault pause-revision`;
+  - `/vault revise undo <event|last>` and `/vault revise pause|resume`;
   - a remark in conversation ("that's wrong"), which enters the case's evidence packet and reopens it.
 - **Every owner intervention is logged as a failure signal:** a revert, an override, or a correction the agents missed means the process got something wrong. A low intervention rate is not evidence of precision, since it may only mean nobody looked; see Evaluation.
 
@@ -441,7 +441,7 @@ Replaying the ledger answers audit questions.
 
 ## First shipment: autonomous acceptance, with git as the safety net
 
-Agents accept revisions from the first release. Nothing is lost because every write lands in a git commit first: the commit layer is built and tested before anything else writes through it, and every accept, compile and revert is a commit that `/vault revert` or plain git can undo.
+Agents accept revisions from the first release. Nothing is lost because every write lands in a git commit first: the commit layer is built and tested before anything else writes through it, and every accept, compile and revert is a commit that `/vault revise undo` or plain git can undo.
 
 Built in this order, each step resting on the ones before:
 
@@ -453,7 +453,7 @@ Built in this order, each step resting on the ones before:
    - parser (fixing the silent drop in defect 8), edge storage (`csr.ts` stores only the edge kind today, so reasons need a side table), `EDGE_KINDS`, card field (a minor `apiVersion` bump), `SCHEMA` bump.
 4. **The impact checker** stops writing into old notes, reads both notes in full, and emits proposals into the ledger.
 5. **The ledger and the reducer:** input scope carried as a union, the v1 scope limit (public plus one shard), the reducer as the only source of accepted state, explicit manual mode for vaults without revision.
-6. **Accept:** the OS lock with fencing; prepare, commit, publish with recovery at each boundary; one blind review plus the evidence verifier for every relation; one stronger escalation, then pending.
+6. **Accept:** the owner-liveness lock with fencing; prepare, commit, publish with recovery at each boundary; one blind review plus the evidence verifier for every relation; one stronger escalation, then pending.
 7. **Revert:** compensating revert, including reconciliation of a manual `git revert`.
 8. **Triggers:** completed-read tracking with versions, and the durable write-trigger job queue with debounce and generated-write suppression; the detector audit.
 9. **Dependents:** immediate invalidation on accept and revert, lazy receipts, and the `stale-derivation` lint as a candidate finder (a concept or MOC cites a displaced note, whether or not it also cites the replacement, and has no current receipt; cleared by a receipt, not by adding a citation).

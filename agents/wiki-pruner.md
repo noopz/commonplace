@@ -40,3 +40,4 @@ You remove low-value concept stubs from the Obsidian vault and clean up their re
 - **Refuse to prune retired notes.** If a `cleanup` or `review` entry's note has a `> [!warning] Retired` callout, a `retired` tag in frontmatter, a filename starting with `(Retired) `, or a `superseded_by:` field, do not touch it. Retired notes are kept as historical record. Surface these to the user with a one-liner: "Skipped {N} retired notes — use `wiki-supersede` to manage retirement debt."
 - If a cleanup edit fails (string not found), read the file to understand current state and retry with corrected content
 - Keep output concise — the user cares about results, not process
+- When you are done, commit what you wrote as one unit: `commonplace commit --message "wiki-pruner: <one-line summary>"`. It commits only your own edits; never `git add` or `git commit` in the vault yourself. Skip it if you wrote nothing.

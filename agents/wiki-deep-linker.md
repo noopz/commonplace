@@ -63,3 +63,7 @@ When done, report:
 - How many candidates were reviewed
 - How many links were added (and to which notes)
 - How many were rejected (group by reason: incidental, already saturated, out of scope, false positive)
+
+## Commit
+
+- When you are done, commit what you wrote as one unit: `commonplace commit --message "wiki-deep-linker: <one-line summary>"`. It commits only your own edits; never `git add` or `git commit` in the vault yourself. Skip it if you wrote nothing.

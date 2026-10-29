@@ -48,7 +48,7 @@ import { parseJsonl, stripFrontmatter } from "./lib/seed.ts";
 import { runConnectionPass, type CompletionRequest } from "./lib/pipeline.ts";
 import { statusLine, type Status } from "./lib/status.ts";
 import { buildVaultBlock, mergeBlocks } from "./lib/context.ts";
-import { checkBashCommand, checkScopeEscalation, withOpenShards, withUnit, isUnitCommit, parseSealedNames, type SealedName } from "./lib/guard.ts";
+import { checkBashCommand, checkScopeEscalation, checkRevisionStep, withOpenShards, withUnit, isUnitCommit, parseSealedNames, type SealedName } from "./lib/guard.ts";
 import { checkSealedAccess, candidatePaths, normalizePath } from "./lib/core/seal.ts";
 import { openFromStartCwd, type DomainMap } from "./lib/core/scope.ts";
 import {
@@ -2069,7 +2069,7 @@ export const register: Register = (on, options) => {
    */
   on("tool.call", { tool: "Bash" }, async ($, e, next) => {
     try {
-      const verdict = checkBashCommand(e.command) ?? checkScopeEscalation(e.command);
+      const verdict = checkBashCommand(e.command) ?? checkScopeEscalation(e.command) ?? checkRevisionStep(e.command);
       if (verdict) return verdict;
     } catch {
       /* a broken guard must never block a command */

@@ -376,6 +376,34 @@ export function checkScopeEscalation(command: string): { deny: string } | null {
   };
 }
 
+/**
+ * The revision steps that create accepted state — recording a reviewer's or
+ * verifier's verdict, accepting, reverting, pausing — are the module's and the
+ * person's (`/vault revise …`), never a model's: a model that could record its
+ * own verdict and accept it would bypass the blind review entirely. A model
+ * may propose, read the log and status, and record a recheck receipt.
+ */
+const MODEL_REVISE = new Set(["propose", "log", "status", "checked"]);
+
+export function checkRevisionStep(command: string): { deny: string } | null {
+  const cleaned = stripCommentLines(stripDataHeredocs(String(command ?? "")));
+  for (const stages of splitPipelines(cleaned)) {
+    for (const st of stages) {
+      if (firstCommandWord(st) !== "commonplace") continue;
+      const m = /(^|\s)commonplace\s+revise(?:\s+([a-z-]+))?/.exec(st);
+      if (!m) continue;
+      const sub = m[2] ?? "status";
+      if (MODEL_REVISE.has(sub)) continue;
+      return {
+        deny:
+          `\`commonplace revise ${sub}\` is run by commonplace itself (reviews, accepts) or by the user (/vault revise undo|pause|resume). ` +
+          "You may propose (`commonplace revise propose`), read `log`/`status`, or record a recheck with `checked`.",
+      };
+    }
+  }
+  return null;
+}
+
 /** Prefix `commonplace` commands with the session's open shards (empty → unchanged). */
 export function withOpenShards(command: string, shards: readonly string[]): string {
   if (shards.length === 0) return command;

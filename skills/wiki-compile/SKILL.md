@@ -94,6 +94,18 @@ One paragraph definition explaining what this concept is, written clearly enough
 After writing a compiled concept:
 - Run `commonplace link --target "<concept name>"` to insert wikilinks for the new concept across any source notes that mention it but don't link it. Deterministic — safe to run without review.
 
+### Revised sources
+
+`commonplace lint --check stale-derivation` lists concepts that cite a note one of whose claims was revised (corrected, bounded, contested, or lost its support). When a concept you compile is on that list, read the revision first (`vault_lineage note:"<cited note>"`) and do not carry the displaced claim into the definition except as history ("earlier reported X; [[Newer]] found Y"). After writing, record that the concept was checked against the revision: `commonplace revise checked --note "<concept path>" --event <event id from the finding>`. Adding a citation to the newer note does not clear the finding; only the receipt does.
+
+### Commit
+
+When the batch is written, commit it as one unit (only the files this session wrote; the user's uncommitted edits stay out):
+
+```bash
+commonplace commit --message "compile: <concept names>"
+```
+
 ### Batch Control
 
 - **Default**: Compile up to 5 stubs per invocation

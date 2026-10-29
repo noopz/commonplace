@@ -91,3 +91,4 @@ text from it.
   new sub-MOC files, and the moved sources' `mocs:` arrays.
 - Report: groups created (name + count), sources left in General, and the
   post-split lint result.
+- When you are done, commit what you wrote as one unit: `commonplace commit --message "wiki-moc-splitter: <one-line summary>"`. It commits only your own edits; never `git add` or `git commit` in the vault yourself. Skip it if you wrote nothing.

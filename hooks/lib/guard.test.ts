@@ -15,6 +15,7 @@ import assert from "node:assert/strict";
 
 import {
   checkScopeEscalation,
+  checkRevisionStep,
   withOpenShards,
   splitPipelines,
   stripDataHeredocs,
@@ -528,4 +529,21 @@ test("withOpenShards prefixes only commonplace commands, only with safe shard id
   assert.equal(withOpenShards("ls -la", ["gamma"]), "ls -la");
   assert.equal(withOpenShards("commonplace lint --json", ["gamma", "grouped"]), "export COMMONPLACE_OPEN=gamma,grouped; commonplace lint --json");
   assert.equal(withOpenShards("commonplace lint", ["bad;rm -rf"]), "commonplace lint");
+});
+
+test("revision steps that create accepted state are denied to the model; propose, log, status, checked pass", () => {
+  for (const cmd of [
+    "commonplace revise accept --proposal x",
+    "commonplace revise record --proposal x --stage review",
+    "cd /tmp && commonplace revise revert --event last",
+    "commonplace revise pause",
+    "echo '{}' | commonplace revise record --proposal x --stage verify",
+  ]) assert.ok(checkRevisionStep(cmd), cmd);
+  for (const cmd of [
+    'commonplace revise propose --old A --new B --claim "c"',
+    "commonplace revise log --note A",
+    "commonplace revise",
+    "commonplace revise checked --note C.md --event e1",
+    "grep -n 'commonplace revise accept' hooks/lib/guard.ts",
+  ]) assert.equal(checkRevisionStep(cmd), null, cmd);
 });

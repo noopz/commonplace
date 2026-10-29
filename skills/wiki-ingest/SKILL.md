@@ -79,16 +79,12 @@ compares_with:    # optional — papers this is compared against
   - '[[Paper]]'
 uses_method:      # optional — methods employed
   - '[[Method]]'
-supersedes:       # optional — sources whose finding this one replaces (confirmed with the user)
-  - '[[Paper]]'
-contests:         # optional — sources this one disputes without settling (confirmed with the user)
-  - '[[Paper]]'
 ---
 ```
 
 **`published` vs `created`:** `created` is when the note entered the vault; `published` is when the knowledge was produced. Both are shown beside every search pointer, and neither decays a note — an old paper can still be the key one. Never guess `published`: take it from the arXiv id, the publication's own date, or omit it.
 
-**`supersedes` / `contests`:** only from the impact checker's `frontmatter proposal:` lines (or the user saying so), and only after the user confirms each one. Search then labels the older note `⚠ superseded by …` or `⚠ contested by …`; it is never retired, renamed or deleted for this — that is `wiki-supersede`, for entities the user switched away from.
+**`supersedes` / `bounds` / `contests` / `withdraws_support`:** never written by hand at ingest. When the new source changes a specific claim of an older note, propose it — `commonplace revise propose --old "<older path>" --new "<new path>" --claim "<exact sentence from the older note>" --rationale "…" --origin agent` — and commonplace reviews it blind, checks it against the original sources, and accepts it into the new note's frontmatter as its own git commit (undoable with `/vault revise undo`). Nobody is asked to confirm. The older note is never edited, retired or renamed for this; that is `wiki-supersede`, for entities the user switched away from.
 
 **`abstraction` (required):** one canonical descriptor, ~6–12 words, noun-phrase-first (e.g. 'staged ledger index that separates writes from lookups'), no citations, no dates. Derive it from the Summary's core claim. It is indexed as the note's primary retrieval key, so favor distinctive content words over generic ones — an abstraction that merely repeats the title gets lint-flagged.
 
@@ -187,16 +183,22 @@ After writing the source note and any new concept stubs:
    ```bash
    grep -nE '(supersedes|replaces|replaced|migrated from|formerly|previously known as|in place of)\s+\[\[' "<new source note path>"
    ```
-   If any match, the new note declares it supersedes something. If the predecessor is a **research source or finding**, add it to the new note's `supersedes:` frontmatter after the user confirms, and stop there — the older note stays, labelled. If it is an **entity** (a tool, project, product or practice the user switched away from), stop and route to `wiki-supersede` — pass the matched predecessor wikilink as `--old` and the new note path as `--new`. Without this, the predecessor's siblings will keep treating it as live. This is non-optional: a declared supersession that doesn't propagate is exactly the failure mode `wiki-supersede` exists to fix.
+   If any match, the new note declares it supersedes something. If the predecessor is a **research source or finding**, propose a revision for the specific claim it changes (`commonplace revise propose`, above), and stop there — the older note stays, and the accepted revision labels the claim. If it is an **entity** (a tool, project, product or practice the user switched away from), stop and route to `wiki-supersede` — pass the matched predecessor wikilink as `--old` and the new note path as `--new`. Without this, the predecessor's siblings will keep treating it as live. This is non-optional: a declared supersession that doesn't propagate is exactly the failure mode `wiki-supersede` exists to fix.
 
-6. **Consolidation awareness**: the post-write hook compares the new note's `abstraction` against existing sources and surfaces consolidation candidates when they substantially overlap. If it does, follow its instructions (dispatch `commonplace:wiki-impact-checker`). Flag-and-link only — **never merge source notes**. The checker's `frontmatter proposal:` lines (`supersedes` / `contests`) go to the user to confirm; write each confirmed one into the NEW note's frontmatter.
+6. **Consolidation awareness**: the post-write hook compares the new note's `abstraction` against existing sources and surfaces consolidation candidates when they substantially overlap. If it does, follow its instructions (dispatch `commonplace:wiki-impact-checker`). Flag-and-link only — **never merge source notes**. The checker proposes claim revisions into the ledger itself; nothing from it needs writing or confirming.
 
-7. **Log**: append to `$VAULT_PATH/.wiki/log.md`:
+7. **Commit**: once every write of this ingest is done (the source note, concepts, MOC entries), commit them as one unit so it lands in git and can be undone as a whole:
+   ```bash
+   commonplace commit --message "ingest: {Note Title}"
+   ```
+   It commits only the files this session wrote, never the user's own uncommitted edits. If it reports a conflict (the user edited one of the same files), leave it; nothing is lost, the files stay as written.
+
+8. **Log**: append to `$VAULT_PATH/.wiki/log.md`:
    ```bash
    commonplace log --entry "## [$(date +%Y-%m-%d)] ingest | {Note Title}\n- Concepts: N new, N existing. MOCs: N linked.\n"
    ```
 
-8. **Report**: Tell the user what was created (impact check and cross-domain analysis run automatically via hooks):
+9. **Report**: Tell the user what was created (impact check and cross-domain analysis run automatically via hooks):
    - Source note path
    - Number of concepts extracted (new + existing)
    - MOCs linked

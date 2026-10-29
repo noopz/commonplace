@@ -5,7 +5,7 @@
  */
 
 import { readFileSync } from "fs";
-import { basename, dirname, relative } from "path";
+import { basename, dirname, join, relative } from "path";
 import { parseArgs } from "util";
 import {
   resolveVault,
@@ -37,6 +37,10 @@ import { buildNameIndex, normalizeWikilinkTarget } from "./lib/resolve.ts";
 import { currentHash } from "./lib/git-hash.ts";
 import { loadConventions, matchGenre } from "./lib/conventions.ts";
 import { abstractionSimilarity } from "./lib/consolidation.ts";
+import { PROJECTION_FILE, shardProjectionFile, parseProjection, mergeProjections } from "../hooks/lib/revision/projection.ts";
+import { locateClaim } from "../hooks/lib/revision/edges.ts";
+import { parseFrontmatter } from "../hooks/lib/index/yaml.ts";
+import { openShardsFromEnv } from "./lib/revision/vault-index.ts";
 import type {
   LintIssue,
   LintResult,
@@ -104,6 +108,8 @@ const checksToRun = values.check ? [values.check] : [
   "weak-summary",
   "cross-scope-bridge",
   "concept-density-without-source-links",
+  "stale-derivation",
+  "revision-claim-missing",
 ];
 
 function shouldRun(check: string): boolean {
@@ -379,6 +385,56 @@ if (shouldRun("compiled-staleness")) {
           severity: "improvement",
           file: concept.path,
           message: `Concept "${concept.name}" was compiled from "${entry.path}" at ${entry.hash.slice(0, 8)}, but that source is now at ${latest.slice(0, 8)} — re-check the definition still matches`,
+          fixable: false,
+        });
+      }
+    }
+  }
+}
+
+// === Checks: revision dependents and accepted claims ===
+// The accepted projection (written by `commonplace revise`) carries a stale
+// mark for every concept or MOC that cites a note whose claim was revised or
+// whose revision was reverted, until a receipt for the concept's CURRENT
+// version clears it. Citing the replacement does not clear it — only a
+// recheck does. Open private shards only (COMMONPLACE_OPEN).
+if (shouldRun("stale-derivation") || shouldRun("revision-claim-missing")) {
+  const readProj = (rel: string) => {
+    try {
+      return parseProjection(readFileSync(join(config.wikiPath, rel), "utf-8"));
+    } catch {
+      return null;
+    }
+  };
+  const proj = mergeProjections([readProj(PROJECTION_FILE), ...openShardsFromEnv().map((s) => readProj(shardProjectionFile(s)))]);
+  if (shouldRun("stale-derivation")) {
+    for (const m of proj.stale) {
+      issues.push({
+        check: "stale-derivation",
+        severity: "improvement",
+        file: m.rel,
+        message: `Cites [[${m.displaced}]], one of whose claims was revised (event ${m.event}). Re-read both and update this note if it relied on that claim; if it still holds, record it: \`commonplace revise checked --note "${m.rel}" --event ${m.event}\``,
+        fixable: false,
+      });
+    }
+  }
+  if (shouldRun("revision-claim-missing")) {
+    const relOfTitle = new Map(allFiles.map((f) => [basename(f, ".md").toLowerCase(), relative(config.vaultPath, f)]));
+    for (const a of proj.accepted) {
+      const rel = relOfTitle.get(a.to.toLowerCase());
+      if (!rel || !a.rel.claim) continue;
+      let body = "";
+      try {
+        body = parseFrontmatter(readFileSync(join(config.vaultPath, rel), "utf-8")).body;
+      } catch {
+        continue;
+      }
+      if ("error" in locateClaim(body, a.rel.claim)) {
+        issues.push({
+          check: "revision-claim-missing",
+          severity: "suggestion",
+          file: rel,
+          message: `An accepted revision from "${a.from}" quotes "${a.rel.claim}", which no longer occurs exactly once in this note; its status line now says so. Leave it unless the claim was reworded, then propose the revision again against the new wording.`,
           fixable: false,
         });
       }

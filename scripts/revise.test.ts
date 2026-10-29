@@ -186,3 +186,25 @@ test("a claim not quoted exactly is refused, and a manual-mode vault never enabl
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("stale-derivation lint lists the concept citing a revised note until a receipt clears it", () => {
+  const root = vault();
+  try {
+    revise(root, ["ensure"]);
+    const p = revise(root, ["propose", "--old", "Old Finding", "--new", "New Finding", "--claim", CLAIM]);
+    toAccept(root, p.id);
+    const a = revise(root, ["accept", "--proposal", p.id]);
+    const lint = () => {
+      const out = execFileSync(process.execPath, [join(ROOT, "bin", "commonplace"), "lint", "--vault", root, "--check", "stale-derivation", "--json"], { encoding: "utf-8", env: ENV });
+      const res = JSON.parse(out);
+      return [...res.critical, ...res.improvement, ...res.suggestion].filter((i: { check: string }) => i.check === "stale-derivation");
+    };
+    const before = lint();
+    assert.equal(before.length, 1);
+    assert.equal(before[0].file, "Concepts/Batch Window.md");
+    assert.equal(revise(root, ["checked", "--note", "Concepts/Batch Window.md", "--event", a.accept]).ok, true);
+    assert.equal(lint().length, 0);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});

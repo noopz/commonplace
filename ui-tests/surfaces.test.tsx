@@ -76,6 +76,11 @@ for (const surface of SURFACES) {
       forks.push(String((e as { prompt: string }).prompt));
       return { value: { isAnswered: true, text: '{"verdict":"extends","note":"Kestrel Calibration Protocol","why":"adds a field drift study"}' } } as never;
     });
+    const opened: string[] = [];
+    on("ui.open", async (_$, e) => {
+      opened.push(String((e as { id: string }).id));
+      return { value: { isPlaced: true } } as never;
+    });
     await $.session.start({ cwd: "/fixture/project", surface, isInteractive: true });
     // Loads the index, as any session that has used the vault has.
     await $.tool.call({ tool: "mcp__commonplace__vault_list", tool_use_id: "toolu_t0", what: "domains" } as never);
@@ -96,6 +101,13 @@ for (const surface of SURFACES) {
     const later = String(((await $.command.run({ command: "vault", args: "later" } as never)) as { text?: unknown }).text);
     expect(later).toMatch(/https:\/\/acme\.example\/kestrel-drift/);
     expect(later).toMatch(/extends \[\[Kestrel Calibration Protocol\]\]/);
+
+    // The press leaves a notice, not a toast: Details opens the activity pane.
+    expect((await band.find({ text: /vault ·/ }))?.text).toMatch(/saved for later/);
+    await band.press({ key: "cp-notice-details" } as never);
+    expect(opened).toEqual(["commonplace-activity"]);
+    const pane = await $.ui.mount({ plugin: "commonplace", surface, component: "Pane", requestId: "commonplace-activity", props: {} as never });
+    expect(JSON.stringify(await pane.drawn())).toMatch(/acme\.example\/kestrel-drift saved/);
   });
 
   test(`${surface}: a pasted link nobody fetched is never triaged`, { options: { linkTriage: true } }, async ($, on) => {

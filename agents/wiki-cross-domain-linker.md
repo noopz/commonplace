@@ -45,6 +45,7 @@ Obsidian resolves `[[X]]` by **filename**, not by the source note's H1 or its fr
 - Skip bridge concepts with fewer than 2 words unless highly specific (e.g., skip "AI", "model", "agent")
 - Process at most 3 cross-domain hits per run, ordered by affectedSources count descending
 - Report what was added (or "No cross-domain connections warranted" if nothing qualified)
+- When you are done, commit what you wrote as one unit: `commonplace commit --message "wiki-cross-domain-linker: <one-line summary>"`. It commits only your own edits; never `git add` or `git commit` in the vault yourself. Skip it if you wrote nothing.
 
 ## How to work
 
