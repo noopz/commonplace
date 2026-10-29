@@ -13,7 +13,8 @@
  *   commonplace revise status
  *   commonplace revise pause | resume
  *   commonplace revise checked --note <rel> --event <id>     a concept still holds after a revision
- *   commonplace revise job                            (audit JSON on stdin)
+ *   commonplace revise job-enqueue                    (one finished unit's {written, reads, origin, unit, pairs?} on stdin)
+ *   commonplace revise job-next | job-done --job <id> (counts on stdin) | job-failed --job <id> --reason "…"
  *
  * Common: [--vault <path>] [--json]. Scope comes from COMMONPLACE_OPEN, which
  * only the module sets (from shards the person opened).
@@ -40,6 +41,7 @@ import {
 } from "./lib/revision/engine.ts";
 import { loadArtifact, passages, sourceRefs, type Artifact } from "./lib/revision/artifact.ts";
 import { openShardsFromEnv } from "./lib/revision/vault-index.ts";
+import { enqueue, claim, finish, fail } from "./lib/revision/jobs.ts";
 import { describeDecision } from "../hooks/lib/revision/review.ts";
 import { statusLine } from "../hooks/lib/revision/edges.ts";
 
@@ -63,6 +65,7 @@ const { values } = parseArgs({
     limit: { type: "string" },
     open: { type: "string" },
     offline: { type: "boolean", default: false },
+    job: { type: "string" },
   },
 });
 
@@ -129,7 +132,8 @@ switch (sub) {
     const en = await ensureEnabled(ctx);
     const red = state(ctx);
     const work = [...red.proposals.values()].filter((p) => STAGES.has(p.status)).length;
-    print({ ...en, recovered: rec, paused: red.paused, work, scopes: Object.fromEntries([...red.scopes].map(([s, v]) => [s === MAIN ? "main" : "private", v.mode])) });
+    const jobs = [...red.jobs.values()].filter((j) => j.status === "queued").length;
+    print({ ...en, recovered: rec, paused: red.paused, work, jobs, scopes: Object.fromEntries([...red.scopes].map(([s, v]) => [s === MAIN ? "main" : "private", v.mode])) });
     break;
   }
 
@@ -281,18 +285,32 @@ switch (sub) {
     break;
   }
 
-  case "job": {
+  case "job-enqueue": {
     const body = await stdinJson();
-    append(vault, MAIN, actor, {
-      kind: "job",
-      job: String(body.job ?? newId()),
-      written: Array.isArray(body.written) ? body.written.map(String).slice(0, 20) : [],
-      reads: [], // paths of reads stay out of the public ledger; counts below
-      poolSize: Number(body.poolSize ?? 0),
-      truncated: body.truncated === true,
-      proposals: Number(body.proposals ?? 0),
+    const r = await enqueue(ctx, {
+      written: Array.isArray(body.written) ? body.written.map(String) : [],
+      reads: Array.isArray(body.reads) ? body.reads.map(String) : [],
+      ...(Array.isArray(body.pairs) ? { pairs: (body.pairs as Array<Record<string, unknown>>).map((p) => ({ written: String(p.written), old: String(p.old), why: String(p.why ?? "") })) } : {}),
+      origin: String(body.origin ?? actor.type),
+      ...(body.unit ? { unit: String(body.unit) } : {}),
     });
-    print({ ok: true });
+    print(r);
+    break;
+  }
+
+  case "job-next": {
+    print(claim(ctx));
+    break;
+  }
+
+  case "job-done": {
+    const body = await stdinJson();
+    print({ ok: finish(ctx, values.job ?? "", body) });
+    break;
+  }
+
+  case "job-failed": {
+    print({ status: fail(ctx, values.job ?? "", values.reason ?? "failed") });
     break;
   }
 

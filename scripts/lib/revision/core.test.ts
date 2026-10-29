@@ -135,3 +135,14 @@ test("reducer: a commit that failed never becomes accepted; acceptBlocker guards
   const st = reduce([q, review(q.id, "bounds"), ev({ kind: "verify", proposal: q.id, result: "confirmed", evidence: [], model: "m" })]).proposals.get(q.id)!;
   assert.equal(acceptBlocker(st), "bounds without conditions");
 });
+
+test("reducer: a claimed job whose lease ran out goes back to the queue, and is abandoned at the attempt limit", () => {
+  const q = ev({ kind: "job-queued", job: "j1", key: "k", written: [{ rel: "New.md", rev: "r" }], reads: [], origin: "main" });
+  const past = new Date(Date.now() - 1000).toISOString();
+  const future = new Date(Date.now() + 60_000).toISOString();
+  assert.equal(reduce([q, ev({ kind: "job-claimed", job: "j1", until: future })]).jobs.get("j1")!.status, "claimed");
+  assert.equal(reduce([q, ev({ kind: "job-claimed", job: "j1", until: past })]).jobs.get("j1")!.status, "queued");
+  const three = [q, ...[1, 2].flatMap(() => [ev({ kind: "job-claimed", job: "j1", until: future }), ev({ kind: "job-failed", job: "j1", reason: "x" })]), ev({ kind: "job-claimed", job: "j1", until: past })];
+  assert.equal(reduce(three).jobs.get("j1")!.status, "abandoned");
+  assert.equal(reduce([q, ev({ kind: "job-claimed", job: "j1", until: future }), ev({ kind: "job-done", job: "j1", poolSize: 1, truncated: false, changed: 0, proposals: 0 })]).jobs.get("j1")!.status, "done");
+});

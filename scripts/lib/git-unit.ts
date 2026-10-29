@@ -61,6 +61,7 @@ export type CommitResult =
   | { status: "empty" }
   | { status: "no-repo" }
   | { status: "detached" }
+  | { status: "off-branch"; pinned: string; current: string | null }
   | { status: "missing" };
 
 const ZERO = "0000000000000000000000000000000000000000";
@@ -215,7 +216,27 @@ export type CommitOptions = {
   retries?: number;
   /** Injected between building and update-ref, for tests of the race. */
   beforeUpdateRef?: () => void;
+  /** The branch this session pinned (`refs/heads/…`); default `COMMONPLACE_PIN`. */
+  pin?: string | null;
 };
+
+/**
+ * The branch the session pinned at its start (design, "Units of work"): the
+ * module sets `COMMONPLACE_PIN` for every CLI it runs or the model runs. A
+ * vault switched to another branch mid-session pauses committing rather than
+ * landing agent work on a branch nobody chose for it.
+ */
+export const pinnedRef = (): string | null => {
+  const p = String(process.env.COMMONPLACE_PIN ?? "").trim();
+  return /^refs\/heads\/[^\s]+$/.test(p) ? p : null;
+};
+
+/** Why `repo` may not take agent commits now, or null. */
+export function branchBlocker(repo: Repo, pin: string | null = pinnedRef()): CommitResult | null {
+  if (!repo.ref) return { status: "detached" };
+  if (pin && repo.ref !== pin) return { status: "off-branch", pinned: pin, current: repo.ref };
+  return null;
+}
 
 function isPrefixBlob(repo: Repo, committed: string, rel: string): boolean {
   const old = tryGit(repo.top, ["cat-file", "blob", committed]);
@@ -253,8 +274,9 @@ export function commitUnit(vault: string, id: string, opts: CommitOptions): Comm
   if (!u) return { status: "missing" };
   const repo = repoOf(vault);
   if (!repo) return { status: "no-repo" };
-  if (!repo.ref) return { status: "detached" };
   if (u.commit) return { status: "committed", commit: u.commit, paths: Object.keys(u.paths) };
+  const blocked = branchBlocker(repo, opts.pin === undefined ? pinnedRef() : opts.pin);
+  if (blocked) return blocked;
 
   const attempts = Math.max(1, (opts.retries ?? 3) + 1);
   for (let attempt = 0; attempt < attempts; attempt++) {
@@ -311,7 +333,7 @@ export function commitUnit(vault: string, id: string, opts: CommitOptions): Comm
         env: { GIT_AUTHOR_NAME: `commonplace (${u.actor})` },
       }).trim();
       opts.beforeUpdateRef?.();
-      if (tryGit(repo.top, ["update-ref", "-m", `commonplace: unit ${u.id}`, repo.ref, commit, head ?? ZERO]) === null) {
+      if (tryGit(repo.top, ["update-ref", "-m", `commonplace: unit ${u.id}`, repo.ref!, commit, head ?? ZERO]) === null) {
         continue; // HEAD moved: re-check against the new one
       }
       syncRealIndex(repo, entries);

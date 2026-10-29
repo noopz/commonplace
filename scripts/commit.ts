@@ -78,4 +78,8 @@ switch (r.status) {
     out(r, "The vault's HEAD is detached; agents commit only to a branch. Nothing was committed.");
     process.exitCode = 1;
     break;
+  case "off-branch":
+    out(r, `The vault moved from ${r.pinned.replace("refs/heads/", "")} to ${r.current?.replace("refs/heads/", "") ?? "a detached HEAD"} during this session; agent commits are paused until it is back. Nothing was committed and the files stay as written.`);
+    process.exitCode = 1;
+    break;
 }

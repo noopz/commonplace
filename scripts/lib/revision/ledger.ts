@@ -92,7 +92,23 @@ export type RevEvent = Base &
     | { kind: "stale"; event: string; marks: Array<{ rel: string; displaced: string }> }
     | { kind: "enable"; mode: "auto" | "manual"; baseline: string[] }
     | { kind: "pause" | "resume" }
-    | { kind: "job"; job: string; written: string[]; reads: Array<{ rel: string; hash: string }>; poolSize?: number; truncated?: boolean; proposals?: number }
+    | {
+        /** A write-trigger job: one finished unit of work's notes at their versions (design, "Triggers"). */
+        kind: "job-queued";
+        job: string;
+        /** Dedup key over the written notes' revisions (and the pairs, for an overflow job). */
+        key: string;
+        written: Array<{ rel: string; rev: string }>;
+        /** Whole reads in this ledger's scope. */
+        reads: string[];
+        /** Overflow: (written, older) pairs already detected as changed, still to propose. */
+        pairs?: Array<{ written: string; old: string; why: string }>;
+        origin: string;
+        unit?: string;
+      }
+    | { kind: "job-claimed"; job: string; until: string }
+    | { kind: "job-done"; job: string; poolSize: number; truncated: boolean; changed: number; proposals: number }
+    | { kind: "job-failed"; job: string; reason: string }
   );
 
 export type EventKind = RevEvent["kind"];

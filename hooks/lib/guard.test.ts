@@ -16,6 +16,7 @@ import assert from "node:assert/strict";
 import {
   checkScopeEscalation,
   checkRevisionStep,
+  withUnit,
   withOpenShards,
   splitPipelines,
   stripDataHeredocs,
@@ -546,4 +547,11 @@ test("revision steps that create accepted state are denied to the model; propose
     "commonplace revise checked --note C.md --event e1",
     "grep -n 'commonplace revise accept' hooks/lib/guard.ts",
   ]) assert.equal(checkRevisionStep(cmd), null, cmd);
+});
+
+test("withUnit carries the pinned branch, and drops one that is not a plain branch ref", () => {
+  const u = { id: "s-main-1", actor: "main", session: "s" };
+  assert.match(withUnit("commonplace commit --message x", u, "refs/heads/main"), /COMMONPLACE_PIN=refs\/heads\/main; commonplace commit/);
+  assert.doesNotMatch(withUnit("commonplace commit --message x", u, "refs/heads/main; rm -rf /"), /PIN/);
+  assert.equal(withUnit("ls", u, "refs/heads/main"), "ls");
 });

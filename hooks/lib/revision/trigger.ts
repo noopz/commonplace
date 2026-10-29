@@ -44,15 +44,27 @@ export const WRITTEN_MAX = 3;
 export const PROPOSALS_MAX = 3;
 const CLAIM_KINDS = new Set(["source", "other"]);
 
-export type TriggerJob = { written: string[]; reads: string[] };
-export type TriggerResult = { examined: number; pool: number; truncated: boolean; changed: number; proposed: number };
+export type Pair = { written: string; old: string; why: string };
+export type TriggerJob = { written: string[]; reads: string[]; /** An overflow job: detection already done, propose these. */ pairs?: Pair[] };
+export type TriggerResult = {
+  examined: number;
+  pool: number;
+  truncated: boolean;
+  changed: number;
+  proposed: number;
+  /** Model calls that came back empty: the job is retried rather than marked done. */
+  unanswered: number;
+  /** Changes detected past the proposal cap, to queue as their own job (never dropped). */
+  overflow: Pair[];
+};
 
 export async function runTrigger(ports: TriggerPorts, job: TriggerJob): Promise<TriggerResult> {
-  const res: TriggerResult = { examined: 0, pool: 0, truncated: false, changed: 0, proposed: 0 };
-  const written = [...new Set(job.written)].slice(0, WRITTEN_MAX);
-  if (job.written.length > WRITTEN_MAX) ports.log("revision:written-truncated", { written: job.written.length });
+  const res: TriggerResult = { examined: 0, pool: 0, truncated: false, changed: 0, proposed: 0, unanswered: 0, overflow: [] };
+  if (job.pairs?.length) return proposePairs(ports, job.pairs, res);
+  const all = [...new Set(job.written)];
+  const written = all.slice(0, WRITTEN_MAX);
+  if (all.length > WRITTEN_MAX) ports.log("revision:written-truncated", { written: all.length });
   for (const rel of written) {
-    if (res.proposed >= PROPOSALS_MAX) break;
     const w = await ports.info(rel);
     if (!w) {
       ports.log("revision:skip", { why: "not-visible" });
@@ -91,6 +103,7 @@ export async function runTrigger(ports: TriggerPorts, job: TriggerJob): Promise<
     }
 
     const det = await ports.complete({ model: MODELS.detect, system: DETECT_SYSTEM, prompt: detectPrompt({ title: w.title, text: wText }, pool), maxTokens: 400 });
+    if (det === null) res.unanswered++;
     let changed = parseDetect(det ?? undefined, pool.length);
     ports.log("revision:detect", { pool: pool.length, truncated, changed: changed?.length ?? -1, answered: det !== null });
     if (changed && changed.length === 0 && ports.random() < AUDIT_RATE) {
@@ -103,34 +116,69 @@ export async function runTrigger(ports: TriggerPorts, job: TriggerJob): Promise<
     res.changed += changed.length;
 
     for (const c of changed) {
-      if (res.proposed >= PROPOSALS_MAX) {
-        ports.log("revision:proposal-cap", {});
-        break;
-      }
       const old = pool[c.n - 1];
-      const oText = await ports.text(old.rel);
-      if (!oText) continue;
-      const pr = await ports.complete({
-        model: MODELS.propose,
-        system: PROPOSE_SYSTEM,
-        prompt: proposePrompt({ title: old.title, text: oText }, { title: w.title, text: wText }),
-        maxTokens: 500,
-      });
-      const parsed = parsePropose(pr ?? undefined);
-      if (parsed === null || parsed === "none") {
-        ports.log("revision:propose-none", { parsed: parsed === null ? "unparsed" : "none" });
+      if (res.proposed >= PROPOSALS_MAX) {
+        res.overflow.push({ written: rel, old: old.rel, why: c.why });
         continue;
       }
-      const r = await ports.propose({
-        old: old.rel,
-        new: rel,
-        claim: parsed.claim,
-        rationale: parsed.rationale || c.why,
-        inputs: pool.map((p) => p.rel),
-      });
-      ports.log("revision:proposed", { status: r.status, ...(r.reason ? { reason: r.reason.slice(0, 80) } : {}) });
-      if (r.status === "proposed") res.proposed++;
+      await proposeOne(ports, w, wText, old, c.why, pool.map((p) => p.rel), res);
     }
   }
+  if (all.length > WRITTEN_MAX) {
+    // The written notes past the cap are not dropped either: the caller queues them.
+    for (const rel of all.slice(WRITTEN_MAX)) res.overflow.push({ written: rel, old: "", why: "" });
+  }
+  if (res.overflow.length) ports.log("revision:proposal-cap", { queued: res.overflow.length });
+  return res;
+}
+
+async function proposeOne(ports: TriggerPorts, w: NoteInfo, wText: string, old: NoteInfo, why: string, inputs: string[], res: TriggerResult) {
+  const oText = await ports.text(old.rel);
+  if (!oText) return;
+  const pr = await ports.complete({
+    model: MODELS.propose,
+    system: PROPOSE_SYSTEM,
+    prompt: proposePrompt({ title: old.title, text: oText }, { title: w.title, text: wText }),
+    maxTokens: 500,
+  });
+  if (pr === null) res.unanswered++;
+  const parsed = parsePropose(pr ?? undefined);
+  if (parsed === null || parsed === "none") {
+    ports.log("revision:propose-none", { parsed: parsed === null ? "unparsed" : "none" });
+    return;
+  }
+  const r = await ports.propose({ old: old.rel, new: w.rel, claim: parsed.claim, rationale: parsed.rationale || why, inputs });
+  ports.log("revision:proposed", { status: r.status, ...(r.reason ? { reason: r.reason.slice(0, 80) } : {}) });
+  if (r.status === "proposed") res.proposed++;
+}
+
+/** An overflow job: the detector already said these changed; propose each, under the same cap. */
+async function proposePairs(ports: TriggerPorts, pairs: Pair[], res: TriggerResult): Promise<TriggerResult> {
+  for (const p of pairs) {
+    if (res.proposed >= PROPOSALS_MAX) {
+      res.overflow.push(p);
+      continue;
+    }
+    const w = await ports.info(p.written);
+    const wText = w ? await ports.text(p.written) : null;
+    if (!w || !wText) continue;
+    if (!p.old) {
+      // A written note past the per-job cap: it gets the full pass as a job of its own.
+      const sub = await runTrigger(ports, { written: [p.written], reads: [] });
+      res.examined += sub.examined;
+      res.pool += sub.pool;
+      res.changed += sub.changed;
+      res.proposed += sub.proposed;
+      res.unanswered += sub.unanswered;
+      res.overflow.push(...sub.overflow);
+      continue;
+    }
+    const old = await ports.info(p.old);
+    if (!old || !(old.shard === "main" || old.shard === w.shard)) continue;
+    res.examined++;
+    res.changed++;
+    await proposeOne(ports, w, wText, old, p.why, [old.rel], res);
+  }
+  if (res.overflow.length) ports.log("revision:proposal-cap", { queued: res.overflow.length });
   return res;
 }

@@ -9,6 +9,7 @@ import assert from "node:assert/strict";
 import { execFileSync } from "child_process";
 import { existsSync, mkdtempSync, rmSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
+import { blobOfFile, recordTouch, repoOf } from "./lib/git-unit.ts";
 import { join } from "path";
 
 const ROOT = join(import.meta.dirname!, "..");
@@ -39,12 +40,12 @@ function vault(): string {
   return root;
 }
 
-const revise = (root: string, args: string[], stdin?: unknown) => {
+const revise = (root: string, args: string[], stdin?: unknown, env: Record<string, string> = {}) => {
   let out: string;
   try {
     out = execFileSync(process.execPath, [join(ROOT, "bin", "commonplace"), "revise", ...args, "--json", "--offline", "--vault", root], {
       encoding: "utf-8",
-      env: ENV,
+      env: { ...ENV, ...env },
       input: stdin === undefined ? "" : JSON.stringify(stdin),
       stdio: ["pipe", "pipe", "pipe"],
     });
@@ -204,6 +205,75 @@ test("stale-derivation lint lists the concept citing a revised note until a rece
     assert.equal(before[0].file, "Concepts/Batch Window.md");
     assert.equal(revise(root, ["checked", "--note", "Concepts/Batch Window.md", "--event", a.accept]).ok, true);
     assert.equal(lint().length, 0);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+const NEW = "Research/Alpha/New Finding.md";
+const OLD = "Research/Alpha/Old Finding.md";
+
+test("job queue: one job per unit at its note versions, generated and frontmatter-only writes skipped", () => {
+  const root = vault();
+  try {
+    const q = revise(root, ["job-enqueue"], { written: [NEW], reads: [OLD], origin: "main" });
+    assert.equal(q.queued.length, 1, JSON.stringify(q));
+    assert.equal(revise(root, ["job-enqueue"], { written: [NEW], reads: [OLD], origin: "main" }).duplicate, 1, "same note versions: no second job");
+    assert.match(revise(root, ["job-enqueue"], { written: [NEW], origin: "commonplace:wiki-linter" }).skipped[0].why, /generated/);
+
+    // A unit that only touched frontmatter makes no claim.
+    const r = repoOf(root)!;
+    const before = blobOfFile(r, NEW, true);
+    writeFileSync(join(root, NEW), readFileSync(join(root, NEW), "utf-8").replace("title: New Finding", "title: New Finding\ntags: [x]"));
+    recordTouch(root, "u-fm", { actor: "main", session: "t1" }, NEW, before, blobOfFile(r, NEW, true), r);
+    assert.match(revise(root, ["job-enqueue"], { written: [NEW], origin: "main", unit: "u-fm" }).skipped[0].why, /frontmatter-only/);
+
+    // A body edit is a new version: a new job.
+    writeFileSync(join(root, NEW), readFileSync(join(root, NEW), "utf-8") + "\nA new paragraph.\n");
+    assert.equal(revise(root, ["job-enqueue"], { written: [NEW], origin: "main" }).queued.length, 1);
+    assert.ok(readFileSync(join(root, ".revision/t1.jsonl"), "utf-8").includes('"kind":"job-queued"'), "jobs are durable in the ledger");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("job queue: one claimed at a time, failures retried up to the limit, then abandoned", () => {
+  const root = vault();
+  try {
+    revise(root, ["job-enqueue"], { written: [NEW], origin: "main" });
+    writeFileSync(join(root, OLD), readFileSync(join(root, OLD), "utf-8") + "\nMore.\n");
+    revise(root, ["job-enqueue"], { written: [OLD], origin: "main" });
+    const first = revise(root, ["job-next"]).job;
+    assert.equal(first.attempt, 1);
+    assert.equal(revise(root, ["job-next"]).busy, true, "concurrency bound: the second waits");
+    revise(root, ["job-failed", "--job", first.job, "--reason", "no answer"]);
+    // The failed job is queued again (oldest first); the second job is behind it.
+    for (const attempt of [2, 3]) {
+      const j = revise(root, ["job-next"]).job;
+      assert.equal(j.job, first.job);
+      assert.equal(j.attempt, attempt);
+      revise(root, ["job-failed", "--job", j.job, "--reason", "no answer"]);
+    }
+    const second = revise(root, ["job-next"]).job;
+    assert.notEqual(second.job, first.job, "the first was abandoned after three attempts");
+    assert.equal(revise(root, ["job-done", "--job", second.job], { poolSize: 2, proposals: 0 }).ok, true);
+    assert.equal(revise(root, ["job-next"]).none, true);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("an accept off the pinned branch waits, and nothing is written into the note", () => {
+  const root = vault();
+  try {
+    revise(root, ["ensure"]);
+    const p = revise(root, ["propose", "--old", "Old Finding", "--new", "New Finding", "--claim", CLAIM]);
+    toAccept(root, p.id);
+    git(root, "checkout", "-q", "-b", "side");
+    const a = revise(root, ["accept", "--proposal", p.id], undefined, { COMMONPLACE_PIN: "refs/heads/main" });
+    assert.equal(a.status, "deferred");
+    assert.match(a.reason, /moved off main/);
+    assert.equal(readFileSync(join(root, NEW), "utf-8").includes("supersedes"), false);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

@@ -109,7 +109,7 @@ import { maskSealed } from "./lib/core/noun.ts";
 import { wikiRefs, linkWikiRefs, fileHref, citationFooter, citationCounts, type CitedNote } from "./lib/surfaces/wikilinks.ts";
 import { pastedUrls, sameUrl, triagePrompt, parseTriage, triageLine, addLater, formatLater, TRIAGE_NOTE_CHARS, type Triage, type LaterItem } from "./lib/surfaces/triage.ts";
 import { Witness, renderWitness } from "./lib/surfaces/witness.ts";
-import { runTrigger, type TriggerPorts } from "./lib/revision/trigger.ts";
+import { runTrigger, type TriggerPorts, type Pair } from "./lib/revision/trigger.ts";
 import { runSteps, type RunnerPorts } from "./lib/revision/runner.ts";
 
 // ---------------------------------------------------------------------------
@@ -447,12 +447,27 @@ const BUILD_COOLDOWN_MS = 60_000;
  */
 const units = new Map<string, { id: string; actor: string; session: string }>();
 const agentKey = (agentId: string | undefined) => (agentId ? agentId.replace(/[^A-Za-z0-9_.-]/g, "_").slice(0, 24) : "main");
-async function unitFor($: EngineInterface, agentId: string | undefined, agentType?: string) {
+/** Each subagent's type (`commonplace:wiki-linter`, `general-purpose`, …), by id. */
+const agentTypes = new Map<string, string>();
+async function agentTypeOf($: EngineInterface, agentId: string | undefined): Promise<string> {
+  if (!agentId) return "main";
+  let t = agentTypes.get(agentId);
+  if (!t) {
+    try {
+      t = (await $.agent.list()).find((a) => a.id === agentId)?.type;
+    } catch {}
+    t = t || "subagent";
+    agentTypes.set(agentId, t);
+  }
+  return t;
+}
+
+async function unitFor($: EngineInterface, agentId: string | undefined) {
   const key = agentKey(agentId);
   let u = units.get(key);
   if (!u) {
     const session = String(await $.session.id()).replace(/[^A-Za-z0-9_.-]/g, "").slice(0, 12) || "s";
-    const actor = (agentType || (agentId ? "subagent" : "main")).replace(/[^A-Za-z0-9_.:-]/g, "_").slice(0, 60);
+    const actor = (await agentTypeOf($, agentId)).replace(/[^A-Za-z0-9_.:-]/g, "_").slice(0, 60);
     u = { id: `${session}-${key}-${Date.now().toString(36)}`, actor, session };
     units.set(key, u);
   }
@@ -470,17 +485,51 @@ async function unitFor($: EngineInterface, agentId: string | undefined, agentTyp
  * that agent's turn to end. Reads count only when the whole note was read
  * (a Read without offset/limit, or vault_note) — a slice is not the note.
  */
-const revisionWork = new Map<string, { vp: string; agent: string; written: Set<string>; reads: Set<string> }>();
+const revisionWork = new Map<string, { vp: string; agent: string; agentId?: string; written: Set<string>; reads: Set<string> }>();
 const workOf = (vp: string, agentId: string | undefined) => {
   const key = `${agentKey(agentId)}\u0000${vp}`;
   let w = revisionWork.get(key);
-  if (!w) revisionWork.set(key, (w = { vp, agent: agentKey(agentId), written: new Set(), reads: new Set() }));
+  if (!w) revisionWork.set(key, (w = { vp, agent: agentKey(agentId), ...(agentId ? { agentId } : {}), written: new Set(), reads: new Set() }));
   return w;
 };
 const noteWrite = (_$: EngineInterface, vp: string, rel: string, agentId: string | undefined) => {
   const w = workOf(vp, agentId);
   w.written.add(rel);
   w.reads.delete(rel);
+  // Still writing: the unit has not finished, so its job waits (design: one job per unit, not per write).
+  const t = flushTimers.get(agentKey(agentId));
+  if (t) {
+    t.cancel();
+    flushTimers.delete(agentKey(agentId));
+  }
+};
+
+/**
+ * The debounce: a unit of work finishes when its agent commits it, or when
+ * the agent's turn ends and it writes nothing more for this long. A main
+ * loop that keeps editing across quick turns becomes one job, not several.
+ */
+const REVISION_DEBOUNCE_MS = 45_000;
+const flushTimers = new Map<string, { cancel: () => void }>();
+
+/**
+ * The branch each vault was on when this session first touched it (design:
+ * "the pinned branch is the vault's current branch at session start"). Every
+ * commit — the model's `commonplace commit`, an accept, a revert — carries it
+ * as `COMMONPLACE_PIN`, and refuses to land on another branch.
+ */
+const pins = new Map<string, string>();
+const pinFor = async ($: EngineInterface, vp: string): Promise<string> => {
+  let p = pins.get(vp);
+  if (p === undefined) {
+    p = "";
+    try {
+      const r = await $.process.run(["git", "-C", vp, "symbolic-ref", "-q", "HEAD"], { timeoutMs: 5_000 });
+      if (r.exitCode === 0) p = String(r.stdout ?? "").trim();
+    } catch {}
+    pins.set(vp, p);
+  }
+  return p;
 };
 const noteRead = (vp: string, rel: string, agentId: string | undefined) => {
   const w = workOf(vp, agentId);
@@ -498,7 +547,7 @@ const revCli = async ($: EngineInterface, vp: string, args: string[], stdin?: Re
     const session = String(await $.session.id()).replace(/[^A-Za-z0-9_.-]/g, "").slice(0, 12) || "s";
     const open = [...openOf(vp)].filter((s) => /^[A-Za-z0-9_.-]+$/.test(s) && s !== "loose" && s !== "quarantine");
     const r = await $.process.run(["node", `${$.plugin.root}/bin/commonplace`, "revise", ...args, "--json", "--vault", vp], {
-      env: { COMMONPLACE_OPEN: open.join(","), COMMONPLACE_ACTOR: "commonplace", COMMONPLACE_SESSION: session },
+      env: { COMMONPLACE_OPEN: open.join(","), COMMONPLACE_ACTOR: "commonplace", COMMONPLACE_SESSION: session, COMMONPLACE_PIN: await pinFor($, vp) },
       ...(stdin ? { stdin: JSON.stringify(stdin) } : {}),
       timeoutMs: 300_000,
     });
@@ -516,7 +565,12 @@ const ensureRevision = ($: EngineInterface, vp: string): Promise<boolean> => {
   if (!p) {
     p = revCli($, vp, ["ensure"]).then((r) => {
       const ok = r !== null && r.ok !== false;
-      traceTo($, vp, "revision:ensure", { ok, enabled: r?.enabled === true, paused: r?.paused === true, work: Number(r?.work ?? 0) });
+      traceTo($, vp, "revision:ensure", { ok, enabled: Array.isArray(r?.enabled) && r!.enabled.length > 0, paused: r?.paused === true, work: Number(r?.work ?? 0), jobs: Number(r?.jobs ?? 0) });
+      // Not a git repository on its branch: revision runs propose-only, and the band says why (design, step 1).
+      const why = r && typeof r.reason === "string" ? r.reason : "";
+      if (why && !/manual|index not built/.test(why)) {
+        notice($, `revision is propose-only: ${why.replace(/: revision runs propose-only.*$/, "")}`, `Vault revision cannot accept anything here (${why}). Proposals are still recorded and reviewed; nothing is written into notes or committed until this clears.`);
+      }
       if (!ok) revisionEnsured.delete(vp);
       return ok;
     });
@@ -594,41 +648,83 @@ const runnerPorts = ($: EngineInterface, vp: string): RunnerPorts => ({
   },
 });
 
-/** Queue one unit of work's trigger, then advance pending revisions. Never awaited by a hook. */
-const queueRevision = ($: EngineInterface, vp: string, job: { written: string[]; reads: string[] } | null) => {
-  const prev = revisionChain.get(vp) ?? Promise.resolve();
-  const run = prev
-    .then(async () => {
-      if (!(await ensureRevision($, vp))) return;
-      if (job && job.written.length) {
-        const res = await runTrigger(triggerPorts($, vp), job);
-        traceTo($, vp, "revision:trigger", { ...res });
-        // Paths of private notes stay out of the public ledger; the job line carries counts.
-        const ctx = await nounCtx($, vp);
-        const pub = "error" in ctx ? [] : job.written.filter((rel) => {
-          const id = ctx.index.view?.idOfRel(rel);
-          return id !== undefined && ctx.index.view?.shard(id) === "main";
-        });
-        await revCli($, vp, ["job"], { written: pub, poolSize: res.pool, truncated: res.truncated, proposals: res.proposed });
+/**
+ * Drain the vault's durable job queue, then advance pending revisions.
+ * Single-flight per vault; never awaited by a hook. Jobs left by a session
+ * that died are claimed here once their lease runs out.
+ */
+const JOBS_PER_RUN = 5;
+const processRevision = ($: EngineInterface, vp: string) => {
+  const prev = revisionChain.get(vp);
+  if (prev) {
+    // One run is enough: whatever it does not see yet, the next turn's run will.
+    pendingRerun.add(vp);
+    return;
+  }
+  const run = (async () => {
+    if (!(await ensureRevision($, vp))) return;
+    for (let i = 0; i < JOBS_PER_RUN; i++) {
+      const claimed = await revCli($, vp, ["job-next"]);
+      const job = claimed?.job as { job: string; written: string[]; reads: string[]; pairs?: Pair[]; attempt: number } | undefined;
+      if (!job) break;
+      let res: Awaited<ReturnType<typeof runTrigger>>;
+      try {
+        res = await runTrigger(triggerPorts($, vp), { written: job.written, reads: job.reads, ...(job.pairs ? { pairs: job.pairs } : {}) });
+      } catch (err) {
+        await revCli($, vp, ["job-failed", "--job", job.job, "--reason", String(err).slice(0, 120)]);
+        continue;
       }
-      const steps = await runSteps(runnerPorts($, vp));
-      traceTo($, vp, "revision:steps", { steps });
-    })
-    .catch((err) => traceTo($, vp, "revision:error", { err: String(err).slice(0, 80) }));
+      const { overflow, ...counts } = res;
+      traceTo($, vp, "revision:trigger", { ...counts, overflow: overflow.length, attempt: job.attempt });
+      if (overflow.length) {
+        // Past the per-job cap: queued as a job of its own, never dropped.
+        await revCli($, vp, ["job-enqueue"], { written: [...new Set(overflow.map((o) => o.written))], pairs: overflow, origin: "overflow" });
+      }
+      // No answer from the model is not "nothing changed": retried, up to the attempt limit.
+      if (res.unanswered > 0 && res.proposed === 0) await revCli($, vp, ["job-failed", "--job", job.job, "--reason", `${res.unanswered} model calls unanswered`]);
+      else await revCli($, vp, ["job-done", "--job", job.job], { poolSize: res.pool, truncated: res.truncated, changed: res.changed, proposals: res.proposed });
+    }
+    const steps = await runSteps(runnerPorts($, vp));
+    traceTo($, vp, "revision:steps", { steps });
+  })().catch((err) => traceTo($, vp, "revision:error", { err: String(err).slice(0, 80) }));
   revisionChain.set(vp, run);
   void run.finally(() => {
-    if (revisionChain.get(vp) === run) revisionChain.delete(vp);
+    revisionChain.delete(vp);
+    if (pendingRerun.delete(vp)) processRevision($, vp);
   });
 };
+const pendingRerun = new Set<string>();
+const revisionKicked = new Set<string>();
 
-/** Hand every finished unit of work for this agent to the trigger. */
-const flushRevisionWork = ($: EngineInterface, agentId: string | undefined) => {
+/** Enqueue every finished unit of work this agent holds, then process the queue. */
+const flushRevisionWork = async ($: EngineInterface, agentId: string | undefined) => {
   const agent = agentKey(agentId);
+  flushTimers.get(agent)?.cancel();
+  flushTimers.delete(agent);
   for (const [key, w] of revisionWork) {
     if (w.agent !== agent || w.written.size === 0) continue;
     revisionWork.delete(key);
-    queueRevision($, w.vp, { written: [...w.written], reads: [...w.reads] });
+    const origin = await agentTypeOf($, w.agentId);
+    const r = await revCli($, w.vp, ["job-enqueue"], { written: [...w.written], reads: [...w.reads], origin, ...(units.get(agent) ? { unit: units.get(agent)!.id } : {}) });
+    traceTo($, w.vp, "revision:enqueue", {
+      queued: Array.isArray(r?.queued) ? r!.queued.length : 0,
+      duplicate: Number(r?.duplicate ?? 0),
+      skipped: Array.isArray(r?.skipped) ? (r!.skipped as Array<{ why: string }>).map((x) => x.why) : [],
+    });
+    processRevision($, w.vp);
   }
+};
+
+/** At an agent's turn end: flush its work once it has been quiet for the debounce window. */
+const scheduleRevisionFlush = ($: EngineInterface, agentId: string | undefined) => {
+  const agent = agentKey(agentId);
+  if (![...revisionWork.values()].some((w) => w.agent === agent && w.written.size)) return;
+  flushTimers.get(agent)?.cancel();
+  const t = $.clock.after(REVISION_DEBOUNCE_MS, () => {
+    flushTimers.delete(agent);
+    void flushRevisionWork($, agentId);
+  });
+  flushTimers.set(agent, { cancel: () => t.cancel() });
 };
 
 /**
@@ -1121,7 +1217,7 @@ const runVaultCommand = async ($: EngineInterface, argsText: string): Promise<{ 
     }
     if (action === "pause" || action === "resume") {
       const r = await revCli($, vp, [action]);
-      if (action === "resume") queueRevision($, vp, null);
+      if (action === "resume") processRevision($, vp);
       return { text: r ? (action === "pause" ? "Revision paused: nothing will be accepted until /vault revise resume." : "Revision resumed.") : "The revision CLI failed." };
     }
     if (action === "log") {
@@ -1807,6 +1903,11 @@ export const register: Register = (on, options) => {
     sealedByClear = false;
     guardCache = null;
     resetSessionSurfaces();
+    // The branch each vault is on now is the one this session commits to.
+    pins.clear();
+    void pickVault($)
+      .then((v) => (v ? pinFor($, v.path) : ""))
+      .catch(() => "");
     // MIN-BUILD GATE + WATCHDOG. Read the release defensively (an older engine
     // may lack `version()`); either way tell the shell watchdog
     // (scripts/session-check.ts) that the module ran, by resetting its counter.
@@ -1905,6 +2006,13 @@ export const register: Register = (on, options) => {
       // `-a` truncates, which is exactly the write half of a rotation.
       if (vp) {
         const logPath = `${vp}/.wiki/${LOG_FILE}`;
+
+    // Once per vault per module lifetime: recover, enable, and drain whatever
+    // queued jobs and pending revisions earlier sessions left.
+    if (!revisionKicked.has(vp)) {
+      revisionKicked.add(vp);
+      processRevision($, vp);
+    }
         const kept = await $.process.run(["tail", "-n", String(LOG_KEEP_LINES), logPath]);
         if (kept.exitCode === 0) {
           const text = String(kept.stdout ?? "");
@@ -1929,6 +2037,11 @@ export const register: Register = (on, options) => {
    * opened it; the next conversation re-opens with `/vault open`.
    */
   on("session.end", async ($, e, next) => {
+    // Pending units are queued durably before the session goes; the next one processes them.
+    try {
+      const agents = new Set([...revisionWork.values()].map((w) => w.agentId));
+      for (const a of agents) await flushRevisionWork($, a);
+    } catch {}
     if (e.reason === "clear") {
       for (const shards of openShards.values()) shards.clear();
       sealedByClear = true;
@@ -2082,7 +2195,7 @@ export const register: Register = (on, options) => {
       const shards = vault ? [...openOf(vault.path)] : [];
       command = withOpenShards(command, shards);
       // `commonplace commit` / `revise` act for this agent's unit of work.
-      if (/\bcommonplace\b/.test(command)) command = withUnit(command, await unitFor($, e.agentId));
+      if (/\bcommonplace\b/.test(command)) command = withUnit(command, await unitFor($, e.agentId), vault ? await pinFor($, vault.path) : undefined);
     } catch {
       /* fall through unchanged */
     }
@@ -2090,6 +2203,8 @@ export const register: Register = (on, options) => {
     // A successful commit closes the unit: the agent's next write opens a new one.
     try {
       if (isUnitCommit(e.command) && !r.isError && /Committed \d+ file|Nothing to commit/.test(String((r as { result?: { stdout?: string } }).result?.stdout ?? ""))) {
+        // The unit is finished: its trigger job is queued now, not after the debounce.
+        await flushRevisionWork($, e.agentId);
         units.delete(agentKey(e.agentId));
       }
     } catch {}
@@ -2997,9 +3112,10 @@ export const register: Register = (on, options) => {
     const base = await next(e);
     completedTurns.add(e.turnId);
     if (completedTurns.size > 100) completedTurns.delete(completedTurns.values().next().value as string);
-    // Every agent's unit of work goes to the revision trigger when its turn ends.
+    // An agent's unit of work becomes a trigger job once it has been quiet
+    // past the debounce (or at once, when it commits).
     try {
-      flushRevisionWork($, e.agentId);
+      scheduleRevisionFlush($, e.agentId);
     } catch {}
     // The main loop's answers only. A subagent's turn ends here too, and the
     // pass would judge (and surface under) a reply the person never read.

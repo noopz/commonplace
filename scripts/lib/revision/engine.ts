@@ -19,7 +19,7 @@ import {
   type RevisionRelation,
 } from "../../../hooks/lib/revision/edges.ts";
 import { PROJECTION_FILE, shardProjectionFile, type Projection } from "../../../hooks/lib/revision/projection.ts";
-import { blobAt, blobOfFile, commitUnit, headOf, inverseOnto, readUnit, recordAppendOnly, recordTouch, repoOf, type Repo } from "../git-unit.ts";
+import { blobAt, blobOfFile, branchBlocker, commitUnit, headOf, inverseOnto, readUnit, recordAppendOnly, recordTouch, repoOf, type Repo } from "../git-unit.ts";
 import { MAIN, append, ledgerRel, readAll, type Actor, type RevEvent } from "./ledger.ts";
 import { acceptBlocker, edgeFor, reduce, type ProposalState, type Reduced } from "./reducer.ts";
 import { holds, releaseLock, takeLock } from "./lock.ts";
@@ -27,6 +27,14 @@ import { insertEdge, removeEdge, hasEdge } from "./fm-edit.ts";
 import { loadIndex } from "./vault-index.ts";
 
 export type Ctx = { vault: string; actor: Actor; open: string[] };
+
+/** Why the branch check stopped revision, in words (propose-only until it clears). */
+export function offBranchReason(b: { status: string; pinned?: string; current?: string | null }): string {
+  if (b.status === "off-branch") {
+    return `the vault moved off ${String(b.pinned).replace("refs/heads/", "")} this session: revision runs propose-only until it is back`;
+  }
+  return "the vault's HEAD is detached: revision runs propose-only";
+}
 
 export const scopesOf = (ctx: Ctx) => [MAIN, ...ctx.open.filter((s) => s !== MAIN)];
 export const state = (ctx: Ctx): Reduced => reduce(readAll(ctx.vault, scopesOf(ctx)));
@@ -192,7 +200,8 @@ export async function accept(ctx: Ctx, proposalId: string): Promise<AcceptResult
   if (config(ctx.vault).revision === "manual") return { status: "deferred", reason: "the vault is in manual revision mode" };
   const repo = repoOf(ctx.vault);
   if (!repo) return { status: "deferred", reason: "the vault is not a git repository: revision runs propose-only" };
-  if (!repo.ref) return { status: "deferred", reason: "the vault's HEAD is detached: revision runs propose-only" };
+  const blocked = branchBlocker(repo);
+  if (blocked) return { status: "deferred", reason: offBranchReason(blocked) };
   const edge = edgeFor(p)!;
   const dup = red.accepted.find((a) => a.key === edge.key);
   if (dup) return { status: "already", accept: dup.event };
@@ -295,7 +304,7 @@ export async function revert(ctx: Ctx, acceptId: string, reason: string): Promis
     let conflict: string | undefined;
     const current = existsSync(abs) ? readFileSync(abs, "utf-8") : null;
     const revertId = `${Date.now().toString(36).padStart(9, "0")}r${createHash("sha256").update(acceptId + Math.random()).digest("hex").slice(0, 8)}`;
-    if (current !== null && hasEdge(current, a.relation, a.to, a.rel.claim) && repo?.ref) {
+    if (current !== null && hasEdge(current, a.relation, a.to, a.rel.claim) && repo && !branchBlocker(repo)) {
       let next: string | null = null;
       const accCommit = p.committed?.commit;
       if (accCommit) {
@@ -438,7 +447,9 @@ function gitFind(repo: Repo, needle: string): string | null {
 export async function ensureEnabled(ctx: Ctx): Promise<{ enabled: string[]; reason?: string }> {
   if (config(ctx.vault).revision === "manual") return { enabled: [], reason: "manual mode (config)" };
   const repo = repoOf(ctx.vault);
-  if (!repo || !repo.ref) return { enabled: [], reason: repo ? "detached HEAD" : "not a git repository" };
+  if (!repo) return { enabled: [], reason: "not a git repository" };
+  const blocked = branchBlocker(repo);
+  if (blocked) return { enabled: [], reason: offBranchReason(blocked) };
   const red = state(ctx);
   const missing = scopesOf(ctx).filter((s) => !red.scopes.has(s));
   if (missing.length === 0) return { enabled: [] };

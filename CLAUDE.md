@@ -300,7 +300,7 @@ judge replies the person never saw.
 `skill:delivered`, `prime:sync|skip-cold|appended|judged-no|unanswered|late-drop|no-turn|error`,
 `skip:segment-budget`, `feedback:useful|not-for-me`,
 `triage:verdict|not-fetched|unanswered|ingest|later|skip|read|error`, `cite:check`
-(counts only), `revision:ensure|trigger|detect|audit|proposed|propose-none|pool-empty|skip|written-truncated|proposal-cap|review|verify|escalate|wording|accept|steps|stuck|undo|error`. A private note's path is never logged.
+(counts only), `revision:ensure|enqueue|trigger|detect|audit|proposed|propose-none|pool-empty|skip|written-truncated|proposal-cap|review|verify|escalate|wording|accept|steps|stuck|undo|error`. A private note's path is never logged.
 
 **Measure it with `commonplace eval:connection`.** It drives real `claude -p`
 sessions and scores the trace log, because the pass is a chain of guards, a
@@ -420,12 +420,25 @@ the **summary** (concepts and MOCs, revised with receipts).
   `[unreviewed]`; manual scopes show every edge `[unreviewed]`.
 - **Scope**: a public note's revision may rest only on public inputs; inputs
   may include at most one private shard; commit messages carry event ids only.
-- **Triggers**: the module records each agent's vault writes and WHOLE reads
-  (Read without offset/limit, `vault_note`), and at that agent's `turn.complete`
-  runs `runTrigger` (pool: reads + graph neighbours + a search, same-scope
-  source notes only, ≤12; haiku detects, 10% of "nothing changed" re-asked of
-  sonnet as an audit; sonnet quotes the exact claim) and then `runSteps`,
-  single-flight per vault. The impact checker proposes at ingest the same way.
+- **Triggers are durable jobs** (`scripts/lib/revision/jobs.ts`): the module
+  records each agent's vault writes and WHOLE reads (Read without
+  offset/limit, `vault_note`). A unit of work becomes ONE `job-queued` ledger
+  event when it commits, or 45 s after the agent's turn ends with no further
+  write (`session.end` flushes too). Jobs dedupe on the written notes'
+  revisions; writes by commonplace or a maintenance agent (`agentTypeOf` via
+  `$.agent.list()`) and frontmatter-only writes never become jobs. One job
+  runs per vault under a 15-min lease; an unanswered model call fails the job
+  (3 attempts, then abandoned); changes past the 3-proposal cap are queued as
+  an overflow job of `pairs`, never dropped. `processRevision` (single-flight
+  per vault, kicked on the first turn in a vault, so a dead session's jobs are
+  picked up) claims jobs, runs `runTrigger` (pool: reads + graph neighbours +
+  a search, same-scope source notes only, ≤12; haiku detects, 10% of "nothing
+  changed" re-asked of sonnet; sonnet quotes the exact claim), then `runSteps`.
+- **Pinned branch**: the branch a vault is on when the session starts is the
+  only one it commits to. `COMMONPLACE_PIN` rides on every CLI the module runs
+  and every model `commonplace` command (`withUnit`); `commitUnit`, accept,
+  revert and enable refuse another branch (`off-branch`), and the band says
+  revision is propose-only and why. The impact checker proposes at ingest the same way.
   The model may run `revise propose|log|status|checked`; the Bash guard denies
   `record|accept|revert|pause|resume|…`, and the file guard denies writes to
   `.revision/`, `.wiki/units`, `.wiki/revision` and every read of `.revision/sealed`.
@@ -554,7 +567,7 @@ All commands auto-discover the vault via cwd (`.obsidian/` or `.wiki/` marker) o
 - `commonplace abstract [--dry-run] [--json]` — Backfill `abstraction:` frontmatter (deterministic derivation from Summary/definition text) across source + concept notes; on completion sets the vault's `abstractions: true` adoption flag (switches `isStub` to also key on missing abstractions and makes validation require the field). Run `commonplace index` afterwards.
 - `commonplace seed --query "<text>" [--mode tiered|flat] [--no-abstraction] [--no-authority] [--json]` — Deterministic tiered seed helper for wiki-query: matches query terms against explicit key spaces in order (A `abstraction`, B cue anchors = tags/MOC names/wikilink display texts, C names/titles, D whole-record grep only when A–C yield <3 seeds); prints candidates with tier + matched terms. Seeds are jumping-off points — read the notes before judging relevance. Tiered hits are ordered by HITS authority within each tier (`--no-authority` disables the ordering).
 - `commonplace commit --message "<what>" [--unit <id>] | --list [--json]` — Commit this agent's unit of work (the files it wrote this unit, nothing else); the unit id comes from `COMMONPLACE_UNIT`, which the module injects
-- `commonplace revise status | log [--note <ref>] | propose --old <ref> --new <ref> --claim "<exact quote>" [--rationale …] [--input <ref>]… | checked --note <rel> --event <id>` — Vault revision. The module alone runs `ensure|next|record|accept|job|projection`; the person runs `revert --event <id|last>`, `pause|resume` (as `/vault revise …`)
+- `commonplace revise status | log [--note <ref>] | propose --old <ref> --new <ref> --claim "<exact quote>" [--rationale …] [--input <ref>]… | checked --note <rel> --event <id>` — Vault revision. The module alone runs `ensure|next|record|accept|job-enqueue|job-next|job-done|job-failed|projection`; the person runs `revert --event <id|last>`, `pause|resume` (as `/vault revise …`)
 - `commonplace log --entry "<text>"` — Append an entry to `.wiki/log.md` (use instead of printf/bash redirection)
 - `commonplace supersede --scan --old <name> [--new <name>] [--scope <path>] [--json]` — Find + classify prose mentions of a soon-to-be-retired entity (buckets: historical, comparison, already-retired, live, live-in-code, needs-review)
 - `commonplace supersede --retire --old <name> --new <name> --reason "..." [--date YYYY-MM-DD] [--dry-run]` — Rename old to "(Retired) <title>", inject warning callout, add `retired` tag, update wikilinks across vault, write breadcrumb to `.wiki/supersessions.jsonl`

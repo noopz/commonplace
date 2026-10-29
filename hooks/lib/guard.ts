@@ -417,11 +417,13 @@ export function withOpenShards(command: string, shards: readonly string[]): stri
  * identity, so `commonplace commit` and `commonplace revise` know which unit
  * and actor they act for without the model having to carry an id around.
  */
-export function withUnit(command: string, unit: { id: string; actor: string; session: string } | null): string {
+export function withUnit(command: string, unit: { id: string; actor: string; session: string } | null, pin?: string): string {
   if (!unit || !/\bcommonplace\b/.test(command)) return command;
   const ok = (s: string) => /^[A-Za-z0-9_.:+-]+$/.test(s);
   if (!ok(unit.id) || !ok(unit.actor) || !ok(unit.session)) return command;
-  return `export COMMONPLACE_UNIT=${unit.id} COMMONPLACE_ACTOR=${unit.actor} COMMONPLACE_SESSION=${unit.session}; ${command}`;
+  // The branch pinned at session start; `commonplace commit` refuses any other.
+  const p = pin && /^refs\/heads\/[A-Za-z0-9_.\/-]+$/.test(pin) ? ` COMMONPLACE_PIN=${pin}` : "";
+  return `export COMMONPLACE_UNIT=${unit.id} COMMONPLACE_ACTOR=${unit.actor} COMMONPLACE_SESSION=${unit.session}${p}; ${command}`;
 }
 
 /** True when a Bash command ran `commonplace commit` (not `--list`). */

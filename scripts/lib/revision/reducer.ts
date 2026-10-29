@@ -53,6 +53,20 @@ export type ProposalState = {
   packet: string;
 };
 
+export type JobState = {
+  id: string;
+  shard: string;
+  queued: E<"job-queued">;
+  status: "queued" | "claimed" | "done" | "abandoned";
+  attempts: number;
+  /** While claimed: when the lease runs out and another session may take it. */
+  until?: string;
+  lastError?: string;
+};
+
+/** Attempts before a job is abandoned (logged, never retried in a loop). */
+export const JOB_ATTEMPTS = 3;
+
 export type Reduced = {
   proposals: Map<string, ProposalState>;
   /** Each with the scope of the ledger it was accepted in. */
@@ -63,6 +77,7 @@ export type Reduced = {
   maxSeq: number;
   stale: Array<StaleMark & { shard: string }>;
   checked: Array<{ rel: string; blob: string; event: string }>;
+  jobs: Map<string, JobState>;
 };
 
 const norm = (s: string) => s.replace(/\s+/g, " ").trim();
@@ -142,6 +157,7 @@ export function reduce(events: ReadonlyArray<RevEvent & { shard: string }>): Red
   let maxSeq = 0;
   const staleByEvent = new Map<string, { marks: Array<{ rel: string; displaced: string }>; shard: string }>();
   const checked: Reduced["checked"] = [];
+  const jobs: Reduced["jobs"] = new Map();
 
   for (const e of events) {
     switch (e.kind) {
@@ -226,6 +242,32 @@ export function reduce(events: ReadonlyArray<RevEvent & { shard: string }>): Red
       case "checked":
         checked.push({ rel: e.rel, blob: e.blob, event: e.event });
         break;
+      case "job-queued":
+        if (!jobs.has(e.job)) jobs.set(e.job, { id: e.job, shard: e.shard, queued: e as E<"job-queued">, status: "queued", attempts: 0 });
+        break;
+      case "job-claimed": {
+        const j = jobs.get(e.job);
+        if (j && (j.status === "queued" || j.status === "claimed")) {
+          j.status = "claimed";
+          j.until = e.until;
+          j.attempts++;
+        }
+        break;
+      }
+      case "job-done": {
+        const j = jobs.get(e.job);
+        if (j) j.status = "done";
+        break;
+      }
+      case "job-failed": {
+        const j = jobs.get(e.job);
+        if (j && j.status !== "done") {
+          j.lastError = e.reason;
+          j.status = j.attempts >= JOB_ATTEMPTS ? "abandoned" : "queued";
+          j.until = undefined;
+        }
+        break;
+      }
     }
   }
 
@@ -254,7 +296,17 @@ export function reduce(events: ReadonlyArray<RevEvent & { shard: string }>): Red
   const stale: Array<StaleMark & { shard: string }> = [];
   for (const [event, { marks, shard }] of staleByEvent) for (const m of marks) stale.push({ rel: m.rel, displaced: m.displaced, event, shard });
 
-  return { proposals, accepted, scopes, paused, maxSeq, stale, checked };
+  // A claim whose lease ran out (its session died mid-job) counts as an attempt
+  // that failed; the job goes back to the queue, or is abandoned at the limit.
+  const now = Date.now();
+  for (const j of jobs.values()) {
+    if (j.status === "claimed" && j.until && Date.parse(j.until) < now) {
+      j.status = j.attempts >= JOB_ATTEMPTS ? "abandoned" : "queued";
+      j.lastError = j.lastError ?? "lease expired";
+    }
+  }
+
+  return { proposals, accepted, scopes, paused, maxSeq, stale, checked, jobs };
 }
 
 /** The edge an accept of `p` would write. */

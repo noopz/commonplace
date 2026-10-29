@@ -141,7 +141,7 @@ test("trigger: a detected change gets an exact-claim proposal over the pooled no
     ['{"changed":[{"n":1,"why":"newer numbers"}]}', '{"claim":"the old figure","rationale":"r"}'],
   );
   const res = await runTrigger(ports, { written: ["New.md"], reads: ["Old.md", "Hub.md"] });
-  assert.deepEqual(res, { examined: 1, pool: 1, truncated: false, changed: 1, proposed: 1 });
+  assert.deepEqual(res, { examined: 1, pool: 1, truncated: false, changed: 1, proposed: 1, unanswered: 0, overflow: [] });
   assert.deepEqual(calls.models, ["haiku", "sonnet"]);
   assert.equal(calls.proposed[0].old, "Old.md");
   assert.equal(calls.proposed[0].claim, "the old figure");
@@ -233,4 +233,28 @@ test("runner: no answer is not a verdict, and a step that comes back unchanged s
   const pk = { proposal: "p1", stage: "verify", ...side, olderArtifact: null, newerArtifact: null };
   const b = runnerFake([pk, pk, pk], []);
   assert.equal(await runSteps(b.ports), 1);
+});
+
+test("trigger: changes past the proposal cap are returned as overflow, and an overflow job proposes without re-detecting", async () => {
+  const notes: Record<string, NoteInfo & { text: string }> = { "New.md": note("New.md") };
+  for (let i = 1; i <= 5; i++) notes[`Old${i}.md`] = note(`Old${i}.md`);
+  const detect = JSON.stringify({ changed: [1, 2, 3, 4, 5].map((n) => ({ n, why: `w${n}` })) });
+  const proposeReply = '{"claim":"c","rationale":"r"}';
+  const a = triggerFake(notes, [detect, proposeReply, proposeReply, proposeReply]);
+  const res = await runTrigger(a.ports, { written: ["New.md"], reads: Object.keys(notes).filter((k) => k !== "New.md") });
+  assert.equal(res.proposed, 3);
+  assert.deepEqual(res.overflow.map((o) => o.old), ["Old4.md", "Old5.md"]);
+
+  const b = triggerFake(notes, [proposeReply, proposeReply]);
+  const again = await runTrigger(b.ports, { written: ["New.md"], reads: [], pairs: res.overflow });
+  assert.equal(again.proposed, 2);
+  assert.deepEqual(b.calls.models, ["sonnet", "sonnet"], "no detector call for a pair already detected");
+  assert.deepEqual(b.calls.proposed.map((p) => p.old), ["Old4.md", "Old5.md"]);
+});
+
+test("trigger: an unanswered detector is counted, so the job is retried rather than marked done", async () => {
+  const { ports } = triggerFake({ "New.md": note("New.md"), "Old.md": note("Old.md") }, []);
+  const res = await runTrigger(ports, { written: ["New.md"], reads: ["Old.md"] });
+  assert.equal(res.unanswered, 1);
+  assert.equal(res.proposed, 0);
 });

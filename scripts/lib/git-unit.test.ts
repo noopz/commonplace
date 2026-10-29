@@ -207,3 +207,18 @@ test("inverseOnto undoes one change and keeps later edits", () => {
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("a unit never lands on a branch other than the one the session pinned", () => {
+  const root = repo();
+  try {
+    agentWrite(root, "u-pin", "Alpha.md", "alpha pinned\n");
+    sh(root, "checkout", "-q", "-b", "side");
+    const r = commitUnit(root, "u-pin", { message: "m", pin: "refs/heads/main" });
+    assert.equal(r.status, "off-branch");
+    assert.equal(sh(root, "log", "--oneline").trim().split("\n").length, 1, "nothing committed on either branch");
+    sh(root, "checkout", "-q", "main");
+    assert.equal(commitUnit(root, "u-pin", { message: "m", pin: "refs/heads/main" }).status, "committed");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
