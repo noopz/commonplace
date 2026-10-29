@@ -6,7 +6,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   shardOfDomain, shardOfNote, isVisible, openFromStartCwd, resolveOpenRef,
-  proposeFromPrompt, sealedRoots, listableDomains, type DomainMap,
+  proposeFromPrompt, sealedRoots, protectedRoots, listableDomains, type DomainMap,
 } from "./scope.ts";
 
 const D: DomainMap = {
@@ -85,6 +85,12 @@ test("sealed roots: closed private folders + .wiki/sealed always", () => {
   assert.ok(!g1.includes(`${V}/04 - Explorations/Gamma`) && !g1.includes(`${V}/04 - Explorations/Delta`));
   assert.ok(g1.includes(`${V}/04 - Explorations/Epsilon`));
   assert.ok(g1.includes(`${V}/.wiki/sealed`), "artefacts stay sealed even when open");
+  assert.ok(g1.includes(`${V}/.revision/sealed`), "private revision ledgers too");
+});
+
+test("protected roots: ledgers, units and revision state are CLI-written only", () => {
+  const p = protectedRoots(V);
+  for (const r of [".wiki/skills", ".wiki/agents", ".revision", ".wiki/units", ".wiki/revision"]) assert.ok(p.includes(`${V}/${r}`), r);
 });
 
 test("listable domains never include a sealed one", () => {

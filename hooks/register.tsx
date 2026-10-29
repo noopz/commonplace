@@ -562,7 +562,7 @@ const triggerPorts = ($: EngineInterface, vp: string): TriggerPorts => ({
     return r.isAnswered ? r.text : null;
   },
   propose: async (p) => {
-    const r = await revCli($, vp, ["propose"], { ...p, origin: "trigger" });
+    const r = await revCli($, vp, ["propose"], { ...p, origin: "write-trigger" });
     return { status: String(r?.status ?? "error"), ...(r?.reason ? { reason: String(r.reason) } : {}) };
   },
   log: (stage, data) => traceTo($, vp, stage, data),

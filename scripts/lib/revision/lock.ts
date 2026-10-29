@@ -16,7 +16,7 @@
  * over a newer commit.
  */
 
-import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "fs";
+import { mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "fs";
 import { hostname } from "os";
 import { join } from "path";
 import { randomBytes } from "crypto";
@@ -43,6 +43,16 @@ function alive(o: Owner): boolean {
   }
 }
 
+/** How long a lock directory may sit without an owner file before it counts as abandoned. */
+const ORPHAN_MS = 30_000;
+function ownerlessFor(dir: string): number {
+  try {
+    return Date.now() - statSync(dir).mtimeMs;
+  } catch {
+    return 0;
+  }
+}
+
 const sleep = (ms: number) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 
 /** Take the lock at `dir`, waiting up to `waitMs`. Null when another live process holds it. */
@@ -60,8 +70,9 @@ export function takeLock(dir: string, waitMs = 10_000): Lock | null {
       if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
     }
     const o = owner(dir);
-    // An owner file not yet written: the holder is between mkdir and write.
-    if (o && !alive(o)) {
+    // No owner file: the holder is between mkdir and write — or died there,
+    // which only a directory older than any such gap can mean.
+    if (o ? !alive(o) : ownerlessFor(dir) > ORPHAN_MS) {
       const fresh = `${dir}.${token}`;
       try {
         mkdirSync(fresh);
