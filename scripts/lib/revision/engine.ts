@@ -20,7 +20,7 @@ import {
 } from "../../../hooks/lib/revision/edges.ts";
 import { PROJECTION_FILE, shardProjectionFile, type Projection } from "../../../hooks/lib/revision/projection.ts";
 import { blobAt, blobOfFile, branchBlocker, commitUnit, headOf, inverseOnto, readUnit, recordAppendOnly, recordTouch, repoOf, type Repo } from "../git-unit.ts";
-import { MAIN, append, ledgerRel, readAll, type Actor, type RevEvent } from "./ledger.ts";
+import { MAIN, append, ledgerFiles, ledgerRel, readAll, type Actor, type RevEvent } from "./ledger.ts";
 import { acceptBlocker, edgeFor, reduce, type ProposalState, type Reduced } from "./reducer.ts";
 import { holds, releaseLock, takeLock } from "./lock.ts";
 import { insertEdge, removeEdge, hasEdge } from "./fm-edit.ts";
@@ -253,7 +253,7 @@ export async function accept(ctx: Ctx, proposalId: string): Promise<AcceptResult
     const unit = `rev-${acceptEv.id}`;
     const who = { actor: ctx.actor.type, session: ctx.actor.session };
     recordTouch(ctx.vault, unit, who, newRel, before, after, repo);
-    recordAppendOnly(ctx.vault, unit, who, [ledgerRel(p.shard, ctx.actor.session || "cli")], repo);
+    recordAppendOnly(ctx.vault, unit, who, [...new Set([ledgerRel(p.shard, ctx.actor.session || "cli"), ...ledgerFiles(ctx.vault, p.shard)])], repo);
     const res = commitUnit(ctx.vault, unit, {
       message: `commonplace revision: accept ${acceptEv.id}`,
       trailers: { "Revision-Event": acceptEv.id },
@@ -335,7 +335,7 @@ export async function revert(ctx: Ctx, acceptId: string, reason: string): Promis
         const unit = `revert-${revertId}`;
         const who = { actor: ctx.actor.type, session: ctx.actor.session };
         recordTouch(ctx.vault, unit, who, a.from, before, after, repo);
-        recordAppendOnly(ctx.vault, unit, who, [ledgerRel(p.shard, ctx.actor.session || "cli")], repo);
+        recordAppendOnly(ctx.vault, unit, who, [...new Set([ledgerRel(p.shard, ctx.actor.session || "cli"), ...ledgerFiles(ctx.vault, p.shard)])], repo);
         const res = commitUnit(ctx.vault, unit, {
           message: `commonplace revision: revert ${a.id}`,
           trailers: { "Revision-Event": revertId, "Reverts-Event": a.id },

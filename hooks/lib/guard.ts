@@ -23,6 +23,8 @@
  * accepted; blocking a stranger's `jq . package.json` is not.
  */
 
+import { shellWords } from "./core/seal.ts";
+
 // ---------------------------------------------------------------------------
 // Shell parsing helpers
 // ---------------------------------------------------------------------------
@@ -413,23 +415,35 @@ export function withOpenShards(command: string, shards: readonly string[]): stri
 }
 
 /**
- * Prefix `commonplace` commands with the calling agent's unit of work and
- * identity, so `commonplace commit` and `commonplace revise` know which unit
- * and actor they act for without the model having to carry an id around.
+ * The commands the module runs itself: one plain `commonplace commit …` or
+ * `commonplace revise …` stage, its argv, or null. Run by the module with the
+ * agent's unit, identity and pinned branch in the environment — rewriting the
+ * command text instead (`export …; commonplace commit`) made every allowlisted
+ * `commonplace commit` need fresh approval, which a live run showed. Anything
+ * a shell would expand or chain (`$`, backticks, `;`, `|`, `&&`, redirects)
+ * is left to the Bash tool.
  */
-export function withUnit(command: string, unit: { id: string; actor: string; session: string } | null, pin?: string): string {
-  if (!unit || !/\bcommonplace\b/.test(command)) return command;
-  const ok = (s: string) => /^[A-Za-z0-9_.:+-]+$/.test(s);
-  if (!ok(unit.id) || !ok(unit.actor) || !ok(unit.session)) return command;
-  // The branch pinned at session start; `commonplace commit` refuses any other.
-  const p = pin && /^refs\/heads\/[A-Za-z0-9_.\/-]+$/.test(pin) ? ` COMMONPLACE_PIN=${pin}` : "";
-  return `export COMMONPLACE_UNIT=${unit.id} COMMONPLACE_ACTOR=${unit.actor} COMMONPLACE_SESSION=${unit.session}${p}; ${command}`;
+export function ownCommand(command: string): string[] | null {
+  const c = String(command ?? "").trim();
+  if (!c || /[`$\n]/.test(c)) return null;
+  const words = shellWords(c);
+  if (words.some((w) => /^[;|&()<>]$/.test(w))) return null;
+  if (words[0] !== "commonplace" || (words[1] !== "commit" && words[1] !== "revise")) return null;
+  return words.slice(1);
 }
 
-/** True when a Bash command ran `commonplace commit` (not `--list`). */
-export function isUnitCommit(command: string): boolean {
-  return /(^|[\s;&|(])commonplace\s+commit\b(?![^;&|]*--list)/.test(String(command ?? ""));
+/** The environment a unit's CLI run carries; ids that are not plain tokens are dropped. */
+export function unitEnv(unit: { id: string; actor: string; session: string }, pin?: string): Record<string, string> {
+  const ok = (s: string) => /^[A-Za-z0-9_.:+-]+$/.test(s);
+  const env: Record<string, string> = {};
+  if (ok(unit.id)) env.COMMONPLACE_UNIT = unit.id;
+  if (ok(unit.actor)) env.COMMONPLACE_ACTOR = unit.actor;
+  if (ok(unit.session)) env.COMMONPLACE_SESSION = unit.session;
+  // The branch pinned at session start; `commonplace commit` refuses any other.
+  if (pin && /^refs\/heads\/[A-Za-z0-9_.\/-]+$/.test(pin)) env.COMMONPLACE_PIN = pin;
+  return env;
 }
+
 
 // ---------------------------------------------------------------------------
 // Rule 2 — private vault material in a public repo

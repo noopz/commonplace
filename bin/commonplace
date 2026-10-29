@@ -250,7 +250,9 @@ const root = join(__dirname, '..');
 const result = spawnSync(process.execPath, [join(root, SCRIPTS[cmd]), ...args], {
   stdio: 'inherit',
   cwd: root,
-  env: { ...process.env, COMMONPLACE_CALLER_CWD: process.cwd() },
+  // The process that ran this launcher (a Claude Code session, a shell): jobs
+  // record it so a claim held by a session that has exited can be retried.
+  env: { ...process.env, COMMONPLACE_CALLER_CWD: process.cwd(), COMMONPLACE_CALLER_PID: process.env.COMMONPLACE_CALLER_PID || String(process.ppid) },
 });
 
 process.exit(result.status ?? 1);

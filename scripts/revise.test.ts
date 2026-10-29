@@ -257,6 +257,7 @@ test("job queue: one claimed at a time, failures retried up to the limit, then a
     }
     const second = revise(root, ["job-next"]).job;
     assert.notEqual(second.job, first.job, "the first was abandoned after three attempts");
+    assert.equal(revise(root, ["job-next"]).busy, true);
     assert.equal(revise(root, ["job-done", "--job", second.job], { poolSize: 2, proposals: 0 }).ok, true);
     assert.equal(revise(root, ["job-next"]).none, true);
   } finally {
@@ -275,6 +276,20 @@ test("an accept off the pinned branch waits, and nothing is written into the not
     assert.equal(a.status, "deferred");
     assert.match(a.reason, /moved off main/);
     assert.equal(readFileSync(join(root, NEW), "utf-8").includes("supersedes"), false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("a job claimed by a session that has exited is retried at once, not held for its lease", () => {
+  const root = vault();
+  try {
+    revise(root, ["job-enqueue"], { written: [NEW], origin: "main" });
+    // An impossible pid on this host: the claiming session is gone.
+    const first = revise(root, ["job-next"], undefined, { COMMONPLACE_CALLER_PID: String(2 ** 22 + 4321) }).job;
+    const again = revise(root, ["job-next"]).job;
+    assert.equal(again.job, first.job);
+    assert.equal(again.attempt, 2);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

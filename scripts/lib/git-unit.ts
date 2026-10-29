@@ -218,6 +218,8 @@ export type CommitOptions = {
   beforeUpdateRef?: () => void;
   /** The branch this session pinned (`refs/heads/…`); default `COMMONPLACE_PIN`. */
   pin?: string | null;
+  /** Append-only files carried along when they only grew (the public ledgers); never a conflict. */
+  sweep?: string[];
 };
 
 /**
@@ -302,21 +304,23 @@ export function commitUnit(vault: string, id: string, opts: CommitOptions): Comm
       }
       entries.push({ rp: repoPath(repo, rel), rel, old: committed, blob: p.after, mode: modeAt(repo, head, rel) });
     }
-    for (const rel of u.appendOnly ?? []) {
+    const required = new Set(u.appendOnly ?? []);
+    for (const rel of [...new Set([...required, ...(opts.sweep ?? [])])]) {
       if (u.paths[rel]) continue;
       const now = blobOfFile(repo, rel, true);
       if (!now) continue;
       const committed = blobAt(repo, head, rel);
       if (committed === now) continue;
       if (committed && !isPrefixBlob(repo, committed, rel)) {
-        conflicts.push({ path: rel, reason: "the committed ledger is not a prefix of the current one" });
+        if (required.has(rel)) conflicts.push({ path: rel, reason: "the committed ledger is not a prefix of the current one" });
         continue;
       }
       entries.push({ rp: repoPath(repo, rel), rel, old: committed, blob: now, mode: "100644" });
     }
 
     if (conflicts.length) return { status: "conflict", conflicts };
-    if (entries.length === 0) return { status: "empty" };
+    // Swept ledgers ride along with real work; they never make a commit by themselves.
+    if (!entries.some((e) => required.has(e.rel) || u.paths[e.rel])) return { status: "empty" };
 
     // Build in a temporary index: the owner's staged changes stay theirs.
     const dir = mkdtempSync(join(tmpdir(), "cp-unit-"));

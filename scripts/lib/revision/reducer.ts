@@ -61,6 +61,8 @@ export type JobState = {
   attempts: number;
   /** While claimed: when the lease runs out and another session may take it. */
   until?: string;
+  /** While claimed: the session process holding it. */
+  claimer?: { pid: number; host: string };
   lastError?: string;
 };
 
@@ -250,6 +252,7 @@ export function reduce(events: ReadonlyArray<RevEvent & { shard: string }>): Red
         if (j && (j.status === "queued" || j.status === "claimed")) {
           j.status = "claimed";
           j.until = e.until;
+          j.claimer = e.pid && e.host ? { pid: e.pid, host: e.host } : undefined;
           j.attempts++;
         }
         break;

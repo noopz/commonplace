@@ -106,7 +106,7 @@ export type RevEvent = Base &
         origin: string;
         unit?: string;
       }
-    | { kind: "job-claimed"; job: string; until: string }
+    | { kind: "job-claimed"; job: string; until: string; /** The Claude Code process running the job, and its host. */ pid?: number; host?: string }
     | { kind: "job-done"; job: string; poolSize: number; truncated: boolean; changed: number; proposals: number }
     | { kind: "job-failed"; job: string; reason: string }
   );
@@ -181,6 +181,17 @@ export function ledgerShards(vault: string): string[] {
   const dir = join(ledgerDir(vault), "sealed");
   try {
     return readdirSync(dir).filter((d) => !d.startsWith("."));
+  } catch {
+    return [];
+  }
+}
+
+/** Vault-relative paths of every ledger file of one scope (each append-only, so each commits while its committed copy is a prefix). */
+export function ledgerFiles(vault: string, shard: string): string[] {
+  const dir = ledgerShardDir(vault, shard);
+  try {
+    const base = shard === MAIN ? ".revision" : `.revision/sealed/${shard}`;
+    return readdirSync(dir).filter((f) => f.endsWith(".jsonl")).sort().map((f) => `${base}/${f}`);
   } catch {
     return [];
   }

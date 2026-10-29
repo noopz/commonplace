@@ -17,7 +17,8 @@ import { readFileSync } from "fs";
 import { parseFrontmatter } from "../../../hooks/lib/index/yaml.ts";
 import { repoOf, readUnit } from "../git-unit.ts";
 import { MAIN, append, newId } from "./ledger.ts";
-import { holds, releaseLock, takeLock } from "./lock.ts";
+import { holds, processAlive, releaseLock, takeLock } from "./lock.ts";
+import { hostname } from "os";
 import { loadIndex } from "./vault-index.ts";
 import { noteRev, state, type Ctx } from "./engine.ts";
 import type { JobState } from "./reducer.ts";
@@ -153,11 +154,20 @@ export function claim(ctx: Ctx, now = Date.now()): { job: ClaimedJob } | { none:
   const lock = takeLock(jobsLock(ctx.vault), 2_000);
   if (!lock) return { none: true, busy: true };
   try {
+    // A job whose session exited mid-run is not held for the rest of its lease:
+    // that attempt failed, and it is queued again (or abandoned at the limit).
+    for (const j of state(ctx).jobs.values()) {
+      if (j.status === "claimed" && j.claimer && !processAlive(j.claimer.pid, j.claimer.host)) {
+        append(ctx.vault, j.shard, ctx.actor, { kind: "job-failed", job: j.id, reason: "the session running it exited" });
+      }
+    }
     const jobs = [...state(ctx).jobs.values()];
     if (jobs.filter((j) => j.status === "claimed").length >= JOB_CONCURRENCY) return { none: true, busy: true };
     const next = jobs.filter((j) => j.status === "queued").sort((a, b) => (a.id < b.id ? -1 : 1))[0];
     if (!next || !holds(lock)) return { none: true };
-    append(ctx.vault, next.shard, ctx.actor, { kind: "job-claimed", job: next.id, until: new Date(now + JOB_LEASE_MS).toISOString() });
+    // The process that ran `commonplace` (the Claude Code session running the job), set by the launcher.
+    const pid = Number(process.env.COMMONPLACE_CALLER_PID) || process.ppid;
+    append(ctx.vault, next.shard, ctx.actor, { kind: "job-claimed", job: next.id, until: new Date(now + JOB_LEASE_MS).toISOString(), pid, host: hostname() });
     return {
       job: {
         job: next.id,

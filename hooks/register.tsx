@@ -48,7 +48,7 @@ import { parseJsonl, stripFrontmatter } from "./lib/seed.ts";
 import { runConnectionPass, type CompletionRequest } from "./lib/pipeline.ts";
 import { statusLine, type Status } from "./lib/status.ts";
 import { buildVaultBlock, mergeBlocks } from "./lib/context.ts";
-import { checkBashCommand, checkScopeEscalation, checkRevisionStep, withOpenShards, withUnit, isUnitCommit, parseSealedNames, type SealedName } from "./lib/guard.ts";
+import { checkBashCommand, checkScopeEscalation, checkRevisionStep, withOpenShards, ownCommand, unitEnv, parseSealedNames, type SealedName } from "./lib/guard.ts";
 import { checkSealedAccess, candidatePaths, normalizePath } from "./lib/core/seal.ts";
 import { openFromStartCwd, type DomainMap } from "./lib/core/scope.ts";
 import {
@@ -2200,22 +2200,31 @@ export const register: Register = (on, options) => {
     try {
       const vault = await pickVault($);
       const shards = vault ? [...openOf(vault.path)] : [];
+      // `commonplace commit` / `revise`: run here, for this agent's unit of
+      // work, with its identity and the pinned branch in the environment. The
+      // command text is left exactly as written, so an allowlist entry for it
+      // still matches (see ownCommand).
+      const own = vault ? ownCommand(e.command) : null;
+      if (own && vault) {
+        const u = await unitFor($, e.agentId);
+        const env = { ...unitEnv(u, await pinFor($, vault.path)), COMMONPLACE_OPEN: shards.filter((s) => /^[A-Za-z0-9_.-]+$/.test(s)).join(",") };
+        const r = await $.process.run(["node", `${$.plugin.root}/bin/commonplace`, ...own], { cwd: await $.session.cwd(), env, timeoutMs: 300_000 });
+        const stdout = String(r.stdout ?? "");
+        const stderr = String(r.stderr ?? "") + (r.exitCode ? `${r.stderr ? "\n" : ""}(exit ${r.exitCode})` : "");
+        // A successful commit closes the unit: its trigger job is queued now,
+        // not after the debounce, and the agent's next write opens a new one.
+        if (own[0] === "commit" && r.exitCode === 0 && /Committed \d+ file|Nothing to commit/.test(stdout)) {
+          await flushRevisionWork($, e.agentId);
+          units.delete(agentKey(e.agentId));
+        }
+        traceTo($, vault.path, "unit:command", { cmd: own.slice(0, 2).join(" "), exit: r.exitCode });
+        return { result: { stdout, stderr, interrupted: false } };
+      }
       command = withOpenShards(command, shards);
-      // `commonplace commit` / `revise` act for this agent's unit of work.
-      if (/\bcommonplace\b/.test(command)) command = withUnit(command, await unitFor($, e.agentId), vault ? await pinFor($, vault.path) : undefined);
     } catch {
       /* fall through unchanged */
     }
-    const r = await next(command !== e.command ? { ...e, command } : e);
-    // A successful commit closes the unit: the agent's next write opens a new one.
-    try {
-      if (isUnitCommit(e.command) && !r.isError && /Committed \d+ file|Nothing to commit/.test(String((r as { result?: { stdout?: string } }).result?.stdout ?? ""))) {
-        // The unit is finished: its trigger job is queued now, not after the debounce.
-        await flushRevisionWork($, e.agentId);
-        units.delete(agentKey(e.agentId));
-      }
-    } catch {}
-    return r;
+    return next(command !== e.command ? { ...e, command } : e);
   });
 
   /**

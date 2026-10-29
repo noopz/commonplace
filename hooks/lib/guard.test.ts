@@ -16,7 +16,8 @@ import assert from "node:assert/strict";
 import {
   checkScopeEscalation,
   checkRevisionStep,
-  withUnit,
+  ownCommand,
+  unitEnv,
   withOpenShards,
   splitPipelines,
   stripDataHeredocs,
@@ -549,9 +550,23 @@ test("revision steps that create accepted state are denied to the model; propose
   ]) assert.equal(checkRevisionStep(cmd), null, cmd);
 });
 
-test("withUnit carries the pinned branch, and drops one that is not a plain branch ref", () => {
-  const u = { id: "s-main-1", actor: "main", session: "s" };
-  assert.match(withUnit("commonplace commit --message x", u, "refs/heads/main"), /COMMONPLACE_PIN=refs\/heads\/main; commonplace commit/);
-  assert.doesNotMatch(withUnit("commonplace commit --message x", u, "refs/heads/main; rm -rf /"), /PIN/);
-  assert.equal(withUnit("ls", u, "refs/heads/main"), "ls");
+test("ownCommand takes one plain commit/revise stage and nothing a shell would expand or chain", () => {
+  assert.deepEqual(ownCommand('commonplace commit --message "ingest: Alpha Report"'), ["commit", "--message", "ingest: Alpha Report"]);
+  assert.deepEqual(ownCommand("commonplace revise log --note 'Alpha Report'"), ["revise", "log", "--note", "Alpha Report"]);
+  for (const cmd of [
+    "commonplace commit --message x; rm -rf /tmp/x",
+    "commonplace commit --message x && echo done",
+    'commonplace commit --message "$(whoami)"',
+    "commonplace commit --message `id`",
+    "commonplace lint",
+    "cd /tmp && commonplace commit --message x",
+    "commonplace commit --message x > out.txt",
+  ]) assert.equal(ownCommand(cmd), null, cmd);
+});
+
+test("unitEnv carries the unit, identity and a plain pinned branch only", () => {
+  const u = { id: "s-main-1", actor: "commonplace:wiki-linter", session: "s" };
+  assert.deepEqual(unitEnv(u, "refs/heads/main"), { COMMONPLACE_UNIT: "s-main-1", COMMONPLACE_ACTOR: "commonplace:wiki-linter", COMMONPLACE_SESSION: "s", COMMONPLACE_PIN: "refs/heads/main" });
+  assert.equal(unitEnv(u, "refs/heads/main; rm -rf /").COMMONPLACE_PIN, undefined);
+  assert.equal(unitEnv({ ...u, id: "bad id" }).COMMONPLACE_UNIT, undefined);
 });

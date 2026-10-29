@@ -166,6 +166,27 @@ test("append-only ledgers commit while the committed copy is a prefix", () => {
   }
 });
 
+test("swept ledgers ride along with real work, never alone and never as a conflict", () => {
+  const root = repo();
+  try {
+    mkdirSync(join(root, ".revision"), { recursive: true });
+    writeFileSync(join(root, ".revision/s1.jsonl"), '{"id":"a"}\n');
+    const sweep = [".revision/s1.jsonl", ".revision/s2.jsonl"];
+    agentWrite(root, "u1", "Alpha.md", "alpha v2\n");
+    assert.equal(commitUnit(root, "u1", { message: "work", sweep }).status, "committed");
+    assert.deepEqual(sh(root, "show", "--name-only", "--format=", "HEAD").trim().split("\n").sort(), [".revision/s1.jsonl", "Alpha.md"]);
+    appendFileSync(join(root, ".revision/s1.jsonl"), '{"id":"b"}\n');
+    agentWrite(root, "u2", "Alpha.md", "alpha v2\n"); // nothing new to commit
+    assert.equal(commitUnit(root, "u2", { message: "noop", sweep }).status, "empty");
+    writeFileSync(join(root, ".revision/s1.jsonl"), '{"id":"rewritten"}\n');
+    agentWrite(root, "u3", "Beta.md", "beta v2\n");
+    assert.equal(commitUnit(root, "u3", { message: "more", sweep }).status, "committed");
+    assert.deepEqual(sh(root, "show", "--name-only", "--format=", "HEAD").trim().split("\n"), ["Beta.md"]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("a vault in a subfolder of the repository commits repository-relative paths", () => {
   const root = repo();
   try {

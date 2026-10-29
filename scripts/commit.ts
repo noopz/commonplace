@@ -15,6 +15,7 @@ import { readdirSync } from "fs";
 import { parseArgs } from "util";
 import { resolveVault } from "./lib/vault.ts";
 import { commitUnit, readUnit, unitsDir } from "./lib/git-unit.ts";
+import { MAIN, ledgerFiles } from "./lib/revision/ledger.ts";
 
 const { values } = parseArgs({
   options: {
@@ -53,7 +54,9 @@ if (!values.message?.trim()) {
   process.exit(2);
 }
 
-const r = commitUnit(vault, unitId, { message: values.message });
+// The public ledgers ride along, so revision events written after the last
+// accept (its `committed` and `stale` lines, queued jobs) reach git too.
+const r = commitUnit(vault, unitId, { message: values.message, sweep: ledgerFiles(vault, MAIN) });
 switch (r.status) {
   case "committed":
     out(r, `Committed ${r.paths.length} file(s) as ${r.commit.slice(0, 10)}.`);

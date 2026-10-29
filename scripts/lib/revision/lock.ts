@@ -33,6 +33,11 @@ function owner(dir: string): Owner | null {
   }
 }
 
+/** True unless `pid` on this host is certainly gone (another host is never presumed dead). */
+export function processAlive(pid: number, host: string): boolean {
+  return alive({ pid, host, token: "", at: "" });
+}
+
 function alive(o: Owner): boolean {
   if (o.host !== hostname()) return true; // another machine: never presume it dead
   try {

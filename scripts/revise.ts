@@ -363,6 +363,6 @@ switch (sub) {
     for (const p of red.proposals.values()) counts[p.status] = (counts[p.status] ?? 0) + 1;
     const mode = red.scopes.get(MAIN)?.mode ?? "manual";
     const out = { mode, paused: red.paused, accepted: red.accepted.length, counts, stale: red.stale.length };
-    print(out, `revision: ${mode}${red.paused ? " (paused)" : ""} · accepted ${red.accepted.length} · ${Object.entries(counts).map(([k, n]) => `${k} ${n}`).join(" · ") || "no proposals"}${red.stale.length ? ` · ${red.stale.length} summaries to recheck` : ""}`);
+    print(out, `revision: ${mode}${red.paused ? " (paused)" : ""} · ${Object.entries(counts).map(([k, n]) => `${k} ${n}`).join(" · ") || "no proposals"}${red.stale.length ? ` · ${red.stale.length} summaries to recheck` : ""}`);
   }
 }

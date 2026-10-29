@@ -297,7 +297,7 @@ judge replies the person never saw.
 
 **`hook-log.jsonl` stage vocabulary** (beyond the connection pass's own):
 `tool:vault_*`, `index:patch|sweep|build|built`, `guard:*`, `scope:proposed`,
-`skill:delivered`, `prime:sync|skip-cold|appended|judged-no|unanswered|late-drop|no-turn|error`,
+`skill:delivered`, `unit:command`, `revision:*`, `prime:sync|skip-cold|appended|judged-no|unanswered|late-drop|no-turn|error`,
 `skip:segment-budget`, `feedback:useful|not-for-me`,
 `triage:verdict|not-fetched|unanswered|ingest|later|skip|read|error`, `cite:check`
 (counts only), `revision:ensure|enqueue|trigger|detect|audit|proposed|propose-none|pool-empty|skip|written-truncated|proposal-cap|review|verify|escalate|wording|accept|steps|stuck|undo|error`. A private note's path is never logged.
@@ -394,8 +394,14 @@ the **summary** (concepts and MOCs, revised with receipts).
   expected parent, retried when HEAD moves. A path commits only when HEAD
   still holds its `before` and the worktree its `after`; the person's own
   uncommitted or staged edits are never swept in. The Write/Edit hook takes the
-  before-blob, the Bash hook injects `COMMONPLACE_UNIT/ACTOR/SESSION`, and
-  skills/agents end with `commonplace commit --message …`. Never `git add -A`.
+  before-blob and skills/agents end with `commonplace commit --message …`.
+  The Bash hook runs a plain single-stage `commonplace commit|revise …`
+  ITSELF (`ownCommand`; `$.process.run` with `unitEnv`:
+  `COMMONPLACE_UNIT/ACTOR/SESSION/PIN/OPEN`) and answers the tool call with
+  its output, so the command text is never rewritten and an allowlist rule
+  like `Bash(commonplace commit:*)` still matches (an `export …` prefix broke
+  that, found live). Traced as `unit:command`. A commit also carries the
+  public ledgers along when they only grew (`sweep`), never alone. Never `git add -A`.
 - **The ledger** (`<vault>/.revision/<session>.jsonl`, private ledgers in
   `.revision/sealed/<shard>/`; outside `.wiki/` so it is versioned) is
   append-only; the **reducer** (`scripts/lib/revision/reducer.ts`) is the
@@ -428,7 +434,9 @@ the **summary** (concepts and MOCs, revised with receipts).
   revisions; writes by commonplace or a maintenance agent (`agentTypeOf` via
   `$.agent.list()`) and frontmatter-only writes never become jobs. One job
   runs per vault under a 15-min lease; an unanswered model call fails the job
-  (3 attempts, then abandoned); changes past the 3-proposal cap are queued as
+  (3 attempts, then abandoned), and so does a claim whose session has exited
+  (`job-claimed` records `COMMONPLACE_CALLER_PID`, which `bin/commonplace`
+  sets to the session's pid; a dead pid on this host is failed at the next claim); changes past the 3-proposal cap are queued as
   an overflow job of `pairs`, never dropped. `processRevision` (single-flight
   per vault, kicked on the first turn in a vault, so a dead session's jobs are
   picked up) claims jobs, runs `runTrigger` (pool: reads + graph neighbours +
@@ -436,7 +444,7 @@ the **summary** (concepts and MOCs, revised with receipts).
   changed" re-asked of sonnet; sonnet quotes the exact claim), then `runSteps`.
 - **Pinned branch**: the branch a vault is on when the session starts is the
   only one it commits to. `COMMONPLACE_PIN` rides on every CLI the module runs
-  and every model `commonplace` command (`withUnit`); `commitUnit`, accept,
+  and every model `commonplace commit|revise` (`ownCommand`); `commitUnit`, accept,
   revert and enable refuse another branch (`off-branch`), and the band says
   revision is propose-only and why. The impact checker proposes at ingest the same way.
   The model may run `revise propose|log|status|checked`; the Bash guard denies
