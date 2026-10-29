@@ -485,11 +485,12 @@ async function unitFor($: EngineInterface, agentId: string | undefined) {
  * that agent's turn to end. Reads count only when the whole note was read
  * (a Read without offset/limit, or vault_note) — a slice is not the note.
  */
-const revisionWork = new Map<string, { vp: string; agent: string; agentId?: string; written: Set<string>; reads: Set<string> }>();
+/** `reads`: path → the version read (`sha256:` of the file text, as the CLI's `noteRev`). */
+const revisionWork = new Map<string, { vp: string; agent: string; agentId?: string; written: Set<string>; reads: Map<string, string> }>();
 const workOf = (vp: string, agentId: string | undefined) => {
   const key = `${agentKey(agentId)}\u0000${vp}`;
   let w = revisionWork.get(key);
-  if (!w) revisionWork.set(key, (w = { vp, agent: agentKey(agentId), ...(agentId ? { agentId } : {}), written: new Set(), reads: new Set() }));
+  if (!w) revisionWork.set(key, (w = { vp, agent: agentKey(agentId), ...(agentId ? { agentId } : {}), written: new Set(), reads: new Map() }));
   return w;
 };
 const noteWrite = (_$: EngineInterface, vp: string, rel: string, agentId: string | undefined) => {
@@ -531,9 +532,15 @@ const pinFor = async ($: EngineInterface, vp: string): Promise<string> => {
   }
   return p;
 };
-const noteRead = (vp: string, rel: string, agentId: string | undefined) => {
+const noteRead = async ($: EngineInterface, vp: string, rel: string, agentId: string | undefined) => {
   const w = workOf(vp, agentId);
-  if (!w.written.has(rel) && w.reads.size < 64) w.reads.add(rel);
+  if (w.written.has(rel) || (w.reads.size >= 64 && !w.reads.has(rel))) return;
+  // The version read, so a job records what the agent based its write on.
+  let rev = "";
+  try {
+    if (isSafeVaultPath(rel)) rev = `sha256:${(await sha256Hex(String(await $.fs.read(`${vp}/${rel}`)))).slice(0, 32)}`;
+  } catch {}
+  w.reads.set(rel, rev);
 };
 
 /** `revise ensure` ran this module lifetime, per vault (recovery + baseline are idempotent but not free). */
@@ -705,7 +712,7 @@ const flushRevisionWork = async ($: EngineInterface, agentId: string | undefined
     if (w.agent !== agent || w.written.size === 0) continue;
     revisionWork.delete(key);
     const origin = await agentTypeOf($, w.agentId);
-    const r = await revCli($, w.vp, ["job-enqueue"], { written: [...w.written], reads: [...w.reads], origin, ...(units.get(agent) ? { unit: units.get(agent)!.id } : {}) });
+    const r = await revCli($, w.vp, ["job-enqueue"], { written: [...w.written], reads: [...w.reads].map(([rel, rev]) => ({ rel, rev })), origin, ...(units.get(agent) ? { unit: units.get(agent)!.id } : {}) });
     traceTo($, w.vp, "revision:enqueue", {
       queued: Array.isArray(r?.queued) ? r!.queued.length : 0,
       duplicate: Number(r?.duplicate ?? 0),
@@ -2311,7 +2318,7 @@ export const register: Register = (on, options) => {
       const rel = target.slice((target.startsWith(`${vault.path}/`) ? vault.path : vault.real!).length + 1);
       if (isExcluded(rel)) return r;
       const whole = (e as { offset?: number }).offset === undefined && (e as { limit?: number }).limit === undefined;
-      if (whole) noteRead(vault.path, rel, e.agentId);
+      if (whole) await noteRead($, vault.path, rel, e.agentId);
       const idx = indexes.get(vault.path);
       const id = idx?.state === "ready" ? idx.view?.idOfRel(rel) : undefined;
       if (!idx || id === undefined || !idx.view?.visible(id)) return r;
@@ -2378,7 +2385,7 @@ export const register: Register = (on, options) => {
         } else {
           result = formatNote(r);
           trailOf(vp).add(r.card.id);
-          noteRead(vp, r.card.path, e.agentId);
+          await noteRead($, vp, r.card.path, e.agentId);
           const hint = unreadContext(r);
           if (hint) context = [hint];
           summary = r.card.title;

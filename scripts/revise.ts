@@ -289,7 +289,9 @@ switch (sub) {
     const body = await stdinJson();
     const r = await enqueue(ctx, {
       written: Array.isArray(body.written) ? body.written.map(String) : [],
-      reads: Array.isArray(body.reads) ? body.reads.map(String) : [],
+      reads: Array.isArray(body.reads)
+        ? (body.reads as unknown[]).map((r) => (r && typeof r === "object" ? { rel: String((r as Record<string, unknown>).rel), rev: String((r as Record<string, unknown>).rev ?? "") } : String(r)))
+        : [],
       ...(Array.isArray(body.pairs) ? { pairs: (body.pairs as Array<Record<string, unknown>>).map((p) => ({ written: String(p.written), old: String(p.old), why: String(p.why ?? "") })) } : {}),
       origin: String(body.origin ?? actor.type),
       ...(body.unit ? { unit: String(body.unit) } : {}),

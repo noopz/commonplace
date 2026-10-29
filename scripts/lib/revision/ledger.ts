@@ -99,8 +99,8 @@ export type RevEvent = Base &
         /** Dedup key over the written notes' revisions (and the pairs, for an overflow job). */
         key: string;
         written: Array<{ rel: string; rev: string }>;
-        /** Whole reads in this ledger's scope. */
-        reads: string[];
+        /** Whole reads in this ledger's scope, at the version the agent read (`rev` "" when unknown). */
+        reads: Array<{ rel: string; rev: string }>;
         /** Overflow: (written, older) pairs already detected as changed, still to propose. */
         pairs?: Array<{ written: string; old: string; why: string }>;
         origin: string;

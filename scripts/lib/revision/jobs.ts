@@ -33,7 +33,7 @@ export const JOB_CONCURRENCY = 1;
 
 export type EnqueueInput = {
   written: string[];
-  reads?: string[];
+  reads?: Array<string | { rel: string; rev?: string }>;
   pairs?: Array<{ written: string; old: string; why: string }>;
   origin?: string;
   unit?: string;
@@ -103,10 +103,15 @@ export async function enqueue(ctx: Ctx, input: EnqueueInput): Promise<EnqueueRes
   const red = state(ctx);
   for (const [shard, written] of groups) {
     // A public job's reads stay public; a private one may also read its own shard.
-    const reads = [...new Set(input.reads ?? [])].filter((r) => {
-      const s = shardOf(r);
-      return s === MAIN || (s !== null && s === shard);
-    });
+    const seenReads = new Set<string>();
+    const reads = (input.reads ?? [])
+      .map((r) => (typeof r === "string" ? { rel: r, rev: "" } : { rel: r.rel, rev: r.rev ?? "" }))
+      .filter((r) => {
+        if (seenReads.has(r.rel)) return false;
+        seenReads.add(r.rel);
+        const s = shardOf(r.rel);
+        return s === MAIN || (s !== null && s === shard);
+      });
     const pairs = input.pairs?.filter((p) => written.some((w) => w.rel === p.written));
     const key = createHash("sha256")
       .update(written.map((w) => `${w.rel}@${w.rev}`).sort().join("\n"))
@@ -157,7 +162,7 @@ export function claim(ctx: Ctx, now = Date.now()): { job: ClaimedJob } | { none:
       job: {
         job: next.id,
         written: next.queued.written.map((w) => w.rel),
-        reads: next.queued.reads,
+        reads: next.queued.reads.map((r) => r.rel),
         ...(next.queued.pairs ? { pairs: next.queued.pairs } : {}),
         attempt: next.attempts + 1,
       },

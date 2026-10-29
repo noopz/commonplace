@@ -216,8 +216,9 @@ const OLD = "Research/Alpha/Old Finding.md";
 test("job queue: one job per unit at its note versions, generated and frontmatter-only writes skipped", () => {
   const root = vault();
   try {
-    const q = revise(root, ["job-enqueue"], { written: [NEW], reads: [OLD], origin: "main" });
+    const q = revise(root, ["job-enqueue"], { written: [NEW], reads: [{ rel: OLD, rev: "sha256:readversion" }], origin: "main" });
     assert.equal(q.queued.length, 1, JSON.stringify(q));
+    assert.ok(readFileSync(join(root, ".revision/t1.jsonl"), "utf-8").includes('"rev":"sha256:readversion"'), "the version each note was read at is kept");
     assert.equal(revise(root, ["job-enqueue"], { written: [NEW], reads: [OLD], origin: "main" }).duplicate, 1, "same note versions: no second job");
     assert.match(revise(root, ["job-enqueue"], { written: [NEW], origin: "commonplace:wiki-linter" }).skipped[0].why, /generated/);
 
