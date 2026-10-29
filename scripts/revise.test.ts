@@ -122,6 +122,8 @@ test("accept writes the edge into the newer note and commits it with the ledger;
     assert.match(git(root, "log", "-1", "--format=%B"), new RegExp(`Reverts-Event: ${a.accept}`));
     const after = JSON.parse(readFileSync(join(root, ".wiki/revision/projection.json"), "utf-8"));
     assert.equal(after.accepted.length, 0);
+    // One recheck, the revert's: the reverted accept no longer asks for one.
+    assert.deepEqual(after.stale.map((m: { event: string }) => m.event), [r.revert]);
     assert.equal(revise(root, ["log"])[0].status, "reverted");
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -145,6 +147,10 @@ test("an accept waits while the newer note has uncommitted changes, and pause st
     assert.equal(revise(root, ["next"]).none, true);
 
     git(root, "commit", "-qam", "owner commits");
+    // A commit since the deferral is what clears it: `next` offers the accept again at once.
+    const again = revise(root, ["next"]);
+    assert.equal(again.proposal, p.id, JSON.stringify(again));
+    assert.equal(again.stage, "accept");
     revise(root, ["pause"]);
     assert.equal(revise(root, ["accept", "--proposal", p.id]).status, "deferred");
     revise(root, ["resume"]);
@@ -203,8 +209,12 @@ test("stale-derivation lint lists the concept citing a revised note until a rece
     const before = lint();
     assert.equal(before.length, 1);
     assert.equal(before[0].file, "Concepts/Batch Window.md");
-    assert.equal(revise(root, ["checked", "--note", "Concepts/Batch Window.md", "--event", a.accept]).ok, true);
+    assert.equal(revise(root, ["checked", "--note", "Concepts/Batch Window.md", "--event", a.accept], undefined, { COMMONPLACE_UNIT: "u-recheck" }).ok, true);
     assert.equal(lint().length, 0);
+    // The receipt belongs to the unit that recorded it: a unit that wrote no note still commits it.
+    const c = execFileSync(process.execPath, [join(ROOT, "bin", "commonplace"), "commit", "--vault", root, "--unit", "u-recheck", "--message", "recheck", "--json"], { encoding: "utf-8", env: ENV });
+    assert.equal(JSON.parse(c).status, "committed", c);
+    assert.match(git(root, "show", "--format=", "HEAD", "--", ".revision"), /"kind":"checked"/);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

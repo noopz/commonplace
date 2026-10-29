@@ -144,7 +144,20 @@ export async function propose(ctx: Ctx, input: ProposeInput): Promise<ProposeRes
     origin: input.origin ?? "agent",
     ...(input.rationale ? { rationale: input.rationale.slice(0, 2000) } : {}),
   });
+  inUnit(ctx, sc.shard);
   return { status: "proposed", id: ev.id, shard: sc.shard };
+}
+
+/**
+ * A ledger line the model wrote inside its unit of work (a proposal, a
+ * recheck receipt) is part of that unit: `commonplace commit` commits it even
+ * when the unit wrote no note.
+ */
+function inUnit(ctx: Ctx, shard: string) {
+  if (!ctx.actor.unit) return;
+  try {
+    recordAppendOnly(ctx.vault, ctx.actor.unit, { actor: ctx.actor.type, session: ctx.actor.session }, [ledgerRel(shard, ctx.actor.session)]);
+  } catch {}
 }
 
 // ----------------------------------------------------------------- record
@@ -484,15 +497,21 @@ export async function ensureEnabled(ctx: Ctx): Promise<{ enabled: string[]; reas
 
 // ------------------------------------------------------------- projection
 
-/** Write the accepted projection for every open scope (public + open shards). */
-export function writeProjections(ctx: Ctx): void {
-  const red = state(ctx);
+/** Stale marks no receipt clears for the note's CURRENT version. */
+export function openStale(ctx: Ctx, red: Reduced = state(ctx)): Reduced["stale"] {
   const repo = repoOf(ctx.vault);
   const cleared = (rel: string, event: string) => {
     if (!repo) return false;
     const now = blobOfFile(repo, rel);
     return red.checked.some((c) => c.rel === rel && c.event === event && c.blob === now);
   };
+  return red.stale.filter((m) => !cleared(m.rel, m.event));
+}
+
+/** Write the accepted projection for every open scope (public + open shards). */
+export function writeProjections(ctx: Ctx): void {
+  const red = state(ctx);
+  const stale = openStale(ctx, red);
   const withdrawn = new Set<string>();
   for (const p of red.proposals.values()) if (p.revert) withdrawn.add(p.accept!.id);
   for (const shard of scopesOf(ctx)) {
@@ -504,7 +523,7 @@ export function writeProjections(ctx: Ctx): void {
       builtAt: new Date().toISOString(),
       accepted: red.accepted.filter((a) => a.shard === shard).map(({ shard: _s, ...a }) => a),
       baseline: sc?.baseline ?? [],
-      stale: red.stale.filter((m) => m.shard === shard && !cleared(m.rel, m.event)).map(({ shard: _s, ...m }) => m),
+      stale: stale.filter((m) => m.shard === shard).map(({ shard: _s, ...m }) => m),
     };
     const rel = shard === MAIN ? PROJECTION_FILE : shardProjectionFile(shard);
     const abs = join(ctx.vault, ".wiki", rel);
@@ -524,6 +543,7 @@ export function checked(ctx: Ctx, rel: string, event: string): boolean {
   const blob = blobOfFile(repo, rel);
   if (!blob) return false;
   append(ctx.vault, mark.shard, ctx.actor, { kind: "checked", rel, blob, event });
+  inUnit(ctx, mark.shard);
   writeProjections(ctx);
   return true;
 }

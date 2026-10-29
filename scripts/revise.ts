@@ -30,6 +30,7 @@ import { acceptBlocker, edgeFor, type ProposalState } from "./lib/revision/reduc
 import {
   accept,
   checked,
+  openStale,
   ensureEnabled,
   propose,
   recover,
@@ -42,6 +43,7 @@ import {
 import { loadArtifact, passages, sourceRefs, type Artifact } from "./lib/revision/artifact.ts";
 import { openShardsFromEnv } from "./lib/revision/vault-index.ts";
 import { enqueue, claim, finish, fail } from "./lib/revision/jobs.ts";
+import { headOf, repoOf } from "./lib/git-unit.ts";
 import { describeDecision } from "../hooks/lib/revision/review.ts";
 import { statusLine } from "../hooks/lib/revision/edges.ts";
 
@@ -114,12 +116,25 @@ async function artifactOf(rel: string): Promise<Artifact | null> {
 const DEFER_MS = 10 * 60_000;
 const STAGES = new Set(["review", "verify", "escalate", "because", "accept"]);
 
+/** The vault's HEAD commit, or undefined outside git. */
+function currentHead(): string | undefined {
+  try {
+    const repo = repoOf(vault);
+    return (repo && headOf(repo)) || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function nextProposal(): ProposalState | null {
   const red = state(ctx);
   const now = Date.now();
-  const ready = [...red.proposals.values()].filter(
-    (p) => STAGES.has(p.status) && !(p.status === "accept" && p.deferredAt && now - Date.parse(p.deferredAt) < DEFER_MS),
-  );
+  const head = currentHead();
+  // A deferred accept waits DEFER_MS, unless a commit has landed since: that
+  // is what clears "uncommitted changes" and most other deferrals.
+  const waiting = (p: ProposalState) =>
+    p.status === "accept" && !!p.deferredAt && now - Date.parse(p.deferredAt) < DEFER_MS && (!p.deferredHead || p.deferredHead === head);
+  const ready = [...red.proposals.values()].filter((p) => STAGES.has(p.status) && !waiting(p));
   // Deepest stage first, so a case finishes before new ones start.
   const depth: Record<string, number> = { accept: 0, because: 1, escalate: 2, verify: 3, review: 4 };
   ready.sort((a, b) => depth[a.status] - depth[b.status] || (a.id < b.id ? -1 : 1));
@@ -239,7 +254,8 @@ switch (sub) {
       if (typeof body.flipped === "boolean") record(ctx, id, { kind: "rationale-seen", proposal: id, flipped: body.flipped });
       record(ctx, id, { kind: "because", proposal: id, text: String(body.text ?? p.decision?.because ?? ""), checked: body.checked === true });
     } else if (stage === "deferred") {
-      record(ctx, id, { kind: "deferred", proposal: id, reason: String(body.reason ?? "") });
+      const head = currentHead();
+      record(ctx, id, { kind: "deferred", proposal: id, reason: String(body.reason ?? ""), ...(head ? { head } : {}) });
     } else {
       print({ error: `unknown stage "${stage}"` });
       process.exitCode = 1;
@@ -252,7 +268,10 @@ switch (sub) {
 
   case "accept": {
     const r = await accept(ctx, values.proposal ?? "");
-    if (r.status === "deferred") record(ctx, values.proposal ?? "", { kind: "deferred", proposal: values.proposal ?? "", reason: r.reason });
+    if (r.status === "deferred") {
+      const head = currentHead();
+      record(ctx, values.proposal ?? "", { kind: "deferred", proposal: values.proposal ?? "", reason: r.reason, ...(head ? { head } : {}) });
+    }
     let line: string | undefined;
     if (r.status === "accepted") {
       const p = state(ctx).proposals.get(values.proposal ?? "");
@@ -362,7 +381,8 @@ switch (sub) {
     const counts: Record<string, number> = {};
     for (const p of red.proposals.values()) counts[p.status] = (counts[p.status] ?? 0) + 1;
     const mode = red.scopes.get(MAIN)?.mode ?? "manual";
-    const out = { mode, paused: red.paused, accepted: red.accepted.length, counts, stale: red.stale.length };
-    print(out, `revision: ${mode}${red.paused ? " (paused)" : ""} · ${Object.entries(counts).map(([k, n]) => `${k} ${n}`).join(" · ") || "no proposals"}${red.stale.length ? ` · ${red.stale.length} summaries to recheck` : ""}`);
+    const stale = openStale(ctx, red).length;
+    const out = { mode, paused: red.paused, accepted: red.accepted.length, counts, stale };
+    print(out, `revision: ${mode}${red.paused ? " (paused)" : ""} · ${Object.entries(counts).map(([k, n]) => `${k} ${n}`).join(" · ") || "no proposals"}${stale ? ` · ${stale} summaries to recheck` : ""}`);
   }
 }

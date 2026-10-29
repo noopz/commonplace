@@ -17,6 +17,7 @@ import {
   checkScopeEscalation,
   checkRevisionStep,
   ownCommand,
+  chainedCommit,
   unitEnv,
   withOpenShards,
   splitPipelines,
@@ -551,17 +552,31 @@ test("revision steps that create accepted state are denied to the model; propose
 });
 
 test("ownCommand takes one plain commit/revise stage and nothing a shell would expand or chain", () => {
-  assert.deepEqual(ownCommand('commonplace commit --message "ingest: Alpha Report"'), ["commit", "--message", "ingest: Alpha Report"]);
-  assert.deepEqual(ownCommand("commonplace revise log --note 'Alpha Report'"), ["revise", "log", "--note", "Alpha Report"]);
+  assert.deepEqual(ownCommand('commonplace commit --message "ingest: Alpha Report"'), { args: ["commit", "--message", "ingest: Alpha Report"] });
+  assert.deepEqual(ownCommand("commonplace revise log --note 'Alpha Report'"), { args: ["revise", "log", "--note", "Alpha Report"] });
+  // The two habits a live run hit: a leading cd and a trailing 2>&1.
+  assert.deepEqual(ownCommand('cd "/tmp/alpha vault" && commonplace commit --message x 2>&1'), { args: ["commit", "--message", "x"], cd: "/tmp/alpha vault", mergeStderr: true });
   for (const cmd of [
     "commonplace commit --message x; rm -rf /tmp/x",
     "commonplace commit --message x && echo done",
     'commonplace commit --message "$(whoami)"',
     "commonplace commit --message `id`",
     "commonplace lint",
-    "cd /tmp && commonplace commit --message x",
+    "cd /tmp && commonplace lint",
+    "cd /tmp && cd /var && commonplace commit --message x",
+    "cd ~ && commonplace commit --message x",
+    "cd /tmp; commonplace commit --message x",
     "commonplace commit --message x > out.txt",
+    "commonplace commit --message x 2>&1 | tail",
   ]) assert.equal(ownCommand(cmd), null, cmd);
+});
+
+test("chainedCommit flags a commit the module cannot run, and nothing else", () => {
+  assert.equal(chainedCommit('cd /tmp/v && commonplace commit --message "x"; git show --stat HEAD'), true);
+  assert.equal(chainedCommit('commonplace commit --message "x" | tail -3'), true);
+  assert.equal(chainedCommit('cd /tmp/v && commonplace commit --message "x"'), false);
+  assert.equal(chainedCommit("commonplace lint && git status"), false);
+  assert.equal(chainedCommit('git commit -m "commonplace commit notes"'), false);
 });
 
 test("unitEnv carries the unit, identity and a plain pinned branch only", () => {

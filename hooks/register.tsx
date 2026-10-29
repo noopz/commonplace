@@ -48,7 +48,7 @@ import { parseJsonl, stripFrontmatter } from "./lib/seed.ts";
 import { runConnectionPass, type CompletionRequest } from "./lib/pipeline.ts";
 import { statusLine, type Status } from "./lib/status.ts";
 import { buildVaultBlock, mergeBlocks } from "./lib/context.ts";
-import { checkBashCommand, checkScopeEscalation, checkRevisionStep, withOpenShards, ownCommand, unitEnv, parseSealedNames, type SealedName } from "./lib/guard.ts";
+import { checkBashCommand, checkScopeEscalation, checkRevisionStep, withOpenShards, ownCommand, unitEnv, chainedCommit, CHAINED_COMMIT_DENY, parseSealedNames, type SealedName } from "./lib/guard.ts";
 import { checkSealedAccess, candidatePaths, normalizePath } from "./lib/core/seal.ts";
 import { openFromStartCwd, type DomainMap } from "./lib/core/scope.ts";
 import {
@@ -462,16 +462,34 @@ async function agentTypeOf($: EngineInterface, agentId: string | undefined): Pro
   return t;
 }
 
-async function unitFor($: EngineInterface, agentId: string | undefined) {
+async function unitFor($: EngineInterface, agentId: string | undefined, vp?: string) {
   const key = agentKey(agentId);
   let u = units.get(key);
   if (!u) {
     const session = String(await $.session.id()).replace(/[^A-Za-z0-9_.-]/g, "").slice(0, 12) || "s";
     const actor = (await agentTypeOf($, agentId)).replace(/[^A-Za-z0-9_.:-]/g, "_").slice(0, 60);
-    u = { id: `${session}-${key}-${Date.now().toString(36)}`, actor, session };
+    const prefix = `${session}-${key}-`.replace(/[^A-Za-z0-9._-]/g, "_");
+    u = { id: (vp && (await openUnitOnDisk($, vp, prefix))) || `${prefix}${Date.now().toString(36)}`, actor, session };
     units.set(key, u);
   }
   return u;
+}
+
+/**
+ * The newest uncommitted unit this session and agent left in `.wiki/units/`.
+ * Module memory does not survive a reload, the unit file does: without this a
+ * reload mid-unit would strand the files already written under the old id.
+ */
+async function openUnitOnDisk($: EngineInterface, vp: string, prefix: string): Promise<string | null> {
+  try {
+    const r = await $.process.run(["ls", "-t", `${vp}/.wiki/units`]);
+    for (const f of String(r.stdout ?? "").split("\n")) {
+      if (!f.startsWith(prefix) || !f.endsWith(".json")) continue;
+      const unit = JSON.parse(String(await $.fs.read(`${vp}/.wiki/units/${f}`))) as { id?: unknown; commit?: unknown };
+      return !unit.commit && typeof unit.id === "string" ? unit.id : null;
+    }
+  } catch {}
+  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -701,7 +719,8 @@ const processRevision = ($: EngineInterface, vp: string) => {
   });
 };
 const pendingRerun = new Set<string>();
-const revisionKicked = new Set<string>();
+const revisionKicked = new Map<string, number>();
+const REVISION_REKICK_MS = 5 * 60_000;
 
 /** Enqueue every finished unit of work this agent holds, then process the queue. */
 const flushRevisionWork = async ($: EngineInterface, agentId: string | undefined) => {
@@ -752,9 +771,22 @@ const notice = ($: EngineInterface, text: string, details: string, revert?: { vp
   if (vaultActivity.length > ACTIVITY_MAX) vaultActivity.length = ACTIVITY_MAX;
   bumpPanes($);
   if (opts.card === false) return;
-  // A connection or triage card is waiting on a press; a notice never covers it.
-  if (bandCard && bandCard.kind !== "notice") return;
+  // A connection or triage card is waiting on a press; a notice never covers
+  // it, and shows once that card comes down (a press, or the next prompt).
+  if (bandCard && bandCard.kind !== "notice") {
+    heldNotice = entry.id;
+    return;
+  }
   showCard($, { kind: "notice", entry: entry.id }, text);
+};
+let heldNotice: number | null = null;
+/** The notice a card held back, if any; true when it is now on the band. */
+const showHeldNotice = ($: EngineInterface): boolean => {
+  const entry = heldNotice === null ? undefined : vaultActivity.find((a) => a.id === heldNotice);
+  heldNotice = null;
+  if (!entry) return false;
+  showCard($, { kind: "notice", entry: entry.id }, entry.text);
+  return true;
 };
 
 const renderActivity = (): string => {
@@ -1237,7 +1269,7 @@ const runVaultCommand = async ($: EngineInterface, argsText: string): Promise<{ 
     if (!st) return { text: "The revision CLI failed." };
     const counts = Object.entries((st.counts ?? {}) as Record<string, number>).map(([k, n]) => `${k} ${n}`).join(" · ");
     return {
-      text: `revision: ${String(st.mode)}${st.paused ? " (paused)" : ""} · accepted ${Number(st.accepted ?? 0)}${counts ? ` · ${counts}` : ""}${Number(st.stale ?? 0) ? ` · ${Number(st.stale)} summaries to recheck` : ""}\n/vault revise log · /vault revise undo last · /vault revise pause`,
+      text: `revision: ${String(st.mode)}${st.paused ? " (paused)" : ""}${counts ? ` · ${counts}` : " · no proposals"}${Number(st.stale ?? 0) ? ` · ${Number(st.stale)} summaries to recheck` : ""}\n/vault revise log · /vault revise undo last · /vault revise pause`,
     };
   }
   if (sub === "open") {
@@ -1729,6 +1761,7 @@ const bandPress = async ($: EngineInterface, action: string) => {
     await update($, band, (b) => ({ ...b, visible: false }));
   } catch {}
   try {
+    if (card.kind !== "notice") showHeldNotice($);
     if (card.kind === "notice") {
       const entry = vaultActivity.find((a) => a.id === card.entry);
       if (action === "undo" && entry?.revert && !entry.undone) await undoRevision($, entry.revert.vp, entry.revert.event);
@@ -1870,6 +1903,7 @@ const decorateReply = async ($: EngineInterface, text: string): Promise<{ text: 
 /** Per-conversation surface state, emptied at session.start and /clear. */
 const resetSessionSurfaces = () => {
   bandCard = null;
+  heldNotice = null;
   pendingLinks = null;
   witness.clear();
 };
@@ -2014,10 +2048,12 @@ export const register: Register = (on, options) => {
       if (vp) {
         const logPath = `${vp}/.wiki/${LOG_FILE}`;
 
-    // Once per vault per module lifetime: recover, enable, and drain whatever
-    // queued jobs and pending revisions earlier sessions left.
-    if (!revisionKicked.has(vp)) {
-      revisionKicked.add(vp);
+    // On the first turn in a vault: recover, enable, and drain whatever queued
+    // jobs and pending revisions earlier sessions left. Then at most every
+    // REVISION_REKICK_MS, so an accept deferred on a note the owner has since
+    // committed by hand lands in this session, not the next.
+    if (Date.now() - (revisionKicked.get(vp) ?? -Infinity) >= REVISION_REKICK_MS) {
+      revisionKicked.set(vp, Date.now());
       processRevision($, vp);
     }
         const kept = await $.process.run(["tail", "-n", String(LOG_KEEP_LINES), logPath]);
@@ -2204,20 +2240,33 @@ export const register: Register = (on, options) => {
       // work, with its identity and the pinned branch in the environment. The
       // command text is left exactly as written, so an allowlist entry for it
       // still matches (see ownCommand).
+      if (vault && chainedCommit(e.command)) {
+        traceTo($, vault.path, "unit:command", { cmd: "commit", denied: "chained" });
+        return { deny: CHAINED_COMMIT_DENY };
+      }
       const own = vault ? ownCommand(e.command) : null;
       if (own && vault) {
-        const u = await unitFor($, e.agentId);
+        const u = await unitFor($, e.agentId, vault.path);
         const env = { ...unitEnv(u, await pinFor($, vault.path)), COMMONPLACE_OPEN: shards.filter((s) => /^[A-Za-z0-9_.-]+$/.test(s)).join(",") };
-        const r = await $.process.run(["node", `${$.plugin.root}/bin/commonplace`, ...own], { cwd: await $.session.cwd(), env, timeoutMs: 300_000 });
-        const stdout = String(r.stdout ?? "");
-        const stderr = String(r.stderr ?? "") + (r.exitCode ? `${r.stderr ? "\n" : ""}(exit ${r.exitCode})` : "");
+        const base = await $.session.cwd();
+        const cwd = own.cd ? (own.cd.startsWith("/") ? own.cd : `${base}/${own.cd}`) : base;
+        const r = await $.process.run(["node", `${$.plugin.root}/bin/commonplace`, ...own.args], { cwd, env, timeoutMs: 300_000 });
+        let stdout = String(r.stdout ?? "");
+        let stderr = String(r.stderr ?? "");
+        if (own.mergeStderr && stderr) {
+          stdout += stderr;
+          stderr = "";
+        }
+        if (r.exitCode) stderr += `${stderr ? "\n" : ""}(exit ${r.exitCode})`;
         // A successful commit closes the unit: its trigger job is queued now,
         // not after the debounce, and the agent's next write opens a new one.
-        if (own[0] === "commit" && r.exitCode === 0 && /Committed \d+ file|Nothing to commit/.test(stdout)) {
+        if (own.args[0] === "commit" && r.exitCode === 0 && /Committed \d+ file|Nothing to commit/.test(stdout)) {
           await flushRevisionWork($, e.agentId);
           units.delete(agentKey(e.agentId));
+          // An accept deferred on this unit's uncommitted note can land now.
+          processRevision($, vault.path);
         }
-        traceTo($, vault.path, "unit:command", { cmd: own.slice(0, 2).join(" "), exit: r.exitCode });
+        traceTo($, vault.path, "unit:command", { cmd: own.args.slice(0, 2).join(" "), exit: r.exitCode });
         return { result: { stdout, stderr, interrupted: false } };
       }
       command = withOpenShards(command, shards);
@@ -2281,7 +2330,7 @@ export const register: Register = (on, options) => {
 
       const unitArgs: string[] = [];
       if (before !== undefined) {
-        const u = await unitFor($, e.agentId);
+        const u = await unitFor($, e.agentId, vault.path);
         unitArgs.push("--unit", u.id, "--actor", u.actor, "--session", u.session, "--before", before ?? "none");
       }
       const res = await $.process.run(
@@ -2863,6 +2912,7 @@ export const register: Register = (on, options) => {
       }
       // A card unanswered when the person types again is a pass, not a press.
       bandCard = null;
+      if (!open.length) showHeldNotice($);
     } catch {
       /* a band that fails to lower must never hold up the prompt */
     }

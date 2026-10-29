@@ -420,17 +420,41 @@ export function withOpenShards(command: string, shards: readonly string[]): stri
  * agent's unit, identity and pinned branch in the environment — rewriting the
  * command text instead (`export …; commonplace commit`) made every allowlisted
  * `commonplace commit` need fresh approval, which a live run showed. Anything
- * a shell would expand or chain (`$`, backticks, `;`, `|`, `&&`, redirects)
- * is left to the Bash tool.
+ * a shell would expand or chain (`$`, backticks, `;`, `|`, redirects) is left
+ * to the Bash tool, except the two shapes models write by habit and a live
+ * run hit: a leading `cd <dir> &&` (run there instead) and a trailing `2>&1`
+ * (stderr folded into stdout).
  */
-export function ownCommand(command: string): string[] | null {
+export function ownCommand(command: string): { args: string[]; cd?: string; mergeStderr?: boolean } | null {
   const c = String(command ?? "").trim();
   if (!c || /[`$\n]/.test(c)) return null;
-  const words = shellWords(c);
+  let words = shellWords(c);
+  let cd: string | undefined;
+  if (words[0] === "cd" && words[2] === "&" && words[3] === "&" && words[1] && !/^[;|&()<>~-]/.test(words[1])) {
+    cd = words[1];
+    words = words.slice(4);
+  }
+  const n = words.length;
+  const mergeStderr = n >= 4 && words[n - 4] === "2" && words[n - 3] === ">" && words[n - 2] === "&" && words[n - 1] === "1";
+  if (mergeStderr) words = words.slice(0, n - 4);
   if (words.some((w) => /^[;|&()<>]$/.test(w))) return null;
   if (words[0] !== "commonplace" || (words[1] !== "commit" && words[1] !== "revise")) return null;
-  return words.slice(1);
+  return { args: words.slice(1), ...(cd ? { cd } : {}), ...(mergeStderr ? { mergeStderr } : {}) };
 }
+
+/**
+ * A `commonplace commit` inside a chain or pipeline. Outside `ownCommand` it
+ * cannot carry the session's unit, so it would fail (or, with a stale binary
+ * first on PATH, not exist); the model is told to run it on its own instead.
+ */
+export function chainedCommit(command: string): boolean {
+  if (ownCommand(command)) return false;
+  const words = shellWords(String(command ?? ""));
+  return words.some((w, i) => w === "commonplace" && words[i + 1] === "commit");
+}
+
+export const CHAINED_COMMIT_DENY =
+  "Run `commonplace commit --message \"…\"` as its own Bash command, with no `;`, `&&` chain or pipe after it (a leading `cd <dir> &&` is fine): commonplace runs it itself with this session's unit of work, which a chained command cannot carry.";
 
 /** The environment a unit's CLI run carries; ids that are not plain tokens are dropped. */
 export function unitEnv(unit: { id: string; actor: string; session: string }, pin?: string): Record<string, string> {

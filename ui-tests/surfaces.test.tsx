@@ -110,6 +110,30 @@ for (const surface of SURFACES) {
     expect(JSON.stringify(await pane.drawn())).toMatch(/acme\.example\/kestrel-drift saved/);
   });
 
+  test(`${surface}: a notice raised under a waiting card shows once the person types again`, { options: { linkTriage: true } }, async ($, on) => {
+    mock.store(on);
+    mock.clock(on, { now: 1_000_000 });
+    serveVault(on);
+    engineFloor(on);
+    on("tool.call", { tool: "WebFetch" }, async (_$, e) => ({ result: { code: 200, codeText: "OK", bytes: 10, result: "a drift study", durationMs: 1, url: (e as { url: string }).url } }) as never);
+    on("model.fork", async () => ({ value: { isAnswered: true, text: '{"verdict":"new","why":"a new field study"}' } }) as never);
+    await $.session.start({ cwd: "/fixture/project", surface, isInteractive: true });
+    await $.tool.call({ tool: "mcp__commonplace__vault_list", tool_use_id: "toolu_t0", what: "domains" } as never);
+    await $.prompt.submit({ text: "What does this add? https://acme.example/kestrel-drift", origin: { kind: "composer" } } as never);
+    await $.turn.start({ turnId: "turn-3", text: "What does this add? https://acme.example/kestrel-drift" } as never);
+    await $.tool.call({ tool: "WebFetch", tool_use_id: "toolu_f3", url: "https://acme.example/kestrel-drift", prompt: "summarize" } as never);
+    await $.turn.complete({ turnId: "turn-3", answer: "It reports a field study of kestrel sensor drift and calibration budgets.", reason: "answer", isAborted: false, durationMs: 10 } as never);
+    const band = await $.ui.mount({ plugin: "commonplace", surface, component: "AbovePrompt", props: { hasSurvey: false } as never });
+    expect((await band.find({ text: /vault ·/ }))?.text).toMatch(/acme\.example/);
+
+    await $.command.run({ command: "vault", args: "reindex" } as never);
+    for (let i = 0; i < 20 && !/refreshed/.test(String(((await $.command.run({ command: "vault", args: "activity" } as never)) as { text?: unknown }).text)); i++);
+    // The card waiting on a press stays up; the notice is held, not dropped.
+    expect((await band.find({ text: /vault ·/ }))?.text).toMatch(/acme\.example/);
+    await $.prompt.submit({ text: "thanks", origin: { kind: "composer" } } as never);
+    expect((await band.find({ text: /vault ·/ }))?.text).toMatch(/vault index refreshed/);
+  });
+
   test(`${surface}: a pasted link nobody fetched is never triaged`, { options: { linkTriage: true } }, async ($, on) => {
     mock.store(on);
     mock.clock(on, { now: 1_000_000 });

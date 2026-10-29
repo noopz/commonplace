@@ -85,7 +85,7 @@ export type RevEvent = Base &
     | { kind: "pending"; proposal: string; reason: string; packet: string }
     | { kind: "reject"; proposal: string; reason: string; packet: string }
     | { kind: "withdraw"; proposal: string; reason: string }
-    | { kind: "deferred"; proposal: string; reason: string }
+    | { kind: "deferred"; proposal: string; reason: string; head?: string }
     | { kind: "revert"; accept: string; reason: string; commit?: string; conflict?: string }
     | { kind: "external"; rel: string; keys: string[] }
     | { kind: "checked"; rel: string; blob: string; event: string }

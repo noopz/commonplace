@@ -45,6 +45,8 @@ export type ProposalState = {
   terminal?: E<"pending"> | E<"reject"> | E<"withdraw">;
   /** Last time an accept was put off (uncommitted note, paused, lock): retried later, not looped on. */
   deferredAt?: string;
+  /** HEAD when the accept was last deferred: a new commit retries it at once. */
+  deferredHead?: string;
   status: Status;
   decision?: Decision;
   /** Identity independent of relation: (newer note, older note, claim). */
@@ -226,7 +228,10 @@ export function reduce(events: ReadonlyArray<RevEvent & { shard: string }>): Red
       }
       case "deferred": {
         const p = proposals.get(e.proposal);
-        if (p) p.deferredAt = e.at;
+        if (p) {
+          p.deferredAt = e.at;
+          p.deferredHead = e.head;
+        }
         break;
       }
       case "enable":
@@ -296,8 +301,15 @@ export function reduce(events: ReadonlyArray<RevEvent & { shard: string }>): Red
 
   // Stale marks from every accept or revert that recorded them; a mark is
   // cleared later by a `checked` receipt the CLI matches against the note.
+  // An accept that was reverted no longer asks for a recheck: the revert's own
+  // mark covers a note updated in between.
+  const reverted = new Set<string>();
+  for (const [id, p] of accepts) if (p.revert) reverted.add(id);
   const stale: Array<StaleMark & { shard: string }> = [];
-  for (const [event, { marks, shard }] of staleByEvent) for (const m of marks) stale.push({ rel: m.rel, displaced: m.displaced, event, shard });
+  for (const [event, { marks, shard }] of staleByEvent) {
+    if (reverted.has(event)) continue;
+    for (const m of marks) stale.push({ rel: m.rel, displaced: m.displaced, event, shard });
+  }
 
   // A claim whose lease ran out (its session died mid-job) counts as an attempt
   // that failed; the job goes back to the queue, or is abandoned at the limit.

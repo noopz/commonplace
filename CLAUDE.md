@@ -133,7 +133,9 @@ reindex the person asked for, a quarantine, a card press) goes through
 receipt the transcript already shows — a band card of kind `notice` with
 **Details** (opens the `commonplace-activity` pane, also `/vault activity`)
 and, for an accepted revision, **Undo**. A notice never covers a connection
-or triage card that is waiting on a press. The only toast left is the
+or triage card that is waiting on a press; it is held and shown when that
+card comes down (a press, or the next prompt), so an accept is never announced
+only in the pane nobody opened. The only toast left is the
 version gate, which fires before anything else is registered.
 
 **`turn.complete` ambient connection surfacing**.
@@ -400,8 +402,15 @@ the **summary** (concepts and MOCs, revised with receipts).
   `COMMONPLACE_UNIT/ACTOR/SESSION/PIN/OPEN`) and answers the tool call with
   its output, so the command text is never rewritten and an allowlist rule
   like `Bash(commonplace commit:*)` still matches (an `export …` prefix broke
-  that, found live). Traced as `unit:command`. A commit also carries the
-  public ledgers along when they only grew (`sweep`), never alone. Never `git add -A`.
+  that, found live). A leading `cd <dir> &&` and a trailing `2>&1` are
+  accepted (models write both by habit); a `commonplace commit` in any other
+  chain is DENIED with `CHAINED_COMMIT_DENY` (it cannot carry the unit), and
+  the model reruns it alone. Traced as `unit:command`. A reload empties module
+  memory, so `unitFor` adopts this session's newest uncommitted unit from
+  `.wiki/units/` instead of stranding it. Ledger lines the model writes
+  (`revise propose`, `revise checked`) join its unit, so a recheck-only unit
+  still commits; other ledger growth rides along with real work (`sweep`),
+  never alone. Never `git add -A`.
 - **The ledger** (`<vault>/.revision/<session>.jsonl`, private ledgers in
   `.revision/sealed/<shard>/`; outside `.wiki/` so it is versioned) is
   append-only; the **reducer** (`scripts/lib/revision/reducer.ts`) is the
@@ -413,12 +422,14 @@ the **summary** (concepts and MOCs, revised with receipts).
   failure metric, not a step.
 - **Accept** (`engine.accept`, under a pid-liveness lock): rechecks both note
   versions and that the claim occurs exactly once, defers while the newer note
-  has uncommitted changes, writes the edge into the newer note's frontmatter
+  has uncommitted changes (a deferred accept is retried after 10 min, or at
+  once when HEAD has moved since: `deferred.head`), writes the edge into the newer note's frontmatter
   (`fm-edit.ts`, round-trip checked), commits note + ledger as unit
   `rev-<event>` with a `Revision-Event:` trailer, then publishes `committed`
   and **stale marks** for concepts/MOCs citing the older note. **Revert**
   (`/vault revise undo`, the notice's Undo) is a compensating commit; a manual
-  `git revert` is reconciled by `revise ensure`. A vault that is not a git repo
+  `git revert` is reconciled by `revise ensure`. A reverted accept's own stale
+  marks are dropped; the revert's marks cover any note updated in between. A vault that is not a git repo
   on a branch, or `revision: "manual"` in `.wiki/config.json`, runs propose-only.
 - **Projection** (`.wiki/revision/projection.json` + sealed per shard): in an
   auto scope an unaccepted frontmatter edge is NOT shown (it is a candidate);
@@ -439,7 +450,7 @@ the **summary** (concepts and MOCs, revised with receipts).
   sets to the session's pid; a dead pid on this host is failed at the next claim); changes past the 3-proposal cap are queued as
   an overflow job of `pairs`, never dropped. `processRevision` (single-flight
   per vault, kicked on the first turn in a vault, so a dead session's jobs are
-  picked up) claims jobs, runs `runTrigger` (pool: reads + graph neighbours +
+  picked up, then at most every 5 min and after every successful unit commit) claims jobs, runs `runTrigger` (pool: reads + graph neighbours +
   a search, same-scope source notes only, ≤12; haiku detects, 10% of "nothing
   changed" re-asked of sonnet; sonnet quotes the exact claim), then `runSteps`.
 - **Pinned branch**: the branch a vault is on when the session starts is the
@@ -548,7 +559,7 @@ All commands auto-discover the vault via cwd (`.obsidian/` or `.wiki/` marker) o
 - `commonplace search --query "<text>"` · `note --ref "<title|path>"` · `links --ref "<…>" [--direction out|in|both]` · `path --from <ref> --to <ref>` · `neighbourhood --seed <ref>…` — CLI twins of the vault tools: same code, same output, `--json` for the structured result. Private domains stay sealed unless the PERSON passes `--open <domain>` (the guard denies it from the model).
 - `commonplace session-check` — The one shell hook (SessionStart): module watchdog
 - `commonplace synthetic --scale N --out <dir>` / `commonplace eval:scale` — Synthetic vaults and the scale benchmark
-- `commonplace test:ui` — Module UI tests under `claude plugin test` (terminal + desktop); also `npm run test:ui`
+- `commonplace test:ui` — Module UI tests under `claude plugin test` (terminal + desktop); in this repo run `npm run test:ui`, because `commonplace` on PATH is the INSTALLED plugin's copy and tests that one
 - `commonplace eval:judge [--feedback] [--prime|--used] [--repeat N]` — The judge alone on stored (answer, note) pairs; `--feedback` uses your Read it / Not for me presses as the labels
 - `commonplace eval:connection [--plugin-dir .]` — The whole connection pass in live `claude -p` sessions
 - `commonplace eval:prime [--repeat 3] [--init]` — Prime's gate (live `claude -p` sessions)
