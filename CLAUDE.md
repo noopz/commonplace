@@ -409,8 +409,11 @@ the **summary** (concepts and MOCs, revised with receipts).
   memory, so `unitFor` adopts this session's newest uncommitted unit from
   `.wiki/units/` instead of stranding it. Ledger lines the model writes
   (`revise propose`, `revise checked`) join its unit, so a recheck-only unit
-  still commits; other ledger growth rides along with real work (`sweep`),
-  never alone. Never `git add -A`.
+  still commits; other ledger growth rides along with real work (`sweep`).
+  At `session.end` whatever the ledgers gained since (job and step events
+  written after the last commit) is committed once as `commonplace revision:
+  ledger` (`revise ledger-commit`, module-only; nothing grew → no commit), so
+  a session never leaves revision history only on disk. Never `git add -A`.
 - **The ledger** (`<vault>/.revision/<session>.jsonl`, private ledgers in
   `.revision/sealed/<shard>/`; outside `.wiki/` so it is versioned) is
   append-only; the **reducer** (`scripts/lib/revision/reducer.ts`) is the

@@ -540,6 +540,7 @@ test("revision steps that create accepted state are denied to the model; propose
     "commonplace revise record --proposal x --stage review",
     "cd /tmp && commonplace revise revert --event last",
     "commonplace revise pause",
+    "commonplace revise ledger-commit",
     "echo '{}' | commonplace revise record --proposal x --stage verify",
   ]) assert.ok(checkRevisionStep(cmd), cmd);
   for (const cmd of [

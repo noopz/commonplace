@@ -104,8 +104,12 @@ test("accept writes the edge into the newer note and commits it with the ledger;
     assert.ok(files.some((f) => f.startsWith(".revision/")), files.join(","));
     assert.match(git(root, "log", "-1", "--format=%B"), new RegExp(`Revision-Event: ${a.accept}`));
     // Only the ledger's publish events (committed, stale) follow the commit; they
-    // are append-only and ride with the next commit that touches the ledger.
+    // are append-only and ride with the next commit, or the session-end ledger commit.
     assert.deepEqual(git(root, "status", "--porcelain").trim().split("\n").filter((l) => l && !l.includes(".revision/")), []);
+    assert.equal(revise(root, ["ledger-commit"]).status, "committed");
+    assert.equal(git(root, "status", "--porcelain", "--", ".revision").trim(), "", "the session-end commit leaves no ledger line only on disk");
+    assert.equal(git(root, "log", "-1", "--format=%s").trim(), "commonplace revision: ledger");
+    assert.equal(revise(root, ["ledger-commit"]).status, "empty", "nothing grew: no commit");
 
     const proj = JSON.parse(readFileSync(join(root, ".wiki/revision/projection.json"), "utf-8"));
     assert.equal(proj.accepted.length, 1);

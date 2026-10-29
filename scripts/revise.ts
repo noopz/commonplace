@@ -25,7 +25,7 @@ import { join } from "path";
 import { parseArgs } from "util";
 import { resolveVault } from "./lib/vault.ts";
 import { parseFrontmatter } from "../hooks/lib/index/yaml.ts";
-import { MAIN, append, newId, type Actor } from "./lib/revision/ledger.ts";
+import { MAIN, append, ledgerFiles, newId, type Actor } from "./lib/revision/ledger.ts";
 import { acceptBlocker, edgeFor, type ProposalState } from "./lib/revision/reducer.ts";
 import {
   accept,
@@ -43,7 +43,7 @@ import {
 import { loadArtifact, passages, sourceRefs, type Artifact } from "./lib/revision/artifact.ts";
 import { openShardsFromEnv } from "./lib/revision/vault-index.ts";
 import { enqueue, claim, finish, fail } from "./lib/revision/jobs.ts";
-import { headOf, repoOf } from "./lib/git-unit.ts";
+import { commitUnit, headOf, recordAppendOnly, repoOf } from "./lib/git-unit.ts";
 import { describeDecision } from "../hooks/lib/revision/review.ts";
 import { statusLine } from "../hooks/lib/revision/edges.ts";
 
@@ -288,6 +288,22 @@ switch (sub) {
     const r = await revert(ctx, ev, values.reason ?? "reverted");
     print(r, r.status === "reverted" ? `Reverted (${r.revert})${r.commit ? `, commit ${r.commit.slice(0, 10)}` : ""}${r.conflict ? `; the file kept its edge: ${r.conflict}` : ""}.` : `Not reverted: ${r.reason}`);
     if (r.status !== "reverted") process.exitCode = 1;
+    break;
+  }
+
+  case "ledger-commit": {
+    // At session end: whatever the ledgers gained since the last commit (job
+    // and step events written after it) is committed once, so a session never
+    // leaves revision history only on disk. Nothing grew: no commit.
+    const rels = [...new Set([...ledgerFiles(vault, MAIN), ...ctx.open.flatMap((s) => ledgerFiles(vault, s))])];
+    if (!rels.length) {
+      print({ status: "empty" }, "Nothing to commit.");
+      break;
+    }
+    const unit = `ledger-${actor.session}-${Date.now().toString(36)}`.replace(/[^A-Za-z0-9._-]/g, "_");
+    recordAppendOnly(vault, unit, { actor: "commonplace", session: actor.session }, rels);
+    const r = commitUnit(vault, unit, { message: "commonplace revision: ledger" });
+    print(r, r.status === "committed" ? `Committed the revision ledger as ${r.commit.slice(0, 10)}.` : `Ledger not committed: ${r.status}.`);
     break;
   }
 

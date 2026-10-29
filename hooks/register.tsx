@@ -2084,6 +2084,12 @@ export const register: Register = (on, options) => {
     try {
       const agents = new Set([...revisionWork.values()].map((w) => w.agentId));
       for (const a of agents) await flushRevisionWork($, a);
+      // Then the ledger lines this session wrote after its last commit: one
+      // commit, only when they grew, so none is left only on disk.
+      for (const vp of revisionKicked.keys()) {
+        const r = await revCli($, vp, ["ledger-commit"]);
+        traceTo($, vp, "revision:ledger-commit", { status: String(r?.status ?? "error") });
+      }
     } catch {}
     if (e.reason === "clear") {
       for (const shards of openShards.values()) shards.clear();
@@ -3150,7 +3156,7 @@ export const register: Register = (on, options) => {
           <Box flexDirection="column" marginTop={1}>
             {undoable.map((a) => (
               <Button key={`cp-undo-${a.id}`} label={`Undo: ${a.text}`} onPress={() => void undoRevision($, a.revert!.vp, a.revert!.event)}>
-                <Text color="cyan" wrap="truncate-end">{`Undo · ${a.text}`}</Text>
+                <Text color="cyan" wrap="truncate-end">{`Undo ${a.at.slice(11, 16)} · ${a.text.length > 60 ? `${a.text.slice(0, 59)}…` : a.text}`}</Text>
               </Button>
             ))}
           </Box>
