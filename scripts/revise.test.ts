@@ -167,6 +167,34 @@ test("an accept waits while the newer note has uncommitted changes, and pause st
   }
 });
 
+test("one newer note can carry several accepted edges: the first accept does not stale the rest", () => {
+  const root = vault();
+  try {
+    const CLAIM2 = "Kestrel retries never exceed three.";
+    writeFileSync(join(root, "Research/Alpha/Older Survey.md"), `---\ntitle: Older Survey\n---\n# Older Survey\n\n## Findings\n\n${CLAIM2}\n`);
+    git(root, "add", ".");
+    git(root, "commit", "-qm", "another older note");
+    execFileSync(process.execPath, [join(ROOT, "bin", "commonplace"), "index", "--vault", root], { stdio: "ignore" });
+    revise(root, ["ensure"]);
+    const p1 = revise(root, ["propose", "--old", "Old Finding", "--new", "New Finding", "--claim", CLAIM]);
+    const p2 = revise(root, ["propose", "--old", "Older Survey", "--new", "New Finding", "--claim", CLAIM2]);
+    assert.equal(p2.status, "proposed", JSON.stringify(p2));
+    toAccept(root, p1.id);
+    assert.equal(revise(root, ["accept", "--proposal", p1.id]).status, "accepted");
+    assert.equal(revise(root, ["record", "--proposal", p2.id, "--stage", "review"], { ...REVIEW, quotesOld: [CLAIM2] }).status, "verify");
+    assert.equal(revise(root, ["record", "--proposal", p2.id, "--stage", "verify"], {
+      result: "confirmed", reason: "r", evidence: [{ note: "Research/Alpha/New Finding.md", artifact: "sha256:test", locator: "chars 0-100" }], model: "test",
+    }).status, "because");
+    assert.equal(revise(root, ["record", "--proposal", p2.id, "--stage", "because"], { text: REVIEW.because, checked: true, flipped: false }).status, "accept");
+    const a2 = revise(root, ["accept", "--proposal", p2.id]);
+    assert.equal(a2.status, "accepted", JSON.stringify(a2));
+    const newer = readFileSync(join(root, "Research/Alpha/New Finding.md"), "utf-8");
+    assert.ok(newer.includes("[[Old Finding]]") && newer.includes("[[Older Survey]]"), newer);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("a note edited after review goes pending instead of being accepted on stale evidence", () => {
   const root = vault();
   try {

@@ -1,6 +1,6 @@
 {
   "name": "commonplace",
-  "version": "2.4.3",
+  "version": "2.5.0",
   "license": "MIT",
   "private": true,
   "type": "module",
@@ -24,6 +24,7 @@
     "eval:judge": "node evals/judge/run.ts",
     "eval:connect": "node evals/connect/run.ts",
     "eval:scale": "node evals/scale/run.ts",
+    "explain:render": "node scripts/explain-render.ts",
     "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.hooks.json",
     "test:ui": "node scripts/test-ui.ts"
   },

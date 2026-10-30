@@ -109,6 +109,7 @@ import { maskSealed } from "./lib/core/noun.ts";
 import { wikiRefs, linkWikiRefs, fileHref, citationFooter, citationCounts, type CitedNote } from "./lib/surfaces/wikilinks.ts";
 import { pastedUrls, sameUrl, triagePrompt, parseTriage, triageLine, addLater, formatLater, TRIAGE_NOTE_CHARS, type Triage, type LaterItem } from "./lib/surfaces/triage.ts";
 import { Witness, renderWitness } from "./lib/surfaces/witness.ts";
+import { EXPLAIN_PAGES, liveSvg, liveBars, type LiveCounts } from "./lib/explain/diagrams.ts";
 import { runTrigger, type TriggerPorts, type Pair } from "./lib/revision/trigger.ts";
 import { runSteps, type RunnerPorts } from "./lib/revision/runner.ts";
 
@@ -512,6 +513,7 @@ const workOf = (vp: string, agentId: string | undefined) => {
   return w;
 };
 const noteWrite = (_$: EngineInterface, vp: string, rel: string, agentId: string | undefined) => {
+  if (!features.revision) return;
   const w = workOf(vp, agentId);
   w.written.add(rel);
   w.reads.delete(rel);
@@ -551,6 +553,7 @@ const pinFor = async ($: EngineInterface, vp: string): Promise<string> => {
   return p;
 };
 const noteRead = async ($: EngineInterface, vp: string, rel: string, agentId: string | undefined) => {
+  if (!features.revision) return;
   const w = workOf(vp, agentId);
   if (w.written.has(rel) || (w.reads.size >= 64 && !w.reads.has(rel))) return;
   // The version read, so a job records what the agent based its write on.
@@ -680,6 +683,8 @@ const runnerPorts = ($: EngineInterface, vp: string): RunnerPorts => ({
  */
 const JOBS_PER_RUN = 5;
 const processRevision = ($: EngineInterface, vp: string) => {
+  // Switched off in the plugin's settings: no jobs, no model calls, no commits.
+  if (!features.revision) return;
   const prev = revisionChain.get(vp);
   if (prev) {
     // One run is enough: whatever it does not see yet, the next turn's run will.
@@ -804,6 +809,46 @@ const openActivity = async ($: EngineInterface): Promise<boolean> => {
     return false;
   }
 };
+
+/**
+ * The revision explainer (`/vault explain`, "How it works" in the activity
+ * pane): a pane of pages, a diagram each. Remote surfaces draw the SVG; the
+ * terminal draws the PNG rendered from it (`npm run explain:render`). The last
+ * page is this vault's numbers, read when the pane opens.
+ */
+const EXPLAIN_PANE = "commonplace-explain";
+let explainPage = 0;
+let explainLive: LiveCounts | null = null;
+const explainPng = new Map<string, string>();
+
+const openExplain = async ($: EngineInterface, vp: string | undefined, page = 0): Promise<boolean> => {
+  explainPage = Math.max(0, Math.min(page, EXPLAIN_PAGES.length - 1));
+  if (vp) {
+    const st = await revCli($, vp, ["status"]);
+    if (st) {
+      explainLive = {
+        mode: String(st.mode ?? "manual"),
+        paused: st.paused === true,
+        counts: (st.counts ?? {}) as Record<string, number>,
+        stale: Number(st.stale ?? 0),
+      };
+      if (!features.revision) explainLive.mode = "off (vaultRevision)";
+    }
+  }
+  bumpPanes($);
+  try {
+    return (await $.ui.open({ id: EXPLAIN_PANE, title: "⟡ vault · how revision works" })).isPlaced;
+  } catch {
+    return false;
+  }
+};
+
+/** No pane (a surface that cannot seat one): the pages as text. */
+const renderExplainText = (): string =>
+  [
+    "# How vault revision works",
+    ...EXPLAIN_PAGES.map((p, i) => `## ${i + 1}. ${p.title}\n\n${p.id === "live" && explainLive ? liveBars(explainLive) : p.alt}\n\n${p.body}`),
+  ].join("\n\n");
 
 const undoRevision = async ($: EngineInterface, vp: string, event: string): Promise<string> => {
   const r = await revCli($, vp, ["revert", "--event", event, "--reason", "undone by the person"]);
@@ -1168,7 +1213,7 @@ const impl_skill = async ($: EngineInterface, args: { name?: string; vault?: str
 const VAULT_COMMANDS = [
   {
     name: "vault",
-    description: "commonplace vault: status · use · list · open · close · reindex · skills · domain · witness · later · revise · activity",
+    description: "commonplace vault: status · use · list · open · close · reindex · skills · domain · witness · later · revise · activity · explain",
     argumentHint: "[use <id> | list | open <domain> | close [domain] | reindex | skills [trust|untrust <name>] | domain public|private <id> | witness | later | revise [log [note] | undo <event|last> | pause | resume] | activity]",
   },
 ];
@@ -1188,6 +1233,7 @@ const VAULT_HELP = [
   "/vault revise undo <event|last>  revert an accepted revision (git keeps both)",
   "/vault revise pause|resume     stop or restart autonomous acceptance",
   "/vault activity                what commonplace did on its own this session (the notices)",
+  "/vault explain                 how vault revision works, in pictures, with this vault's numbers",
 ].join("\n");
 
 const scopeMirror = async ($: EngineInterface, vp: string) => {
@@ -1228,6 +1274,10 @@ const runVaultCommand = async ($: EngineInterface, argsText: string): Promise<{ 
     } catch {}
     return { text: out || `Using vault ${id}.`, context: [`The active commonplace vault is now "${id}".`] };
   }
+  if (sub === "explain") {
+    if (await openExplain($, vault?.path)) return { text: `Explainer open: ${EXPLAIN_PAGES.length} pages.` };
+    return { text: renderExplainText() };
+  }
   if (sub === "witness") {
     if (rest[0] === "clear") {
       witness.clear();
@@ -1254,6 +1304,8 @@ const runVaultCommand = async ($: EngineInterface, argsText: string): Promise<{ 
       if (!ev) return { text: "Usage: /vault revise undo <event|last>" };
       return { text: await undoRevision($, vp, ev) };
     }
+    // Off: undoing an earlier accept still works; nothing new is proposed or accepted.
+    if (!features.revision && action !== "log") return { text: "Vault revision is off in the plugin's settings (vaultRevision). Earlier accepts can still be undone: /vault revise undo <event|last>." };
     if (action === "pause" || action === "resume") {
       const r = await revCli($, vp, [action]);
       if (action === "resume") processRevision($, vp);
@@ -1682,9 +1734,11 @@ type Features = {
   /** Clickable [[links]] in replies and the citation flags under them. */
   links: boolean;
   triage: boolean;
+  /** Vault revision: trigger jobs, the review chain, accepts and their commits. */
+  revision: boolean;
 };
 
-let features: Features = { ambient: true, prime: false, links: true, triage: false };
+let features: Features = { ambient: true, prime: false, links: true, triage: false, revision: true };
 
 /** What `/vault witness` shows: every hidden addition, word for word. */
 const witness = new Witness();
@@ -1920,7 +1974,8 @@ export const register: Register = (on, options) => {
    * no model call and adds no interruption — links, the band — and for the
    * ambient pass; off for triage (a fork per pasted link) and prime, which
    * ships off until `eval:prime` clears its gate (precision ≥ 80%,
-   * false-prime ≤ 5%).
+   * false-prime ≤ 5%). Revision is on: it is the vault keeping itself, and
+   * `vaultRevision: false` stops new jobs, model calls and commits.
    */
   const bandOn = options?.showBand !== false;
   features = {
@@ -1928,6 +1983,7 @@ export const register: Register = (on, options) => {
     prime: options?.primeContext === true,
     links: options?.vaultLinks !== false,
     triage: options?.linkTriage === true,
+    revision: options?.vaultRevision !== false,
   };
 
   /**
@@ -2052,7 +2108,7 @@ export const register: Register = (on, options) => {
     // jobs and pending revisions earlier sessions left. Then at most every
     // REVISION_REKICK_MS, so an accept deferred on a note the owner has since
     // committed by hand lands in this session, not the next.
-    if (Date.now() - (revisionKicked.get(vp) ?? -Infinity) >= REVISION_REKICK_MS) {
+    if (features.revision && Date.now() - (revisionKicked.get(vp) ?? -Infinity) >= REVISION_REKICK_MS) {
       revisionKicked.set(vp, Date.now());
       processRevision($, vp);
     }
@@ -3163,6 +3219,58 @@ export const register: Register = (on, options) => {
         ) : (
           <Text dimColor>{" "}</Text>
         )}
+        <Box flexDirection="row" marginTop={1}>
+          <Button key="cp-activity-explain" label="How it works" onPress={() => void (async () => openExplain($, (await pickVault($))?.path))()} />
+        </Box>
+      </Box>
+    );
+  });
+
+  /** The explainer pane: one page at a time, a picture and a few lines. */
+  on("ui.render", { component: "Pane", requestId: EXPLAIN_PANE }, async ($, e, next) => {
+    await read($, paneRev);
+    const { Box, Markdown, Button, Text } = $.ui.resolve(e);
+    const page = EXPLAIN_PAGES[explainPage]!;
+    const live = page.id === "live";
+    let picture: unknown = null;
+    if (e.surface === "terminal") {
+      const { Image } = $.ui.resolve(e as typeof e & { surface: "terminal" });
+      if (live) picture = <Markdown text={explainLive ? liveBars(explainLive) : "No vault configured."} />;
+      else {
+        let png = explainPng.get(page.id);
+        if (!png) {
+          try {
+            png = (await $.fs.read(`${$.plugin.root}/assets/explain/${page.id}.png`, { as: "bytes" })).base64;
+            explainPng.set(page.id, png);
+          } catch {}
+        }
+        const columns = Math.max(20, Math.min(e.props.bodyColumns - 2, 110));
+        // A cell is about twice as tall as it is wide.
+        const rows = Math.max(6, Math.round((columns * page.h) / page.w / 2));
+        picture = png ? <Image source={{ png }} columns={columns} rows={rows} alt={page.alt} /> : <Text dimColor>{page.alt}</Text>;
+      }
+    } else {
+      // Every remote surface draws Svg.
+      const { Svg } = $.ui.resolve(e as typeof e & { surface: "desktop" });
+      const source = live ? (explainLive ? liveSvg(explainLive) : null) : page.svg!();
+      picture = source ? <Svg source={source} alt={page.alt} /> : <Text dimColor>No vault configured.</Text>;
+    }
+    const go = (d: number) => {
+      explainPage = Math.max(0, Math.min(explainPage + d, EXPLAIN_PAGES.length - 1));
+      bumpPanes($);
+    };
+    return (
+      <Box flexDirection="column">
+        <Text bold>{`${explainPage + 1} / ${EXPLAIN_PAGES.length} · ${page.title}`}</Text>
+        <Box marginTop={1}>{picture as never}</Box>
+        <Box marginTop={1}>
+          <Markdown text={page.body} />
+        </Box>
+        <Box flexDirection="row" marginTop={1}>
+          {explainPage > 0 ? <Button key="cp-explain-prev" label="‹ Back" onPress={() => go(-1)} /> : <Text>{" "}</Text>}
+          <Text>{"  "}</Text>
+          {explainPage < EXPLAIN_PAGES.length - 1 ? <Button key="cp-explain-next" label="Next ›" onPress={() => go(1)} /> : <Text dimColor>{"end"}</Text>}
+        </Box>
       </Box>
     );
   });

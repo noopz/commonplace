@@ -22,8 +22,8 @@ import { PROJECTION_FILE, shardProjectionFile, type Projection } from "../../../
 import { blobAt, blobOfFile, branchBlocker, commitUnit, headOf, inverseOnto, readUnit, recordAppendOnly, recordTouch, repoOf, type Repo } from "../git-unit.ts";
 import { MAIN, append, ledgerFiles, ledgerRel, readAll, type Actor, type RevEvent } from "./ledger.ts";
 import { acceptBlocker, edgeFor, reduce, type ProposalState, type Reduced } from "./reducer.ts";
-import { holds, releaseLock, takeLock } from "./lock.ts";
-import { insertEdge, removeEdge, hasEdge } from "./fm-edit.ts";
+import { releaseLock, takeLock } from "./lock.ts";
+import { insertEdge, removeEdge, hasEdge, withoutEdges } from "./fm-edit.ts";
 import { loadIndex } from "./vault-index.ts";
 
 export type Ctx = { vault: string; actor: Actor; open: string[] };
@@ -47,6 +47,16 @@ export const noteRev = (vault: string, rel: string): string | null => {
     return null;
   }
 };
+/** A note's version as a review saw it: revision edges left out (`withoutEdges`). */
+const claimRev = (vault: string, rel: string): string | null => {
+  try {
+    return sha(withoutEdges(readFileSync(join(vault, rel), "utf-8")));
+  } catch {
+    return null;
+  }
+};
+/** Unchanged since review; ledgers written before claimRev recorded the whole file. */
+const sameRev = (vault: string, rel: string, rev: string) => claimRev(vault, rel) === rev || noteRev(vault, rel) === rev;
 const titleOf = (rel: string) => rel.split("/").pop()!.replace(/\.md$/, "");
 const bodyOf = (text: string) => parseFrontmatter(text).body;
 const lockDir = (vault: string) => join(vault, ".wiki", "revision", "accept.lock");
@@ -127,8 +137,8 @@ export async function propose(ctx: Ctx, input: ProposeInput): Promise<ProposeRes
   const red = state(ctx);
   const claim = input.claim.replace(/\s+/g, " ").trim();
   const identity = [newN.rel, oldN.rel, claim].join("\u001f");
-  const oldRev = sha(oldText);
-  const newRev = noteRev(ctx.vault, newN.rel)!;
+  const oldRev = sha(withoutEdges(oldText));
+  const newRev = claimRev(ctx.vault, newN.rel)!;
   for (const p of red.proposals.values()) {
     if (p.identity !== identity) continue;
     const live = !["rejected", "pending", "withdrawn", "reverted"].includes(p.status);
@@ -226,8 +236,8 @@ export async function accept(ctx: Ctx, proposalId: string): Promise<AcceptResult
     // Recheck under the lock: nothing the review judged may have moved.
     const oldRel = p.propose.old.rel;
     const newRel = p.propose.new.rel;
-    if (noteRev(ctx.vault, oldRel) !== p.propose.old.rev) return pendingOn(ctx, p, "the older note changed after review");
-    if (noteRev(ctx.vault, newRel) !== p.propose.new.rev) return pendingOn(ctx, p, "the newer note changed after review");
+    if (!sameRev(ctx.vault, oldRel, p.propose.old.rev)) return pendingOn(ctx, p, "the older note changed after review");
+    if (!sameRev(ctx.vault, newRel, p.propose.new.rev)) return pendingOn(ctx, p, "the newer note changed after review");
     const oldText = readFileSync(join(ctx.vault, oldRel), "utf-8");
     if ("error" in locateClaim(bodyOf(oldText), p.propose.old.claim)) return pendingOn(ctx, p, "the claim no longer occurs exactly once");
     const head = headOf(repo);
@@ -271,10 +281,14 @@ export async function accept(ctx: Ctx, proposalId: string): Promise<AcceptResult
       message: `commonplace revision: accept ${acceptEv.id}`,
       trailers: { "Revision-Event": acceptEv.id },
     });
-    if (res.status !== "committed" || !holds(lock)) {
+    // A commit that landed is published even if the lock was lost meanwhile:
+    // rolling the file back would leave the worktree undoing a commit on the branch.
+    if (res.status !== "committed") {
       if (blobOfFile(repo, newRel) === after) writeFileSync(abs, text); // take our uncommitted edit back out
-      const reason = res.status === "conflict" ? res.conflicts.map((c) => c.reason).join("; ") : !holds(lock) ? "lost the accept lock" : res.status;
-      append(ctx.vault, p.shard, ctx.actor, { kind: "accept-failed", accept: acceptEv.id, reason });
+      const reason = res.status === "conflict" ? res.conflicts.map((c) => c.reason).join("; ") : res.status;
+      // Retryable: the branch moved or a path was busy. The proposal returns to
+      // "accept" and is tried again (after DEFER_MS, or once HEAD moves).
+      append(ctx.vault, p.shard, ctx.actor, { kind: "accept-failed", accept: acceptEv.id, reason, retry: true });
       return { status: "deferred", reason: `commit failed: ${reason}` };
     }
 

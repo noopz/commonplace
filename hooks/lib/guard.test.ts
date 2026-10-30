@@ -578,6 +578,11 @@ test("chainedCommit flags a commit the module cannot run, and nothing else", () 
   assert.equal(chainedCommit('cd /tmp/v && commonplace commit --message "x"'), false);
   assert.equal(chainedCommit("commonplace lint && git status"), false);
   assert.equal(chainedCommit('git commit -m "commonplace commit notes"'), false);
+  // Text that names the command is not a run of it (the guard is global).
+  assert.equal(chainedCommit("cat > README.md <<'EOF'\nRun commonplace commit when done.\nEOF"), false);
+  assert.equal(chainedCommit('echo "then commonplace commit" && ls'), false);
+  assert.equal(chainedCommit("# commonplace commit later\nls"), false);
+  assert.equal(chainedCommit('ls && commonplace commit --message "x"'), true);
 });
 
 test("unitEnv carries the unit, identity and a plain pinned branch only", () => {

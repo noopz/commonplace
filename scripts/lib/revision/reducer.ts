@@ -41,6 +41,8 @@ export type ProposalState = {
   accept?: E<"accept">;
   committed?: E<"committed">;
   failed?: E<"accept-failed">;
+  /** Retryable commit failures so far. */
+  retries: number;
   revert?: E<"revert">;
   terminal?: E<"pending"> | E<"reject"> | E<"withdraw">;
   /** Last time an accept was put off (uncommitted note, paused, lock): retried later, not looped on. */
@@ -70,6 +72,8 @@ export type JobState = {
 
 /** Attempts before a job is abandoned (logged, never retried in a loop). */
 export const JOB_ATTEMPTS = 3;
+/** Commit attempts for one accepted decision before it is left pending. */
+export const ACCEPT_RETRIES = 5;
 
 export type Reduced = {
   proposals: Map<string, ProposalState>;
@@ -172,6 +176,7 @@ export function reduce(events: ReadonlyArray<RevEvent & { shard: string }>): Red
           propose: e as E<"propose">,
           reviews: [],
           verifies: [],
+          retries: 0,
           status: "review",
           identity: identityOf(e),
           packet: packetOf(e as E<"propose">),
@@ -206,12 +211,17 @@ export function reduce(events: ReadonlyArray<RevEvent & { shard: string }>): Red
       }
       case "committed": {
         const p = accepts.get(e.accept);
-        if (p && !p.failed) p.committed = e as E<"committed">;
+        if (p && p.accept?.id === e.accept && !p.failed) p.committed = e as E<"committed">;
         break;
       }
       case "accept-failed": {
         const p = accepts.get(e.accept);
-        if (p && !p.committed) p.failed = e as E<"accept-failed">;
+        if (!p || p.accept?.id !== e.accept || p.committed) break;
+        // A commit that failed for a passing reason (the branch moved, a busy
+        // path) puts the proposal back at "accept"; past ACCEPT_RETRIES, or a
+        // failure that will not pass (the frontmatter), it is pending.
+        if (e.retry && ++p.retries < ACCEPT_RETRIES) p.accept = undefined;
+        else p.failed = e as E<"accept-failed">;
         break;
       }
       case "revert": {

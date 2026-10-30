@@ -29,7 +29,10 @@ Switches in the plugin's settings (`/config`):
 | Vault links in replies | on | `[[links]]` in replies open the note; any that isn't in your vault, wasn't read, or is superseded gets flagged |
 | Verdict card for pasted links | off | Paste a link Claude then reads → "already in your vault / extends a note / new" with **Ingest** / **Later** / **Skip** (`/vault later`) |
 | Prime tasks with a vault note | off | A pointer to the vault's best note before a task starts |
+| Vault revision | on | When a note you add changes what an older note claims, a review chain checks it against the sources and records it on the newer note as a git commit, with **Undo** |
 | Vault status band | on | A one-line receipt above the prompt when the vault was consulted |
+
+**Vault revision** needs the vault to be a git repository: every accept is its own commit, and your uncommitted edits are never swept in. `/vault explain` shows how it works in pictures, with this vault's numbers; `/vault revise` has the status, `/vault revise undo last` reverts the latest accept. To keep proposals without any writes, set `"revision": "manual"` in `.wiki/config.json`.
 
 `/vault witness` shows, word for word, everything commonplace added to the model's context that the transcript doesn't show.
 

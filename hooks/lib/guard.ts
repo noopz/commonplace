@@ -449,8 +449,15 @@ export function ownCommand(command: string): { args: string[]; cd?: string; merg
  */
 export function chainedCommit(command: string): boolean {
   if (ownCommand(command)) return false;
-  const words = shellWords(String(command ?? ""));
-  return words.some((w, i) => w === "commonplace" && words[i + 1] === "commit");
+  // Only a stage that RUNS commonplace: a heredoc body, a comment or an echo
+  // naming "commonplace commit" is text (this guard is global).
+  const cleaned = stripCommentLines(stripDataHeredocs(String(command ?? "")));
+  for (const stages of splitPipelines(cleaned)) {
+    for (const st of stages) {
+      if (firstCommandWord(st) === "commonplace" && /(^|\s)commonplace\s+commit(\s|$)/.test(st)) return true;
+    }
+  }
+  return false;
 }
 
 export const CHAINED_COMMIT_DENY =

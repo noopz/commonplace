@@ -61,6 +61,32 @@ for (const surface of SURFACES) {
     expect(out).toMatch(/hidden addition/);
     expect(out).toMatch(/vault_note note/);
   });
+
+  test(`${surface}: with vault revision off, /vault revise says so and runs nothing`, { options: { vaultRevision: false } }, async ($, on) => {
+    mock.store(on);
+    mock.clock(on, { now: 1_000_000 });
+    serveVault(on);
+    engineFloor(on);
+    await $.session.start({ cwd: "/fixture/project", surface, isInteractive: true });
+    const out = String(((await $.command.run({ command: "vault", args: "revise" } as never)) as { text?: unknown }).text);
+    expect(out).toMatch(/Vault revision is off/);
+  });
+
+  test(`${surface}: the explainer pane pages through its diagrams`, async ($, on) => {
+    mock.store(on);
+    mock.clock(on, { now: 1_000_000 });
+    serveVault(on);
+    engineFloor(on);
+    await $.session.start({ cwd: "/fixture/project", surface, isInteractive: true });
+    // No pane is placed under the kit, so the command answers with every page as text.
+    const out = String(((await $.command.run({ command: "vault", args: "explain" } as never)) as { text?: unknown }).text);
+    expect(out).toMatch(/# How vault revision works/);
+    expect(out).toMatch(/5\. This vault/);
+    const ui = await $.ui.mount({ plugin: "commonplace", surface, component: "Pane", requestId: "commonplace-explain", props: { title: "x", isFocused: true, bodyColumns: 100, placement: "dock" } as never });
+    expect((await ui.find({ text: /^1 \/ 5 · What revision does/ }))?.text).toBeTruthy();
+    await ui.press({ key: "cp-explain-next" });
+    expect((await ui.find({ text: /^2 \/ 5 · How a change is checked/ }))?.text).toBeTruthy();
+  });
 }
 
 for (const surface of SURFACES) {

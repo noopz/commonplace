@@ -93,6 +93,23 @@ export function removeEdge(text: string, relation: RevisionRelation, toTitle: st
   return rewrite(text, relation, (edges) => edges.filter((e) => !same(e, toTitle, claim)));
 }
 
+/**
+ * The note without its revision edges: what a review judged. An accept writes
+ * an edge into the newer note (and a note can be the newer side of several
+ * proposals, or the older side of one), so comparing whole files would leave
+ * every accept after the first on that note "changed after review".
+ */
+export function withoutEdges(text: string): string {
+  let s = split(text);
+  if (!s) return text;
+  const keys = Object.values(RELATION_KEYS).flat();
+  for (let r = keyRange(s, keys); r; r = keyRange(s, keys)) {
+    s.lines.splice(r.start, r.end - r.start);
+    s = { ...s, close: s.close - (r.end - r.start) };
+  }
+  return s.lines.join("\n");
+}
+
 /** True when the note's frontmatter carries this edge. */
 export function hasEdge(text: string, relation: RevisionRelation, toTitle: string, claim?: string): boolean {
   try {

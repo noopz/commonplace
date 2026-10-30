@@ -34,7 +34,9 @@ would want to turn off (guards are not optional): `ambientConnections` (the
 connection pass and its Read it / Not for me card, default on), `vaultLinks`
 (links and citation flags in replies, default on), `linkTriage` (default off:
 a fork per pasted link Claude fetched), `primeContext` (default **off** until `eval:prime`
-passes its gate on the user's vault) and `showBand` (the receipt band; a
+passes its gate on the user's vault), `vaultRevision` (default on: trigger
+jobs, the review chain, accepts and their commits; off, nothing new is proposed
+or accepted and `/vault revise undo` still works) and `showBand` (the receipt band; a
 paused breaker and the cards still show when off). Keep the menu this short:
 a feature that needs a switch to be tolerable usually needs cutting instead.
 
@@ -424,12 +426,17 @@ the **summary** (concepts and MOCs, revised with receipts).
   sources); still unsure → `pending`. Nobody is asked; owner intervention is a
   failure metric, not a step.
 - **Accept** (`engine.accept`, under a pid-liveness lock): rechecks both note
-  versions and that the claim occurs exactly once, defers while the newer note
+  versions with their revision edges left out (`withoutEdges`: an accept writes
+  into the newer note, which must not stale its other proposals) and that the
+  claim occurs exactly once, defers while the newer note
   has uncommitted changes (a deferred accept is retried after 10 min, or at
   once when HEAD has moved since: `deferred.head`), writes the edge into the newer note's frontmatter
   (`fm-edit.ts`, round-trip checked), commits note + ledger as unit
   `rev-<event>` with a `Revision-Event:` trailer, then publishes `committed`
-  and **stale marks** for concepts/MOCs citing the older note. **Revert**
+  and **stale marks** for concepts/MOCs citing the older note. A commit that
+  fails for a passing reason (`accept-failed` with `retry`) puts the proposal
+  back at `accept`, up to `ACCEPT_RETRIES`; one that landed is published even if
+  the lock was lost meanwhile. **Revert**
   (`/vault revise undo`, the notice's Undo) is a compensating commit; a manual
   `git revert` is reconciled by `revise ensure`. A reverted accept's own stale
   marks are dropped; the revert's marks cover any note updated in between. A vault that is not a git repo
@@ -464,6 +471,12 @@ the **summary** (concepts and MOCs, revised with receipts).
   The model may run `revise propose|log|status|checked`; the Bash guard denies
   `record|accept|revert|pause|resume|…`, and the file guard denies writes to
   `.revision/`, `.wiki/units`, `.wiki/revision` and every read of `.revision/sealed`.
+- **The explainer** (`/vault explain`, and How it works in the activity pane):
+  a pane of five pages, a diagram each, built in `hooks/lib/explain/diagrams.ts`.
+  Remote surfaces draw the SVG; the terminal draws `Image`, which takes PNG, so
+  `npm run explain:render` screenshots the same markup with headless Chrome into
+  `assets/explain/*.png` (committed — rerun after changing a diagram). The last
+  page is the vault's live numbers (SVG bars, text bars in the terminal).
 - **Dependents**: `stale-derivation` lint lists a concept/MOC citing a note
   whose claim was revised until `commonplace revise checked` records a receipt
   for its CURRENT version (citing the replacement does not clear it);

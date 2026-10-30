@@ -7,9 +7,9 @@ import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, rmSync, utimesSync, writeFileSync } from "fs";
 import { hostname, tmpdir } from "os";
 import { join } from "path";
-import { insertEdge, removeEdge, hasEdge } from "./fm-edit.ts";
+import { insertEdge, removeEdge, hasEdge, withoutEdges } from "./fm-edit.ts";
 import { takeLock, holds, releaseLock } from "./lock.ts";
-import { reduce, acceptBlocker, edgeFor } from "./reducer.ts";
+import { reduce, acceptBlocker, edgeFor, ACCEPT_RETRIES } from "./reducer.ts";
 import type { RevEvent } from "./ledger.ts";
 
 const NOTE = "---\ntitle: New Study\ntags:\n  - alpha\nsupersedes:\n  - \"[[Older Draft]]\"\nrelated: x\n---\n# New Study\n\nBody.\n";
@@ -33,6 +33,15 @@ test("insertEdge adds a new key before the closing fence, or a frontmatter when 
   assert.match(out, /related: x\nwithdraws_support:\n  - note: "\[\[Beta Paper\]\]"\n    claim: "c"\n---/);
   const bare = insertEdge("# Plain\n", "bounds", "Gamma", { claim: "c", within: "w" });
   assert.ok(bare.startsWith("---\nbounds:\n  - note: \"[[Gamma]]\"") && bare.endsWith("---\n# Plain\n"));
+});
+
+test("withoutEdges drops every relation block and nothing else", () => {
+  const one = insertEdge(NOTE, "bounds", "Gamma", { claim: "c", within: "w" });
+  const two = insertEdge(one, "supersedes", "Alpha Study", { claim: "reaches 71%" });
+  const bare = "---\ntitle: New Study\ntags:\n  - alpha\nrelated: x\n---\n# New Study\n\nBody.\n";
+  assert.equal(withoutEdges(two), bare);
+  assert.equal(withoutEdges(NOTE), bare);
+  assert.equal(withoutEdges("# Plain\n"), "# Plain\n");
 });
 
 test("an edit that would not parse back is refused", () => {
@@ -130,6 +139,25 @@ test("reducer: a commit that failed never becomes accepted; acceptBlocker guards
   const r = reduce(evs);
   assert.equal(r.proposals.get(p.id)!.status, "pending");
   assert.equal(r.accepted.length, 0);
+
+  // A commit that failed for a passing reason goes back to "accept", up to the retry limit.
+  const t = propose();
+  const tev = [t, review(t.id, "supersedes"), ev({ kind: "verify", proposal: t.id, result: "confirmed", evidence: [], model: "m" }), ev({ kind: "because", proposal: t.id, text: "t", checked: true })];
+  for (let i = 1; i <= ACCEPT_RETRIES; i++) {
+    const a = ev({ kind: "accept", proposal: t.id, seq: i, key: "k2", relation: "supersedes", from: "New.md", to: "Old", rel: { claim: "the claim" }, expectedParent: "abc" });
+    tev.push(a, ev({ kind: "accept-failed", accept: a.id, reason: "the branch kept moving", retry: true }));
+    assert.equal(reduce(tev).proposals.get(t.id)!.status, i < ACCEPT_RETRIES ? "accept" : "pending", `after ${i} failures`);
+  }
+  // And a retry that commits is accepted.
+  const u = propose();
+  const uev = [u, review(u.id, "supersedes"), ev({ kind: "verify", proposal: u.id, result: "confirmed", evidence: [], model: "m" }), ev({ kind: "because", proposal: u.id, text: "t", checked: true })];
+  const a1 = ev({ kind: "accept", proposal: u.id, seq: 1, key: "k3", relation: "supersedes", from: "New.md", to: "Old", rel: { claim: "the claim" }, expectedParent: "abc" });
+  const a2 = ev({ kind: "accept", proposal: u.id, seq: 2, key: "k3", relation: "supersedes", from: "New.md", to: "Old", rel: { claim: "the claim" }, expectedParent: "def" });
+  uev.push(a1, ev({ kind: "accept-failed", accept: a1.id, reason: "busy", retry: true }), a2, ev({ kind: "committed", accept: a2.id, commit: "c2" }));
+  const ur = reduce(uev);
+  assert.equal(ur.proposals.get(u.id)!.status, "accepted");
+  assert.equal(ur.accepted.length, 1);
+  assert.equal(ur.accepted[0].event, a2.id);
 
   const q = propose();
   const st = reduce([q, review(q.id, "bounds"), ev({ kind: "verify", proposal: q.id, result: "confirmed", evidence: [], model: "m" })]).proposals.get(q.id)!;

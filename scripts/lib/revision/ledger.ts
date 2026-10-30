@@ -81,7 +81,7 @@ export type RevEvent = Base &
         expectedParent: string | null;
       }
     | { kind: "committed"; accept: string; commit: string }
-    | { kind: "accept-failed"; accept: string; reason: string }
+    | { kind: "accept-failed"; accept: string; reason: string; retry?: boolean }
     | { kind: "pending"; proposal: string; reason: string; packet: string }
     | { kind: "reject"; proposal: string; reason: string; packet: string }
     | { kind: "withdraw"; proposal: string; reason: string }
