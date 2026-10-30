@@ -110,6 +110,7 @@ import { wikiRefs, linkWikiRefs, fileHref, citationFooter, citationCounts, type 
 import { pastedUrls, sameUrl, triagePrompt, parseTriage, triageLine, addLater, formatLater, TRIAGE_NOTE_CHARS, type Triage, type LaterItem } from "./lib/surfaces/triage.ts";
 import { Witness, renderWitness } from "./lib/surfaces/witness.ts";
 import { EXPLAIN_PAGES, liveSvg, liveBars, type LiveCounts } from "./lib/explain/diagrams.ts";
+import { quarantinedFolders, domainIdFor, type QuarantinedFolder } from "./lib/core/quarantine.ts";
 import { runTrigger, type TriggerPorts, type Pair } from "./lib/revision/trigger.ts";
 import { runSteps, type RunnerPorts } from "./lib/revision/runner.ts";
 
@@ -764,14 +765,15 @@ const scheduleRevisionFlush = ($: EngineInterface, agentId: string | undefined) 
  * notice puts one line on the band with Details (this pane) and, for a
  * revision, Undo. Module memory: an entry can name an open private note.
  */
-type ActivityEntry = { id: number; at: string; text: string; details: string; revert?: { vp: string; event: string }; undone?: boolean };
+/** `pane`: the pane Details opens instead of the activity log (one that can act on the notice). */
+type ActivityEntry = { id: number; at: string; text: string; details: string; revert?: { vp: string; event: string }; undone?: boolean; pane?: string };
 const vaultActivity: ActivityEntry[] = [];
 let activitySeq = 0;
 const ACTIVITY_PANE = "commonplace-activity";
 const ACTIVITY_MAX = 50;
 
-const notice = ($: EngineInterface, text: string, details: string, revert?: { vp: string; event: string }, opts: { card?: boolean } = {}) => {
-  const entry: ActivityEntry = { id: ++activitySeq, at: new Date().toISOString(), text, details, ...(revert ? { revert } : {}) };
+const notice = ($: EngineInterface, text: string, details: string, revert?: { vp: string; event: string }, opts: { card?: boolean; pane?: string } = {}) => {
+  const entry: ActivityEntry = { id: ++activitySeq, at: new Date().toISOString(), text, details, ...(revert ? { revert } : {}), ...(opts.pane ? { pane: opts.pane } : {}) };
   vaultActivity.unshift(entry);
   if (vaultActivity.length > ACTIVITY_MAX) vaultActivity.length = ACTIVITY_MAX;
   bumpPanes($);
@@ -842,6 +844,73 @@ const openExplain = async ($: EngineInterface, vp: string | undefined, page = 0)
     return false;
   }
 };
+
+/**
+ * The quarantine pane: folders that appeared after the first index and are in
+ * no domain, each with Public / Private. Classifying registers the folder as a
+ * domain (there is no entry to flip) and reindexes. Folder names stay in
+ * module memory and the pane; the model never sees them.
+ */
+const QUARANTINE_PANE = "commonplace-quarantine";
+let quarantine: { vp: string; folders: QuarantinedFolder[]; done: Map<string, string> } | null = null;
+
+const loadQuarantine = async ($: EngineInterface, vp: string): Promise<QuarantinedFolder[]> => {
+  const vault = await pickVault($, vp);
+  const idx = vault ? await getIndex($, vp, vault.domains).catch(() => null) : null;
+  if (!vault || !idx?.manifest) return [];
+  const cfg = await vaultConfig($, vp);
+  const r = await $.process.run(findNotesArgv(vp));
+  const rels = String(r.stdout ?? "")
+    .split("\n")
+    .filter((l) => l.startsWith(`${vp}/`))
+    .map((l) => l.slice(vp.length + 1))
+    .filter((rel) => !isExcluded(rel));
+  const folders = quarantinedFolders(rels, {
+    domains: vault.domains,
+    knownLoose: new Set(idx.manifest.knownLoose),
+    structureDirs: [cfg.structure?.concepts, cfg.structure?.mocs].filter((x): x is string => Boolean(x)),
+  });
+  quarantine = { vp, folders, done: quarantine?.vp === vp ? quarantine.done : new Map() };
+  return folders;
+};
+
+/** Register `folder` as a domain of `scope` and reindex. Returns the transcript line. */
+const classifyFolder = async ($: EngineInterface, vp: string, folder: string, scope: "public" | "private"): Promise<string> => {
+  let reg: { domains?: Record<string, Record<string, unknown>> } = {};
+  try {
+    reg = JSON.parse(String(await $.fs.read(`${vp}/.wiki/domains.json`)));
+  } catch {
+    return "Could not read .wiki/domains.json.";
+  }
+  const domains = (reg.domains ??= {});
+  const existing = Object.keys(domains).find((id) => String(domains[id].path ?? "").replace(/\/+$/, "") === folder);
+  const id = existing ?? domainIdFor(domains as never, folder);
+  domains[id] = { ...(domains[id] ?? { path: folder }), scope };
+  await $.fs.write(`${vp}/.wiki/domains.json`, JSON.stringify(reg, null, 2) + "\n");
+  guardCache = null;
+  buildStarted.delete(vp);
+  startBuild($, vp, "command");
+  if (quarantine?.vp === vp) quarantine.done.set(folder, scope);
+  bumpPanes($);
+  return `"${folder}" is now the ${scope} domain "${id}". Reindexing in the background.`;
+};
+
+const openQuarantine = async ($: EngineInterface, vp: string): Promise<boolean> => {
+  await loadQuarantine($, vp);
+  bumpPanes($);
+  try {
+    return (await $.ui.open({ id: QUARANTINE_PANE, title: "⟡ vault · quarantined folders" })).isPlaced;
+  } catch {
+    return false;
+  }
+};
+
+/** Details on a notice: the pane that can act on it, else the activity log. */
+const openNoticePane = async ($: EngineInterface, entry: ActivityEntry | undefined): Promise<boolean> => {
+  if (entry?.pane === QUARANTINE_PANE && quarantineVault) return openQuarantine($, quarantineVault);
+  return openActivity($);
+};
+let quarantineVault: string | null = null;
 
 /** No pane (a surface that cannot seat one): the pages as text. */
 const renderExplainText = (): string =>
@@ -983,10 +1052,13 @@ const getIndex = async ($: EngineInterface, vp: string, domains: DomainMap): Pro
       const sm = JSON.parse(String(await $.fs.read(`${vp}/.wiki/sealed/manifest.json`)));
       const n = Number(sm?.shards?.quarantine?.nodes ?? 0);
       if (n > 0) {
+        quarantineVault = vp;
         notice(
           $,
           `🔒 ${n} note${n === 1 ? "" : "s"} in new folders quarantined`,
-          `${n} note${n === 1 ? "" : "s"} live in folders that appeared after the first index. They stay sealed (no vault tool sees them) until you classify the folder: \`/vault domain public <id>\` or \`/vault domain private <id>\`. The ids are in \`.wiki/domains.json\`.`,
+          `${n} note${n === 1 ? "" : "s"} live in folders that appeared after the first index. They stay sealed (no vault tool sees them) until you classify each folder: Details lists them with Public / Private, or \`/vault domain public|private <folder>\`.`,
+          undefined,
+          { pane: QUARANTINE_PANE },
         );
       }
     } catch {}
@@ -1397,15 +1469,25 @@ const runVaultCommand = async ($: EngineInterface, argsText: string): Promise<{ 
     };
   }
   if (sub === "domain") {
-    const [scope, id] = rest;
-    if ((scope !== "public" && scope !== "private") || !id) return { text: "Usage: /vault domain public|private <id>" };
+    const [scope, ...words] = rest;
+    const id = words.join(" ");
+    if ((scope !== "public" && scope !== "private") || !id) return { text: "Usage: /vault domain public|private <id|folder>" };
     let reg: { domains?: Record<string, Record<string, unknown>> } = {};
     try {
       reg = JSON.parse(String(await $.fs.read(`${vp}/.wiki/domains.json`)));
     } catch {
       return { text: "Could not read .wiki/domains.json." };
     }
-    if (!reg.domains?.[id]) return { text: `No domain "${id}" in .wiki/domains.json.` };
+    if (!reg.domains?.[id]) {
+      // A quarantined folder has no domain entry: classifying it registers one.
+      const folder = id.replace(/\/+$/, "");
+      let isDir = false;
+      try {
+        isDir = !folder.includes("/") && !folder.startsWith(".") && (await $.fs.stat(`${vp}/${folder}`)).kind === "dir";
+      } catch {}
+      if (!isDir) return { text: `No domain or top-level folder "${id}". Domain ids are in .wiki/domains.json.` };
+      return { text: await classifyFolder($, vp, folder, scope) };
+    }
     reg.domains[id] = { ...reg.domains[id], scope };
     await $.fs.write(`${vp}/.wiki/domains.json`, JSON.stringify(reg, null, 2) + "\n");
     guardCache = null;
@@ -1819,7 +1901,7 @@ const bandPress = async ($: EngineInterface, action: string) => {
     if (card.kind === "notice") {
       const entry = vaultActivity.find((a) => a.id === card.entry);
       if (action === "undo" && entry?.revert && !entry.undone) await undoRevision($, entry.revert.vp, entry.revert.event);
-      if (action === "details" && !(await openActivity($)) && entry) {
+      if (action === "details" && !(await openNoticePane($, entry)) && entry) {
         // No surface can seat the pane: the one line of detail it would have shown.
         $.ui.toast(entry.details.replace(/[*`]/g, "").slice(0, 240));
       }
@@ -3105,9 +3187,18 @@ export const register: Register = (on, options) => {
     const ours = card ? (
       <Box flexDirection="row">
         <Box flexShrink={1}>
-          <Text color="cyan" wrap="truncate-end">
-            {line.text}
-          </Text>
+          {card.kind === "notice" ? (
+            // A notice's text is a press too: it opens what Details opens.
+            <Button key="cp-notice-text" label={`Details: ${line.text}`} onPress={() => void bandPress($, "details")}>
+              <Text color="cyan" wrap="truncate-end">
+                {line.text}
+              </Text>
+            </Button>
+          ) : (
+            <Text color="cyan" wrap="truncate-end">
+              {line.text}
+            </Text>
+          )}
         </Box>
         <Box flexShrink={0} flexDirection="row">
           {cardButtons(card).map(([action, label], i) => (
@@ -3221,7 +3312,63 @@ export const register: Register = (on, options) => {
         )}
         <Box flexDirection="row" marginTop={1}>
           <Button key="cp-activity-explain" label="How it works" onPress={() => void (async () => openExplain($, (await pickVault($))?.path))()} />
+          {quarantineVault && vaultActivity.some((a) => a.pane === QUARANTINE_PANE) ? (
+            <Box marginLeft={2}>
+              <Button key="cp-activity-quarantine" label="Quarantined folders" onPress={() => void openQuarantine($, quarantineVault!)} />
+            </Box>
+          ) : (
+            <Text>{" "}</Text>
+          )}
         </Box>
+      </Box>
+    );
+  });
+
+  /** The quarantine pane: each new folder with Public / Private. */
+  on("ui.render", { component: "Pane", requestId: QUARANTINE_PANE }, async ($, e, next) => {
+    await read($, paneRev);
+    const { Box, Markdown, Button, Text } = $.ui.resolve(e);
+    const q = quarantine;
+    const intro =
+      "Notes in folders that appeared after the first index stay sealed until you say what the folder is. " +
+      "**Public**: every vault tool sees it. **Private**: sealed unless a session starts inside it or you `/vault open` it.";
+    if (!q || q.folders.length === 0) {
+      return (
+        <Box flexDirection="column">
+          <Markdown text={`${intro}\n\nNo quarantined folders.`} />
+        </Box>
+      );
+    }
+    return (
+      <Box flexDirection="column">
+        <Markdown text={intro} />
+        {q.folders.map((f, i) => {
+          const done = q.done.get(f.folder);
+          return (
+            <Box flexDirection="row" marginTop={1}>
+              <Box flexShrink={1}>
+                <Text wrap="truncate-end">{`${f.folder} · ${f.notes} note${f.notes === 1 ? "" : "s"}`}</Text>
+              </Box>
+              <Box flexShrink={0} flexDirection="row" marginLeft={2}>
+                {done ? (
+                  <Text color="green">{`✓ ${done}`}</Text>
+                ) : (
+                  <Box flexDirection="row">
+                    <Button key={`cp-q-pub-${i}`} label={`Public: ${f.folder}`} onPress={() => void classifyFolder($, q.vp, f.folder, "public")}>
+                      <Text color="cyan" bold>
+                        {"Public"}
+                      </Text>
+                    </Button>
+                    <Text>{"  "}</Text>
+                    <Button key={`cp-q-priv-${i}`} label={`Private: ${f.folder}`} onPress={() => void classifyFolder($, q.vp, f.folder, "private")}>
+                      <Text color="magenta">{"Private"}</Text>
+                    </Button>
+                  </Box>
+                )}
+              </Box>
+            </Box>
+          );
+        })}
       </Box>
     );
   });

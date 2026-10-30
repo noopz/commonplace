@@ -143,6 +143,11 @@ for (const surface of SURFACES) {
     engineFloor(on);
     on("tool.call", { tool: "WebFetch" }, async (_$, e) => ({ result: { code: 200, codeText: "OK", bytes: 10, result: "a drift study", durationMs: 1, url: (e as { url: string }).url } }) as never);
     on("model.fork", async () => ({ value: { isAnswered: true, text: '{"verdict":"new","why":"a new field study"}' } }) as never);
+    const opened: string[] = [];
+    on("ui.open", async (_$, e) => {
+      opened.push(String((e as { id: string }).id));
+      return { value: { isPlaced: true } } as never;
+    });
     await $.session.start({ cwd: "/fixture/project", surface, isInteractive: true });
     await $.tool.call({ tool: "mcp__commonplace__vault_list", tool_use_id: "toolu_t0", what: "domains" } as never);
     await $.prompt.submit({ text: "What does this add? https://acme.example/kestrel-drift", origin: { kind: "composer" } } as never);
@@ -158,6 +163,10 @@ for (const surface of SURFACES) {
     expect((await band.find({ text: /vault ·/ }))?.text).toMatch(/acme\.example/);
     await $.prompt.submit({ text: "thanks", origin: { kind: "composer" } } as never);
     expect((await band.find({ text: /vault ·/ }))?.text).toMatch(/vault index refreshed/);
+    // The notice's text is a press too: it opens what Details opens.
+    opened.length = 0;
+    await band.press({ key: "cp-notice-text" } as never);
+    expect(opened).toEqual(["commonplace-activity"]);
   });
 
   test(`${surface}: a pasted link nobody fetched is never triaged`, { options: { linkTriage: true } }, async ($, on) => {
