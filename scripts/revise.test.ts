@@ -403,11 +403,11 @@ test("read capture: the owner's words become a note beside the older one only wh
     const files = git(root, "show", "--name-only", "--format=", "HEAD").trim().split("\n");
     const note = files.find((f) => /^Research\/Alpha\/\d{4}-\d\d-\d\d .+\.md$/.test(f))!;
     assert.ok(note, files.join(","));
-    assert.ok(files.includes(`Research/Alpha/raw/${note.split("/").pop()}`), "the excerpt it rests on is committed with it");
+    assert.ok(files.includes(`Research/Alpha/_raw/${note.split("/").pop()}`), "the excerpt it rests on is committed with it");
     const text = readFileSync(join(root, note), "utf-8");
     assert.match(text, /supersedes:/, "the owner's word may supersede");
     assert.match(text, /as_of: 2026-10-01/);
-    assert.match(readFileSync(join(root, "Research/Alpha/raw", note.split("/").pop()!), "utf-8"), /six hours/);
+    assert.match(readFileSync(join(root, "Research/Alpha/_raw", note.split("/").pop()!), "utf-8"), /six hours/);
     assert.equal(readFileSync(join(root, OLD), "utf-8").includes("supersedes"), false, "the older note is never edited");
 
     // Undo takes the captured note and its excerpt back out: they existed only for this edge.
@@ -415,7 +415,7 @@ test("read capture: the owner's words become a note beside the older one only wh
     assert.equal(rv.status, "reverted", JSON.stringify(rv));
     assert.ok(rv.commit, JSON.stringify(rv));
     assert.equal(existsSync(join(root, note)), false);
-    assert.equal(existsSync(join(root, "Research/Alpha/raw", note.split("/").pop()!)), false);
+    assert.equal(existsSync(join(root, "Research/Alpha/_raw", note.split("/").pop()!)), false);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

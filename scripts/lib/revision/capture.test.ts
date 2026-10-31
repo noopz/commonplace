@@ -12,6 +12,9 @@ test("only a page fetched from the older note's own address may supersede it", (
   assert.deepEqual(allowedRelations({ class: "web", source: "https://docs.example.com/limits?page=2" }, own), ["contests", "withdrawsSupport"]);
   assert.ok(allowedRelations({ class: "web", source: "https://Docs.Example.com/limits?utm_source=x" }, own).includes("supersedes"), "tracking parameters and host case are the same page");
   assert.ok(allowedRelations({ class: "owner", source: "conversation" }, []).includes("supersedes"));
+  assert.deepEqual(allowedRelations({ class: "web", source: "https://docs.example.com:9000/limits" }, own), ["contests", "withdrawsSupport"], "another port is another page");
+  assert.deepEqual(allowedRelations({ class: "web", source: "https://docs.example.com/limits", landed: "https://docs.example.com/archive" }, own), ["contests", "withdrawsSupport"], "redirected elsewhere: not the note's page");
+  assert.ok(allowedRelations({ class: "web", source: "https://arxiv.org/abs/2601.01234" }, ["https://arxiv.org/pdf/2601.01234v1"]).includes("supersedes"), "an arXiv abstract and its PDF are one paper");
 });
 
 test("intranet and local hosts are private; public hosts are not", () => {
@@ -32,7 +35,9 @@ test("a capture's planned note is reused by its own second edge, never by anothe
     writeFileSync(join(v, first), captureNote(cap, rawRelFor(first)));
     assert.equal(plannedRel(v, "Alpha/Old Two.md", cap), first);
     const other = { ...cap, hash: "b".repeat(32) };
-    assert.notEqual(plannedRel(v, "Alpha/Old Two.md", other), first);
+    assert.notEqual(plannedRel(v, "Alpha/Old Two.md", other), first, "another capture with the same title on the same day");
+    assert.match(rawRelFor(first), /^Alpha\/_raw\//, "the excerpt sits where the index does not look");
+    assert.match(captureNote(cap, rawRelFor(first), true), /^scope: private$/m);
   } finally {
     rmSync(v, { recursive: true, force: true });
   }
@@ -41,4 +46,5 @@ test("a capture's planned note is reused by its own second edge, never by anothe
 test("a source URL loses credentials and token-like parameters before it is stored", () => {
   assert.equal(redactUrl("https://u:p@docs.example.com/a?id=4&token=abc&X-Amz-Signature=z&email=a%40b.c"), "https://docs.example.com/a?id=4");
   assert.equal(redactUrl("pasted in conversation"), "pasted in conversation");
+  assert.equal(redactUrl("HTTPS://bob:pw@app.example.com/cb?ticket=t#access_token=SECRET"), "https://app.example.com/cb");
 });

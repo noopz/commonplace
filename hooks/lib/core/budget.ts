@@ -10,7 +10,8 @@
  * plan's limits the vault used.
  *
  * Pure: the module keeps the state in `$.store`, so a session that runs for
- * weeks, and every resume and reload, sees the same day.
+ * weeks, and every resume and reload, sees the same day. `spent` is the sum
+ * of every session's own spend record.
  */
 
 export type Usage = {
@@ -102,8 +103,6 @@ export type BudgetState = {
   spent: number;
   /** Today's limit when raised from the notice; absent means the setting's. */
   limit?: number;
-  /** The person chose Stop for today, or the notice went unanswered. */
-  stopped?: boolean;
   /** The over-budget notice was raised today. */
   noticed?: boolean;
 };
@@ -125,7 +124,7 @@ export function addSpend(s: BudgetState, usd: number): BudgetState {
 
 /** Raise today's limit: double what it is now. */
 export function raise(s: BudgetState, setting: number): BudgetState {
-  return { ...s, limit: limitOf(s, setting) * 2, stopped: false, noticed: false };
+  return { ...s, limit: limitOf(s, setting) * 2, noticed: false };
 }
 
 export const usd = (n: number) => `$${n < 10 ? n.toFixed(2) : n.toFixed(0)}`;

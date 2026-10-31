@@ -35,11 +35,14 @@ knowledge: the connection pass, prime and revision (and read capture). Ingest,
 what the person asks for, and the subagents a skill dispatches never count and
 are never stopped. Spend is priced from the API's pricing page (its `.md`
 rendering, re-read weekly into `$.store budget:prices`, a built-in table until
-then) and kept per local day in `$.store budget:daily`, so a session that runs
-for weeks and every resume see one day. Over the limit, jobs stay queued and
+then) and kept per local day in `$.store`, each session under its own
+`budget:spent:<session>` key and summed (the store has no compare-and-set,
+so one shared counter lost concurrent sessions' spend); `budget:daily` holds
+only a raised limit and the notice flag. A session that runs for weeks and
+every resume see one day. Over the limit, jobs stay queued and
 steps answer "no answer" (retried next run), the pass and prime skip, and one
 notice a day offers **Raise to $2× for today** / **Stop for today**; ignoring
-it is stopping. `/vault budget [raise]`. `$.model.classify` reports no usage,
+it is stopping (yesterday's notice raises nothing). `/vault budget [raise]`. `$.model.classify` reports no usage,
 so it is priced from its input length.
 
 `plugin.json` declares a `userConfig` switch for every feature the person
@@ -487,12 +490,15 @@ the **summary** (concepts and MOCs, revised with receipts).
   account of it: a WebFetch'd page is re-fetched fresh by `revise capture`
   (not WebFetch's summary, not the artifact cache), an MCP connector result
   (not ours, not a browser, not Claude Docs, not a write-type tool such as
-  send/create/update; errors and images dropped) is taken as it came, and a typed prompt ≥120 chars is the owner's word (over
-  1500 chars, with a code fence or quoted mail it is treated as pasted, class
-  `web`). Assistant text and commonplace's own agents' reads are never
+  send/create/update, every word of its name checked unless the server
+  declares it read-only; errors and images dropped) is taken as it came, and a
+  prompt a person typed (not `sdk`/`-p`) ≥120 chars is the owner's word,
+  skipped while a private domain is open (over 1500 chars, with a code fence
+  or quoted mail it is pasted, class `connector`: private notes only). Assistant text and commonplace's own agents' reads are never
   captured; an intranet or local host's page (or a redirect to one) is class
-  `connector`. Reads wait for the main turn to end and are dropped when that
-  turn wrote the vault (an ingest: the write trigger covers it). Source URLs
+  `connector`. Reads wait for the main turn to end, run one at a time, and are
+  dropped when that turn (the main loop or a non-commonplace subagent) wrote
+  the vault (an ingest: the write trigger covers it). Source URLs
   lose credentials and token-like parameters before they are stored. A capture
   is stored in `.wiki/revision/captures/` only once it clears the gate
   (`capture` runs `dry` first); that folder is a sealed artefact root the
@@ -504,10 +510,11 @@ the **summary** (concepts and MOCs, revised with receipts).
   connector text pools private notes only and `propose` refuses it against a
   public note. The proposal's newer side is `capture:<hash>`; the reducer
   limits the relation: the owner may decide any, a page or connector only
-  `contests`/`withdrawsSupport` unless it is a page fetched from the older note's own URL
-  (anything else is recorded as `contests`). Nothing is written until the
+  `contests`/`withdrawsSupport` unless it is a page fetched from the older note's own URL and not
+  redirected elsewhere (anything else is recorded as `contests`). Nothing is written until the
   accept, which writes a `type: source` note beside the older one (same
-  scope) plus the `raw/` excerpt the decision rests on, and commits both with
+  scope, `scope: private` when the older note is private; the file name
+  carries the capture hash) plus the `_raw/` excerpt (unindexed) the decision rests on, and commits both with
   the edge; a second edge from the same capture in that folder joins that
   note, and an Undo that leaves it edgeless removes note and excerpt.
   Measured by `eval:capture` (detect, review and the reducer's `edgeFor`;

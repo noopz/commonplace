@@ -138,8 +138,21 @@ export async function loadArtifact(vault: string, r: ArtifactRef, opts: { timeou
         if (Number(res.headers.get("content-length") ?? 0) > MAX_FETCH_BYTES) return null;
         landed = res.url || undefined;
         const type = res.headers.get("content-type") ?? "";
-        const bytes = new Uint8Array(await res.arrayBuffer());
-        if (bytes.length > MAX_FETCH_BYTES) return null;
+        // Read in pieces and stop past the cap: a response need not say its length.
+        const parts: Uint8Array[] = [];
+        let size = 0;
+        const reader = res.body?.getReader();
+        for (let r = await reader?.read(); r && !r.done; r = await reader!.read()) {
+          size += r.value.length;
+          if (size > MAX_FETCH_BYTES) {
+            await reader!.cancel().catch(() => undefined);
+            return null;
+          }
+          parts.push(r.value);
+        }
+        const bytes = new Uint8Array(size);
+        let at = 0;
+        for (const part of parts) bytes.set(part, (at += part.length) - part.length);
         if (/pdf/i.test(type) || /\.pdf($|\?)/i.test(r.ref)) text = await pdfText(bytes);
         else text = htmlToText(new TextDecoder().decode(bytes));
       } finally {

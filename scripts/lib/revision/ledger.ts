@@ -61,7 +61,7 @@ export type RevEvent = Base &
          * the note will be written if the proposal is accepted, `new.rev` the
          * capture's hash. `allowed` limits the relation the edge may carry.
          */
-        capture?: { hash: string; class: "owner" | "connector" | "web"; source: string; allowed: RevisionRelation[] };
+        capture?: { hash: string; class: "owner" | "connector" | "web"; source: string; landed?: string; allowed: RevisionRelation[] };
       }
     | ({ kind: "review" } & VerdictFields)
     | ({ kind: "escalate" } & VerdictFields)

@@ -421,7 +421,8 @@ switch (sub) {
     let text = String(body.text ?? "");
     const source = String(body.source ?? "");
     // A web page is fetched here, never taken from WebFetch's summary of it.
-    let landed = source;
+    // The store call after the gate passes the dry call's text and landing back.
+    let landed = typeof body.landed === "string" ? body.landed : source;
     if (cls === "web" && !text && /^https?:\/\//.test(source)) {
       const art = await loadArtifact(vault, { kind: "url", ref: source }, { fresh: true });
       text = art?.text ?? "";
@@ -430,8 +431,8 @@ switch (sub) {
     // A page on (or redirected to) a host only this network reaches is private, like a connector.
     if (cls === "web" && (privateHost(source) || privateHost(landed))) cls = "connector";
     // Dry first: nothing read outside the vault is stored until the gate finds notes it bears on.
-    const c = writeCapture(vault, { class: cls, source, text, ...(body.asOf ? { asOf: String(body.asOf) } : {}) }, body.dry === true);
-    print(c ? { hash: c.hash, class: c.class, title: c.title, chars: c.text.length, text: c.text } : { none: true, why: "too little text" });
+    const c = writeCapture(vault, { class: cls, source, text, ...(landed !== source ? { landed } : {}), ...(body.asOf ? { asOf: String(body.asOf) } : {}) }, body.dry === true);
+    print(c ? { hash: c.hash, class: c.class, title: c.title, chars: c.text.length, text: c.text, ...(c.landed ? { landed: c.landed } : {}) } : { none: true, why: "too little text" });
     break;
   }
 

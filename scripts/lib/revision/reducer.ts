@@ -364,7 +364,8 @@ export function acceptBlocker(p: ProposalState): string | null {
   const d = p.decision;
   if (!d) return "no decision";
   if (!d.escalated && p.verifies[p.verifies.length - 1]?.result !== "confirmed") return "not confirmed against the artifacts";
-  if (d.relation === "bounds" && !d.within) return "bounds without conditions";
+  // The relation that would be written: a capture's limited one carries no conditions.
+  if (edgeFor(p)?.relation === "bounds" && !d.within) return "bounds without conditions";
   if (!p.propose.old.claim.trim()) return "no claim (whole-note edges are never accepted autonomously)";
   return null;
 }

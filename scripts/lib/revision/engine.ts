@@ -168,6 +168,7 @@ export async function propose(ctx: Ctx, input: ProposeInput): Promise<ProposeRes
             hash: cap.hash,
             class: cap.class,
             source: cap.source,
+            ...(cap.landed ? { landed: cap.landed } : {}),
             allowed: allowedRelations(cap, sourceRefs(ctx.vault, oldText, oldN.rel).filter((r) => r.kind === "url").map((r) => r.ref)),
           },
         }
@@ -324,7 +325,7 @@ export async function accept(ctx: Ctx, proposalId: string): Promise<AcceptResult
         else rawRel = null; // nothing new to add: the excerpt is not part of this commit
       }
     }
-    const text = reuse ?? (cap ? captureNote(cap, rawRel!) : readFileSync(abs, "utf-8"));
+    const text = reuse ?? (cap ? captureNote(cap, rawRel!, p.shard !== MAIN) : readFileSync(abs, "utf-8"));
     let next: string;
     try {
       next = insertEdge(text, edge.relation, p.propose.old.title, edge.rel);
@@ -358,6 +359,7 @@ export async function accept(ctx: Ctx, proposalId: string): Promise<AcceptResult
       } else {
         if (blobOfFile(repo, newRel) === after) writeFileSync(abs, text); // take our uncommitted edit back out
         if (rawRel && rawOld !== null) writeFileSync(join(ctx.vault, rawRel), rawOld);
+        else if (rawRel) rmSync(join(ctx.vault, rawRel), { force: true }); // an excerpt that was missing stays missing
       }
       const reason = res.status === "conflict" ? res.conflicts.map((c) => c.reason).join("; ") : res.status;
       // Retryable: the branch moved or a path was busy. The proposal returns to

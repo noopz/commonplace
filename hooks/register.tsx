@@ -535,7 +535,12 @@ const workOf = (vp: string, agentId: string | undefined) => {
   return w;
 };
 const noteWrite = (_$: EngineInterface, vp: string, rel: string, agentId: string | undefined) => {
-  lastVaultWriteAt = Date.now();
+  // The turn wrote the vault: its own reads are not captured. commonplace's
+  // background agents (a MOC update after an earlier ingest) do not count.
+  if (!agentId) turnWrote = true;
+  else void agentTypeOf(_$, agentId).then((t) => {
+    if (!t.startsWith("commonplace:")) turnWrote = true;
+  }).catch(() => undefined);
   if (!features.revision) return;
   const w = workOf(vp, agentId);
   w.written.add(rel);
@@ -743,21 +748,33 @@ type CaptureIn = { class: "owner" | "connector" | "web"; source: string; text?: 
  * Reads wait for the turn to end: a turn that wrote the vault (an ingest of
  * the page it fetched, a note the person asked for) already sends what it
  * read through the write trigger and the impact checker, so its captures are
- * dropped rather than proposed twice.
+ * dropped rather than proposed twice. The flag is the main turn's own
+ * (reset at its turn.start). Flushed captures run one at a time.
  */
-let pendingCaptures: Array<{ c: CaptureIn; agentId?: string; at: number }> = [];
-let lastVaultWriteAt = 0;
+let pendingCaptures: Array<{ c: CaptureIn; agentId?: string }> = [];
+let turnWrote = false;
+const captureQueue: Array<{ c: CaptureIn; agentId?: string; drop?: string }> = [];
+let captureDraining = false;
 const queueCapture = (c: CaptureIn, agentId?: string) => {
   if (!features.revision || !features.capture) return;
-  pendingCaptures.push({ c, ...(agentId ? { agentId } : {}), at: Date.now() });
-  if (pendingCaptures.length > 20) pendingCaptures = pendingCaptures.slice(-20);
+  pendingCaptures.push({ c, ...(agentId ? { agentId } : {}) });
+  // Past 20 the oldest read goes, never the person's own words.
+  if (pendingCaptures.length > 20) pendingCaptures.splice(Math.max(0, pendingCaptures.findIndex((p) => p.c.class !== "owner")), 1);
 };
 const flushCaptures = ($: EngineInterface) => {
-  const list = pendingCaptures;
+  const drop = turnWrote ? "ingested" : undefined;
+  for (const p of pendingCaptures) captureQueue.push({ ...p, ...(drop ? { drop } : {}) });
   pendingCaptures = [];
-  for (const p of list) {
-    if (lastVaultWriteAt > p.at) void captureRead($, p.c, p.agentId, "ingested");
-    else void captureRead($, p.c, p.agentId);
+  turnWrote = false;
+  void drainCaptures($);
+};
+const drainCaptures = async ($: EngineInterface) => {
+  if (captureDraining) return;
+  captureDraining = true;
+  try {
+    for (let p = captureQueue.shift(); p; p = captureQueue.shift()) await captureRead($, p.c, p.agentId, p.drop);
+  } finally {
+    captureDraining = false;
   }
 };
 const captureRead = async ($: EngineInterface, c: CaptureIn, agentId?: string, drop?: string) => {
@@ -769,7 +786,16 @@ const captureRead = async ($: EngineInterface, c: CaptureIn, agentId?: string, d
     if (!vault) return;
     vp = vault.path;
     // commonplace's own agents read in order to write the vault; that is not news to it.
-    const why = drop ?? (agentId && (await agentTypeOf($, agentId)).startsWith("commonplace:") ? "own-agent" : capturing.has(key) ? "in-flight" : capturing.size >= 3 ? "busy" : "");
+    // The person's words while a private domain is open may carry it: they are not stored beside public notes.
+    const why =
+      drop ??
+      (agentId && (await agentTypeOf($, agentId)).startsWith("commonplace:")
+        ? "own-agent"
+        : capturing.has(key)
+          ? "in-flight"
+          : c.class === "owner" && openOf(vp).size > 0
+            ? "private-open"
+            : "");
     if (why) {
       traceTo($, vp, "capture:skip", { class: c.class, why });
       return;
@@ -792,10 +818,11 @@ const captureRead = async ($: EngineInterface, c: CaptureIn, agentId?: string, d
     const privateOnly = (got?.class ?? c.class) === "connector";
     const hits = capturePool(
       String(got?.text ?? ""),
-      (q) => view.search(q, { limit: 8, rank: RANK_LINEAR, filter: (id) => view.visible(id) && (!privateOnly || view.shard(id) !== "main") }),
-      { max: 24 },
+      (q) => view.search(q, { limit: 25, rank: RANK_LINEAR, filter: (id) => view.visible(id) && (!privateOnly || view.shard(id) !== "main") }),
+      { max: 200 },
     );
-    // Only notes that carry claims: concepts and MOCs are short and title-dense, and would crowd them out.
+    // Only notes that carry claims: concepts and MOCs are short and title-dense,
+    // so each chunk's search is wide and they are filtered out only here.
     const cards = await idx.cards(hits);
     const pool = hits
       .filter((id) => ["source", "other"].includes(String(cards.get(id)?.k ?? "")))
@@ -806,7 +833,7 @@ const captureRead = async ($: EngineInterface, c: CaptureIn, agentId?: string, d
     traceTo($, vp, "capture:gate", { class: c.class, pool: pool.length, hits: hits.length });
     if (pool.length === 0) return;
     // Only now is it stored: the text as read (a page as fetched above, not fetched again).
-    const kept = await revCli($, vp, ["capture"], { class: privateOnly ? "connector" : c.class, source: c.source, text: String(got?.text ?? ""), ...(c.asOf ? { asOf: c.asOf } : {}) });
+    const kept = await revCli($, vp, ["capture"], { class: privateOnly ? "connector" : c.class, source: c.source, text: String(got?.text ?? ""), ...(typeof got?.landed === "string" ? { landed: got.landed } : {}), ...(c.asOf ? { asOf: c.asOf } : {}) });
     if (kept?.hash !== hash) {
       traceTo($, vp, "capture:error", { err: kept ? "hash changed between gate and store" : "store failed" });
       return;
@@ -931,7 +958,7 @@ const scheduleRevisionFlush = ($: EngineInterface, agentId: string | undefined) 
  * revision, Undo. Module memory: an entry can name an open private note.
  */
 /** `action`: a press the notice offers besides Details (the card's primary button); `acted` once pressed. */
-type NoticeAction = { kind: "commit-waiting"; vp: string; label: string } | { kind: "budget-raise"; label: string };
+type NoticeAction = { kind: "commit-waiting"; vp: string; label: string } | { kind: "budget-raise"; day: string; label: string };
 type ActivityEntry = { id: number; at: string; text: string; details: string; revert?: { vp: string; event: string }; undone?: boolean; action?: NoticeAction; acted?: boolean };
 const vaultActivity: ActivityEntry[] = [];
 let activitySeq = 0;
@@ -994,7 +1021,44 @@ const loadPrices = async ($: EngineInterface) => {
     /* offline or refused: the stored or built-in prices stand */
   }
 };
-const budgetNow = async ($: EngineInterface): Promise<BudgetState> => today((await $.store.get(BUDGET_KEY)) as BudgetState | null, new Date());
+/**
+ * Each session writes its own spend (`budget:spent:<session>`, `{day, spent}`)
+ * and today's total is their sum: `$.store` is shared by every open session
+ * and has no compare-and-set, so one shared counter lost the spend of
+ * sessions finishing together. The shared record keeps only today's raised
+ * limit and whether the notice went up.
+ */
+const SPENT_PREFIX = "budget:spent:";
+let spentKey = "";
+const storeKeys = async ($: EngineInterface): Promise<readonly string[]> => {
+  try {
+    const keys: unknown = await $.store.keys();
+    return Array.isArray(keys) ? keys.filter((k): k is string => typeof k === "string") : [];
+  } catch {
+    return [];
+  }
+};
+const budgetNow = async ($: EngineInterface): Promise<BudgetState> => {
+  const now = new Date();
+  const s = today((await $.store.get(BUDGET_KEY)) as BudgetState | null, now);
+  let spent = 0;
+  for (const k of await storeKeys($)) {
+    if (!k.startsWith(SPENT_PREFIX)) continue;
+    const v = (await $.store.get(k)) as { day?: string; spent?: number } | null;
+    if (v?.day === s.day && typeof v.spent === "number") spent += v.spent;
+  }
+  return { ...s, spent };
+};
+
+/** Drop other days' per-session spend (session.start). */
+const pruneSpend = async ($: EngineInterface) => {
+  const day = dayOf(new Date());
+  for (const k of await storeKeys($)) {
+    if (!k.startsWith(SPENT_PREFIX)) continue;
+    const v = (await $.store.get(k)) as { day?: string } | null;
+    if (v?.day !== day) await $.store.delete(k);
+  }
+};
 
 /** Whether background work may start a model call; raises the over-budget notice once a day when not. */
 const budgetOpen = async ($: EngineInterface, vp?: string): Promise<boolean> => {
@@ -1006,7 +1070,6 @@ const budgetOpen = async ($: EngineInterface, vp?: string): Promise<boolean> => 
   return false;
 };
 
-/** Record one background call's cost. */
 /** Budget writes run one at a time in this session, so calls finishing together do not lose each other's spend. */
 let budgetQueue: Promise<unknown> = Promise.resolve();
 const budgetWrite = <T,>(fn: () => Promise<T>): Promise<T> => {
@@ -1015,24 +1078,27 @@ const budgetWrite = <T,>(fn: () => Promise<T>): Promise<T> => {
   return r;
 };
 
+/** Record one background call's cost. */
 const spend = async ($: EngineInterface, vp: string | undefined, model: string, u: Usage | undefined, what: string) => {
   if (!u) return;
   const cost = costOf(model, u, priceTable);
   const s = await budgetWrite(async () => {
-    const next = addSpend(await budgetNow($), cost);
-    await $.store.set(BUDGET_KEY, next);
-    return next;
+    if (!spentKey) spentKey = SPENT_PREFIX + String(await $.session.id());
+    const day = dayOf(new Date());
+    const mine = (await $.store.get(spentKey)) as { day?: string; spent?: number } | null;
+    await $.store.set(spentKey, { day, spent: (mine?.day === day ? mine.spent ?? 0 : 0) + Math.max(0, cost) });
+    return budgetNow($);
   });
   if (vp) traceTo($, vp, "budget:spend", { what, model, usd: Number(cost.toFixed(5)), today: Number(s.spent.toFixed(4)) });
   if (!canSpend(s, budgetSetting)) await budgetNotice($, s);
 };
 
 const budgetNotice = async ($: EngineInterface, s: BudgetState) => {
-  if (s.noticed || s.stopped) return;
+  if (s.noticed) return;
   const first = await budgetWrite(async () => {
-    const cur = await budgetNow($);
+    const cur = today((await $.store.get(BUDGET_KEY)) as BudgetState | null, new Date());
     if (cur.noticed) return false;
-    await $.store.set(BUDGET_KEY, { ...cur, noticed: true });
+    await $.store.set(BUDGET_KEY, { ...cur, spent: 0, noticed: true });
     return true;
   });
   if (!first) return;
@@ -1046,8 +1112,13 @@ const budgetNotice = async ($: EngineInterface, s: BudgetState) => {
       "The budget is the plugin's `dailyBudgetUSD` setting.",
     ].join("\n\n"),
     undefined,
-    { action: { kind: "budget-raise", label: `Raise to ${usd(limit * 2)} for today` } },
+    { action: { kind: "budget-raise", day: s.day, label: `Raise to ${usd(limit * 2)} for today` } },
   );
+};
+
+const retireBudgetNotices = ($: EngineInterface) => {
+  for (const a of vaultActivity) if (a.action?.kind === "budget-raise") a.acted = true;
+  bumpPanes($);
 };
 
 const raiseBudget = async ($: EngineInterface) => {
@@ -1057,26 +1128,21 @@ const raiseBudget = async ($: EngineInterface) => {
   }
   const s = await budgetWrite(async () => {
     const next = raiseBudgetState(await budgetNow($), budgetSetting);
-    await $.store.set(BUDGET_KEY, next);
+    await $.store.set(BUDGET_KEY, { ...next, spent: 0 });
     return next;
   });
-  for (const a of vaultActivity) if (a.action?.kind === "budget-raise") a.acted = true;
-  bumpPanes($);
+  retireBudgetNotices($);
   notice($, `budget raised to ${usd(limitOf(s, budgetSetting))} for today`, "Background work resumes now; the limit returns to the setting at midnight.", undefined, { card: false });
   for (const v of (await loadGuard($)).vaults) processRevision($, v.path);
-};
-
-const stopBudget = async ($: EngineInterface) => {
-  await budgetWrite(async () => $.store.set(BUDGET_KEY, { ...(await budgetNow($)), stopped: true }));
-  for (const a of vaultActivity) if (a.action?.kind === "budget-raise") a.acted = true;
-  bumpPanes($);
 };
 
 /** A notice's primary press, from the band or the activity pane. */
 const runAction = async ($: EngineInterface, entry: ActivityEntry) => {
   if (!entry.action || entry.acted) return;
   if (entry.action.kind === "commit-waiting") await commitWaiting($, entry.action.vp, true);
-  else await raiseBudget($);
+  // Yesterday's notice raises nothing: today starts at the setting.
+  else if (entry.action.day === dayOf(new Date())) await raiseBudget($);
+  else retireBudgetNotices($);
 };
 
 const renderActivity = (): string => {
@@ -2058,6 +2124,8 @@ const sweep = async ($: EngineInterface) => {
 
 /** Prompt origins the prime lane serves (`sdk` so eval:prime runs the real gate under -p). */
 const PRIME_ORIGINS = new Set(["composer", "bridge", "sdk"]);
+/** A prompt is the owner's word only when a person typed it: not an SDK or `-p` run (the evals drive those). */
+const CAPTURE_ORIGINS = new Set(["composer", "bridge"]);
 let segment: SegmentState = freshSegment();
 /** Notes primed or judged this session, per vault: never offered twice. */
 const primeSeen = new Map<string, Set<number>>();
@@ -2250,7 +2318,8 @@ const bandPress = async ($: EngineInterface, action: string) => {
       const entry = vaultActivity.find((a) => a.id === card.entry);
       if (action === "undo" && entry?.revert && !entry.undone) await undoRevision($, entry.revert.vp, entry.revert.event);
       if (action === "act" && entry) await runAction($, entry);
-      if (action === "stop") await stopBudget($);
+      // Stop for today is what ignoring the notice does anyway: the card just goes.
+      if (action === "stop") retireBudgetNotices($);
       if (action === "details" && !(await openActivity($)) && entry) {
         // No surface can seat the pane: the one line of detail it would have shown.
         $.ui.toast(entry.details.replace(/[*`]/g, "").slice(0, 240));
@@ -2424,6 +2493,7 @@ export const register: Register = (on, options) => {
     // The branch each vault is on now is the one this session commits to.
     pins.clear();
     void loadPrices($);
+    void pruneSpend($).catch(() => undefined);
     void (async () => {
       const v = await pickVault($);
       if (v) await pinFor($, v.path);
@@ -2900,9 +2970,11 @@ export const register: Register = (on, options) => {
   on("tool.call", { tool: /^mcp__(?!commonplace__|plugin_playwright|claude-in-chrome|computer-use|Claude_Browser|remote-devices__|claude_ai_Claude_Docs__)/ }, async ($, e, next) => {
     const r = await next(e);
     try {
-      const verb = String(e.tool).split("__").pop() ?? "";
-      const writes = /^(send|post|create|update|write|edit|reply|comment|add|delete|remove|upload|publish|set|put|patch|append|insert|move|rename|draft)/i.test(verb);
-      const text = writes ? "" : resultText((r as { result?: unknown }).result);
+      const out = r as { result?: unknown; text?: string; isError?: true; isReadOnly?: true; deny?: string };
+      // Every word of the name is checked (`slack_send_message`, `notion-create-pages`, `createPage`), unless the server declared the tool read-only.
+      const words = (String(e.tool).split("__").pop() ?? "").replace(/([a-z])([A-Z])/g, "$1_$2").toLowerCase().split(/[_-]+/);
+      const writes = !out.isReadOnly && words.some((w) => /^(send|post|create|update|write|edit|reply|comment|add|delete|remove|upload|publish|set|put|patch|append|insert|move|rename|draft)s?$/.test(w));
+      const text = writes || out.isError || out.deny !== undefined ? "" : typeof out.text === "string" ? out.text : resultText(out.result);
       if (text.length >= 300) {
         // MCP arguments sit beside `tool` on the event itself.
         const url = Object.entries(e as Readonly<Record<string, unknown>>).find(([k, v]) => k !== "tool" && typeof v === "string" && /^https?:\/\//.test(v))?.[1] as string | undefined;
@@ -3446,11 +3518,12 @@ export const register: Register = (on, options) => {
     // has. A slash command or a short reply carries no claim worth checking. A
     // long prompt, a code block or quoted mail is mostly something pasted, not
     // the person's own claim, so it may only contest, like a page.
-    if (features.capture && !e.turnId && PRIME_ORIGINS.has(e.origin.kind)) {
+    if (features.capture && !e.turnId && CAPTURE_ORIGINS.has(e.origin.kind)) {
       const t = e.text.trim();
       if (t.length >= 120 && !t.startsWith("/")) {
         const pasted = t.length > 1500 || t.includes("```") || /^\s*>|^(?:From|Subject|Sent|To|Date):\s|\bwrote:\s*$|^-{3,} ?Forwarded/im.test(t);
-        queueCapture(pasted ? { class: "web", source: "pasted in conversation", text: t } : { class: "owner", source: "conversation", text: t, asOf: dayOf(new Date()) });
+        // Pasted text has no known origin (often mail or a work document): connector class, private notes only.
+        queueCapture(pasted ? { class: "connector", source: "pasted in conversation", text: t } : { class: "owner", source: "conversation", text: t, asOf: dayOf(new Date()) });
       }
     }
     // PRIME, sync lane (§8.1): postings only, no model call, prompt untouched.
@@ -3515,6 +3588,7 @@ export const register: Register = (on, options) => {
     // (`agentId` is in builds after the 2.1.288 typings this module compiles against.)
     if ((e as { agentId?: string }).agentId !== undefined) return next(e);
     latestTurn = { turnId: e.turnId, text: e.text, at: Date.now() };
+    turnWrote = false;
     if (pendingLinks && !pendingLinks.turnId) pendingLinks = { ...pendingLinks, turnId: e.turnId };
     return next(e);
   });

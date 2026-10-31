@@ -24,6 +24,8 @@ export type Capture = {
   class: CaptureClass;
   /** A URL when there is one, else the tool that returned the text. */
   source: string;
+  /** Where a fetched page landed after redirects, when that is another URL. */
+  landed?: string;
   title: string;
   capturedAt: string;
   /** The date the content describes, only when its own metadata (or the person, now) gives one. */
@@ -74,13 +76,15 @@ export function privateHost(url: string): boolean {
 
 /** A source URL without what would leak if committed: credentials and token-like query parameters. */
 export function redactUrl(source: string): string {
-  if (!/^https?:\/\//.test(source)) return source;
+  if (!/^https?:\/\//i.test(source)) return source;
   try {
     const u = new URL(source);
     u.username = "";
     u.password = "";
+    // An OAuth callback carries its token in the fragment.
+    u.hash = "";
     for (const k of [...u.searchParams.keys()]) {
-      if (/token|key|sig|signature|secret|auth|session|sid|password|pass|code|email|credential|^x-amz-|^x-goog-/i.test(k)) u.searchParams.delete(k);
+      if (/token|key|sig|signature|secret|auth|session|sid|password|pass|code|email|credential|ticket|jwt|otp|nonce|^state$|^x-amz-|^x-goog-/i.test(k)) u.searchParams.delete(k);
     }
     return u.toString();
   } catch {
@@ -100,6 +104,7 @@ export function writeCapture(vault: string, c: Omit<Capture, "hash" | "capturedA
     hash,
     class: c.class,
     source: redactUrl(String(c.source || "unknown")).slice(0, 500),
+    ...(c.landed ? { landed: redactUrl(c.landed).slice(0, 500) } : {}),
     title: c.title || captureTitle(c.source, text),
     capturedAt: new Date().toISOString(),
     ...(c.asOf ? { asOf: c.asOf } : {}),
@@ -152,21 +157,27 @@ const ALL: RevisionRelation[] = ["supersedes", "bounds", "contests", "withdrawsS
  * raises a dispute or removes support; superseding needs the person's words
  * or the older note's own source (`oldSources`: the URLs it cites).
  */
-export function allowedRelations(c: Pick<Capture, "class" | "source">, oldSources: readonly string[]): RevisionRelation[] {
+export function allowedRelations(c: Pick<Capture, "class" | "source" | "landed">, oldSources: readonly string[]): RevisionRelation[] {
   if (c.class === "owner") return ALL;
   // Only a page fetched from that address is its source; a connector result
   // that merely mentions the URL (a chat search for it) is not.
-  // Host case, fragments and tracking parameters do not make another page; other parameters (`?id=`) do.
+  // Host case, fragments and tracking parameters do not make another page; a
+  // port and other parameters (`?id=`) do. An arXiv paper is one page in any
+  // version, abstract or PDF. A fetch that was redirected elsewhere (a deleted
+  // post landing on a listing) is not the note's source.
   const norm = (u: string) => {
     try {
       const x = new URL(u);
       for (const k of [...x.searchParams.keys()]) if (/^(utm_|fbclid$|gclid$|ref$|ref_src$|mc_)/i.test(k)) x.searchParams.delete(k);
-      return `${x.hostname.toLowerCase().replace(/^www\./, "")}${x.pathname.replace(/\/+$/, "")}${x.search}`;
+      const page = `${x.host.toLowerCase().replace(/^www\./, "")}${x.pathname.replace(/\/+$/, "")}${x.search}`;
+      const ax = /^(?:export\.)?arxiv\.org\/(?:abs|pdf)\/(\d{4}\.\d{4,5})(?:v\d+)?(?:\.pdf)?$/.exec(page);
+      return ax ? `arxiv.org/abs/${ax[1]}` : page;
     } catch {
       return u;
     }
   };
-  if (c.class === "web" && oldSources.some((u) => norm(u) === norm(c.source))) return ALL;
+  const own = (u: string) => oldSources.some((o) => norm(o) === norm(u));
+  if (c.class === "web" && own(c.source) && (!c.landed || own(c.landed))) return ALL;
   return ["contests", "withdrawsSupport"];
 }
 
@@ -175,7 +186,8 @@ export { captureFraming } from "../../../hooks/lib/revision/capture-gate.ts";
 /** Where the note an accepted capture becomes will live: beside the older note, so it is in the same scope. */
 export function plannedRel(vault: string, oldRel: string, c: Pick<Capture, "hash" | "title" | "capturedAt">): string {
   const folder = dirname(oldRel) === "." ? "" : `${dirname(oldRel)}/`;
-  const base = `${localDay(c.capturedAt)} ${c.title}`;
+  // The hash keeps two captures with one title on one day apart.
+  const base = `${localDay(c.capturedAt)} ${c.title} ${c.hash.slice(0, 6)}`;
   const mine = (rel: string) => {
     try {
       return new RegExp(`^capture: ${c.hash}$`, "m").test(readFileSync(join(vault, rel), "utf-8").split(/\n---/)[0]);
@@ -189,26 +201,35 @@ export function plannedRel(vault: string, oldRel: string, c: Pick<Capture, "hash
   return rel;
 }
 
-/** The captured window an accept writes into the vault: the passages the decision rests on, not the whole text. */
+/**
+ * The captured window an accept writes into the vault: the passages the
+ * decision rests on, not the whole text. In `_raw/`, which is not indexed:
+ * the excerpt is not a second note with the captured note's title.
+ */
 export function rawRelFor(noteRel: string): string {
   const folder = dirname(noteRel) === "." ? "" : `${dirname(noteRel)}/`;
-  return `${folder}raw/${noteRel.split("/").pop()}`;
+  return `${folder}_raw/${noteRel.split("/").pop()}`;
 }
+
+const PASTED = "pasted in conversation";
+const origin = (c: Capture) =>
+  c.class === "owner" ? "the vault owner's own words" : c.source === PASTED ? PASTED : c.class === "connector" ? "connector read" : "web page";
 
 export function rawText(c: Capture, passages: ReadonlyArray<{ locator: string; text: string }>): string {
   return [
     `Source: ${c.source}`,
-    `Captured: ${localDay(c.capturedAt)}${c.asOf ? ` · as of ${c.asOf}` : ""} · ${c.class === "owner" ? "the vault owner's own words" : c.class === "connector" ? "connector read" : "web page"}`,
+    `Captured: ${localDay(c.capturedAt)}${c.asOf ? ` · as of ${c.asOf}` : ""} · ${origin(c)}`,
     "",
     ...passages.flatMap((p) => [`--- ${p.locator} ---`, p.text.trim(), ""]),
   ].join("\n");
 }
 
-/** The source note an accepted capture becomes; the edge is inserted into it by the accept. */
-export function captureNote(c: Capture, rawRel: string): string {
+/** The source note an accepted capture becomes; the edge is inserted into it by the accept. `priv`: the older note is private, so this one is too, wherever it sits. */
+export function captureNote(c: Capture, rawRel: string, priv = false): string {
   return [
     "---",
     "type: source",
+    ...(priv ? ["scope: private"] : []),
     `capture: ${c.hash}`,
     `created: ${localDay(new Date().toISOString())}`,
     ...(c.asOf ? [`as_of: ${c.asOf}`] : []),
@@ -216,7 +237,7 @@ export function captureNote(c: Capture, rawRel: string): string {
     "---",
     `# ${localDay(c.capturedAt)} ${c.title}`,
     "",
-    c.class === "owner" ? "**Source:** the vault owner, in conversation" : c.class === "web" && /^https?:\/\//.test(c.source) ? `**URL:** ${c.source}` : `**Source:** ${c.class === "connector" ? "a connector read (not the page itself)" : c.source}`,
+    c.class === "owner" ? "**Source:** the vault owner, in conversation" : c.class === "web" && /^https?:\/\//.test(c.source) ? `**URL:** ${c.source}` : `**Source:** ${c.source === PASTED ? PASTED : c.class === "connector" ? "a connector read (not the page itself)" : c.source}`,
     `**Original:** ![[${rawRel}]]`,
     "",
     "Captured by commonplace when it was read, because it bears on a claim in an older note. The excerpt above is the part the revision rests on.",

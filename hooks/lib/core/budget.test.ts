@@ -51,10 +51,9 @@ test("the day rolls over at local midnight and spending starts again", () => {
 });
 
 test("raise doubles today's limit and clears the stop", () => {
-  const s = raise({ day: "2026-10-30", spent: 5.1, stopped: true, noticed: true }, 5);
+  const s = raise({ day: "2026-10-30", spent: 5.1, noticed: true }, 5);
   assert.equal(s.limit, 10);
   assert.equal(canSpend(s, 5), true);
-  assert.equal(s.stopped, false);
   assert.equal(budgetLine(s, 5), "vault spend today: $5.10 of $10");
   assert.match(budgetLine({ day: "x", spent: 6 }, 5), /paused until midnight/);
 });

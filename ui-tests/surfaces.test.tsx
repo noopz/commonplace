@@ -6,6 +6,8 @@
 import { test, expect, mock } from "claude-code/testing";
 import { serveVault, engineFloor } from "./fixture.tsx";
 import { dayOf } from "../hooks/lib/core/budget.ts";
+/** Real time for unawaited background work (several store reads) to land; `band.find` alone does not yield long enough. */
+const pause = () => new Promise<void>((r) => (globalThis as unknown as { setTimeout: (f: () => void, ms: number) => void }).setTimeout(r, 10));
 
 const SURFACES = ["terminal", "desktop"] as const;
 const REPLY =
@@ -240,7 +242,7 @@ for (const surface of SURFACES) {
     await $.prompt.submit({ text: "hello", origin: { kind: "composer" } } as never);
     await $.turn.start({ turnId: "turn-w", text: "hello" } as never);
     const band = await $.ui.mount({ plugin: "commonplace", surface, component: "AbovePrompt", props: { hasSurvey: false } as never });
-    for (let i = 0; i < 50 && !(await band.find({ text: /haven't committed/ })); i++);
+    for (let i = 0; i < 50 && !(await band.find({ text: /haven't committed/ })); i++) await pause();
     expect((await band.find({ text: /haven't committed/ }))?.text).toMatch(/2 revisions wait on 1 note/);
     await band.press({ key: "cp-notice-act" } as never);
     for (let i = 0; i < 50 && !(await band.find({ text: /committed the notes/ })); i++);
@@ -249,9 +251,13 @@ for (const surface of SURFACES) {
   });
 
   test(`${surface}: over the daily budget, background work stops and a notice offers to raise it for today`, async ($, on) => {
-    const kept = new Map<string, unknown>([["budget:daily", { day: dayOf(new Date()), spent: 7.5 }], ["budget:prices", { at: Date.now(), table: [] }]]);
+    // Two sessions' spend, summed.
+    const day = dayOf(new Date());
+    const kept = new Map<string, unknown>([["budget:spent:other", { day, spent: 4 }], ["budget:spent:another", { day, spent: 3.5 }], ["budget:prices", { at: Date.now(), table: [] }]]);
     on("store.get", async (_$, e) => ({ value: kept.get(e.key) ?? null }) as never);
     on("store.set", async (_$, e) => (kept.set(e.key, e.value), { value: undefined }) as never);
+    on("store.keys", async () => ({ value: [...kept.keys()] }) as never);
+    on("store.delete", async (_$, e) => (kept.delete(e.key), { value: undefined }) as never);
     mock.clock(on, { now: 1_000_000 });
     let modelCalls = 0;
     on("model.classify", async () => (modelCalls++, { value: "technical-substance" }) as never);
@@ -269,7 +275,7 @@ for (const surface of SURFACES) {
     expect(modelCalls).toBe(0);
     expect(await band.find({ key: "cp-notice-stop" } as never)).toBeTruthy();
     await band.press({ key: "cp-notice-act" } as never);
-    for (let i = 0; i < 50 && (kept.get("budget:daily") as { limit?: number }).limit !== 10; i++) await band.find({ text: /./ });
+    for (let i = 0; i < 50 && (kept.get("budget:daily") as { limit?: number } | undefined)?.limit !== 10; i++) await band.find({ text: /./ });
     expect((kept.get("budget:daily") as { limit?: number }).limit).toBe(10);
   });
 
