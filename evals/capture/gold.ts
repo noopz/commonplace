@@ -20,10 +20,18 @@ const KAPPA = note("Kappa API Limits", "The Kappa API allows 500 requests per mi
 const ZETA = note("Zeta Service Quotas", "The Zeta API allows 1000 requests per minute.", "Quotas are per organisation, not per key.");
 const OMEGA = note("Omega Build Times", "Omega's full build takes about 12 minutes on the shared runners.", "Incremental builds take under two minutes.");
 
+const OMICRON = { ...note("Omicron Retention Policy", "Omicron keeps audit logs for 90 days.", "Older logs are deleted by a nightly sweep."), sources: ["https://example.net/omicron/retention"] };
+
 const pad = (s: string) => `${s}\n\nOther items on the page cover unrelated release housekeeping, contributor credits and a list of minor documentation fixes that do not bear on behaviour.`;
 
 export const BUILTIN: CaptureCase[] = [
   // ------------------------------------------------------------ real changes
+  // The older note's own cited page, revised: the one case a page may supersede.
+  { id: "web-own-source", class: "web", source: "https://example.net/omicron/retention", kind: "real-change", expect: "change", older: OMICRON,
+    capture: { title: "Omicron retention policy", text: pad("Updated policy: Omicron now keeps audit logs for 30 days. The retention period was shortened from 90 days in this revision of the policy; logs older than 30 days are deleted by the nightly sweep.") } },
+  // The same URL mentioned in a chat thread is not that page: it may only contest.
+  { id: "connector-mentions-source", class: "connector", source: "https://example.net/omicron/retention", kind: "real-change", expect: "change", older: OMICRON,
+    capture: { title: "thread", text: "From the platform channel: confirmed with the Omicron owners this morning, audit logs are now kept for 30 days, not 90; they updated https://example.net/omicron/retention to match and the nightly sweep already deletes anything older." } },
   { id: "owner-world-change", class: "owner", source: "conversation", kind: "real-change", expect: "change", older: ACME,
     capture: { title: "conversation", text: "We moved Acme's nightly export off cron last month. It's triggered from the event queue now whenever the day's ledger closes, usually somewhere between 01:00 and 04:00, so there is no fixed 02:00 run any more." } },
   { id: "owner-correction", class: "owner", source: "conversation", kind: "real-change", expect: "change", older: KAPPA,

@@ -21,7 +21,7 @@ import { tmpdir } from "os";
 import { parseFrontmatter } from "../../../hooks/lib/index/yaml.ts";
 
 export type ArtifactRef = { kind: "file" | "url"; ref: string };
-export type Artifact = { ref: string; hash: string; text: string; fetchedAt: string; pages?: number[] };
+export type Artifact = { ref: string; hash: string; text: string; fetchedAt: string; pages?: number[]; /** Where a fetch ended up, after redirects. */ url?: string };
 export type Passage = { locator: string; text: string };
 
 const LABELLED = /\*\*(?:URL|Source|Link|Links|Paper|arXiv|Webpage|Doc|PDF):?\*\*:?\s*(\S+)/gi;
@@ -78,6 +78,7 @@ function rawDirs(vault: string): string[] {
   return out;
 }
 
+const MAX_FETCH_BYTES = 25 * 1024 * 1024;
 const cacheDir = (vault: string) => join(vault, ".wiki", "revision", "artifacts");
 const sha = (s: string | Uint8Array) => createHash("sha256").update(s).digest("hex");
 
@@ -122,6 +123,7 @@ export async function loadArtifact(vault: string, r: ArtifactRef, opts: { timeou
     if (cached.text) return cached;
   } catch {}
   let text = "";
+  let landed: string | undefined;
   try {
     if (r.kind === "file") {
       const bytes = readFileSync(r.ref);
@@ -133,8 +135,11 @@ export async function loadArtifact(vault: string, r: ArtifactRef, opts: { timeou
       try {
         const res = await fetch(r.ref, { signal: ctl.signal, redirect: "follow", headers: { "user-agent": "commonplace-revision/1 (evidence check)" } });
         if (!res.ok) return null;
+        if (Number(res.headers.get("content-length") ?? 0) > MAX_FETCH_BYTES) return null;
+        landed = res.url || undefined;
         const type = res.headers.get("content-type") ?? "";
         const bytes = new Uint8Array(await res.arrayBuffer());
+        if (bytes.length > MAX_FETCH_BYTES) return null;
         if (/pdf/i.test(type) || /\.pdf($|\?)/i.test(r.ref)) text = await pdfText(bytes);
         else text = htmlToText(new TextDecoder().decode(bytes));
       } finally {
@@ -146,7 +151,7 @@ export async function loadArtifact(vault: string, r: ArtifactRef, opts: { timeou
   }
   text = text.trim();
   if (text.length < 200) return null; // a paywall stub or an empty page is not the source
-  const art: Artifact = { ref: r.ref, hash: `sha256:${sha(text).slice(0, 32)}`, text, fetchedAt: new Date().toISOString() };
+  const art: Artifact = { ref: r.ref, hash: `sha256:${sha(text).slice(0, 32)}`, text, fetchedAt: new Date().toISOString(), ...(landed && landed !== r.ref ? { url: landed } : {}) };
   if (!opts.fresh) try {
     mkdirSync(dir, { recursive: true });
     const tmp = `${file}.${process.pid}.tmp`;

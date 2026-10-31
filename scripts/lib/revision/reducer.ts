@@ -163,7 +163,8 @@ export function reduce(events: ReadonlyArray<RevEvent & { shard: string }>): Red
   const scopes: Reduced["scopes"] = new Map();
   let paused = false;
   let maxSeq = 0;
-  const staleByEvent = new Map<string, { marks: Array<{ rel: string; displaced: string }>; shard: string }>();
+  // One event's marks may sit in several ledgers: a private dependent's in its own shard.
+  const staleByEvent = new Map<string, Array<{ marks: Array<{ rel: string; displaced: string }>; shard: string }>>();
   const checked: Reduced["checked"] = [];
   const jobs: Reduced["jobs"] = new Map();
 
@@ -254,7 +255,7 @@ export function reduce(events: ReadonlyArray<RevEvent & { shard: string }>): Red
         paused = false;
         break;
       case "stale":
-        staleByEvent.set(e.event, { marks: e.marks, shard: e.shard });
+        staleByEvent.set(e.event, [...(staleByEvent.get(e.event) ?? []).filter((x) => x.shard !== e.shard), { marks: e.marks, shard: e.shard }]);
         break;
       case "checked":
         checked.push({ rel: e.rel, blob: e.blob, event: e.event });
@@ -316,9 +317,9 @@ export function reduce(events: ReadonlyArray<RevEvent & { shard: string }>): Red
   const reverted = new Set<string>();
   for (const [id, p] of accepts) if (p.revert) reverted.add(id);
   const stale: Array<StaleMark & { shard: string }> = [];
-  for (const [event, { marks, shard }] of staleByEvent) {
+  for (const [event, groups] of staleByEvent) {
     if (reverted.has(event)) continue;
-    for (const m of marks) stale.push({ rel: m.rel, displaced: m.displaced, event, shard });
+    for (const { marks, shard } of groups) for (const m of marks) stale.push({ rel: m.rel, displaced: m.displaced, event, shard });
   }
 
   // A claim whose lease ran out (its session died mid-job) counts as an attempt

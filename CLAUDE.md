@@ -323,7 +323,7 @@ judge replies the person never saw.
 
 **`hook-log.jsonl` stage vocabulary** (beyond the connection pass's own):
 `tool:vault_*`, `index:patch|sweep|build|built`, `guard:*`, `scope:proposed`,
-`skill:delivered`, `unit:command`, `revision:*`, `prime:sync|skip-cold|appended|judged-no|unanswered|late-drop|no-turn|error`, `budget:spend|skip`, `capture:gate|none|error` (counts only),
+`skill:delivered`, `unit:command`, `revision:*`, `prime:sync|skip-cold|appended|judged-no|unanswered|late-drop|no-turn|error`, `budget:spend|skip`, `capture:gate|none|skip|error` (counts only),
 `skip:segment-budget`, `connect:appended|followed`,
 `triage:verdict|not-fetched|unanswered|ingest|later|skip|read|error`, `cite:check`
 (counts only), `revision:ensure|enqueue|trigger|detect|audit|proposed|propose-none|pool-empty|skip|written-truncated|proposal-cap|review|verify|escalate|wording|accept|steps|stuck|undo|waiting|commit-waiting|error`. A private note's path is never logged.
@@ -486,16 +486,20 @@ the **summary** (concepts and MOCs, revised with receipts).
   outside the vault is captured by code at read time, never from the model's
   account of it: a WebFetch'd page is re-fetched fresh by `revise capture`
   (not WebFetch's summary, not the artifact cache), an MCP connector result
-  (not ours, not a browser, not Claude Docs; errors and images dropped) is
-  taken as it came, and a typed prompt ≥120 chars is the owner's word (over
+  (not ours, not a browser, not Claude Docs, not a write-type tool such as
+  send/create/update; errors and images dropped) is taken as it came, and a typed prompt ≥120 chars is the owner's word (over
   1500 chars, with a code fence or quoted mail it is treated as pasted, class
   `web`). Assistant text and commonplace's own agents' reads are never
-  captured; an intranet or local host's page is class `connector`. A capture
+  captured; an intranet or local host's page (or a redirect to one) is class
+  `connector`. Reads wait for the main turn to end and are dropped when that
+  turn wrote the vault (an ingest: the write trigger covers it). Source URLs
+  lose credentials and token-like parameters before they are stored. A capture
   is stored in `.wiki/revision/captures/` only once it clears the gate
   (`capture` runs `dry` first); that folder is a sealed artefact root the
   model cannot read; keyed by class + text, pruned after 30 days by `revise
   ensure` unless a live proposal or job in any scope rests on one. A free gate searches the loaded index
-  chunk by chunk (`capturePool`, prime's linear thresholds) and only a clear
+  chunk by chunk (`capturePool`, prime's linear thresholds; source and other
+  notes only, so concepts and MOCs cannot crowd them out) and only a clear
   match becomes an `external-read` job (`job-queued.capture`), one per shard;
   connector text pools private notes only and `propose` refuses it against a
   public note. The proposal's newer side is `capture:<hash>`; the reducer

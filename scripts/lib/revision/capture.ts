@@ -62,13 +62,30 @@ export function captureTitle(source: string, text: string): string {
 export function privateHost(url: string): boolean {
   let h = "";
   try {
-    h = new URL(url).hostname.toLowerCase().replace(/^\[|\]$/g, "");
+    h = new URL(url).hostname.toLowerCase().replace(/^\[|\]$/g, "").replace(/\.$/, "");
   } catch {
     return false;
   }
+  if (h.includes(":")) return h === "::" || h === "::1" || /^f[cd][0-9a-f]{2}:/.test(h) || /^fe80:/.test(h) || /^::ffff:/.test(h);
   if (!h.includes(".") || h === "localhost" || /\.(local|localhost|internal|intranet|corp|lan|home|test)$/.test(h)) return true;
-  if (/^(10|127)\./.test(h) || /^192\.168\./.test(h) || /^172\.(1[6-9]|2\d|3[01])\./.test(h) || /^169\.254\./.test(h)) return true;
+  if (/^(0|10|127)\./.test(h) || /^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(h) || /^192\.168\./.test(h) || /^172\.(1[6-9]|2\d|3[01])\./.test(h) || /^169\.254\./.test(h)) return true;
   return h === "::1" || /^f[cd][0-9a-f]{2}:/.test(h) || /^fe80:/.test(h);
+}
+
+/** A source URL without what would leak if committed: credentials and token-like query parameters. */
+export function redactUrl(source: string): string {
+  if (!/^https?:\/\//.test(source)) return source;
+  try {
+    const u = new URL(source);
+    u.username = "";
+    u.password = "";
+    for (const k of [...u.searchParams.keys()]) {
+      if (/token|key|sig|signature|secret|auth|session|sid|password|pass|code|email|credential|^x-amz-|^x-goog-/i.test(k)) u.searchParams.delete(k);
+    }
+    return u.toString();
+  } catch {
+    return source;
+  }
 }
 
 /** Store a capture; the same text is one capture. Null when there is too little to rest anything on. */
@@ -82,7 +99,7 @@ export function writeCapture(vault: string, c: Omit<Capture, "hash" | "capturedA
   const cap: Capture = {
     hash,
     class: c.class,
-    source: String(c.source || "unknown").slice(0, 500),
+    source: redactUrl(String(c.source || "unknown")).slice(0, 500),
     title: c.title || captureTitle(c.source, text),
     capturedAt: new Date().toISOString(),
     ...(c.asOf ? { asOf: c.asOf } : {}),
@@ -139,7 +156,16 @@ export function allowedRelations(c: Pick<Capture, "class" | "source">, oldSource
   if (c.class === "owner") return ALL;
   // Only a page fetched from that address is its source; a connector result
   // that merely mentions the URL (a chat search for it) is not.
-  const norm = (u: string) => u.replace(/^https?:\/\/(www\.)?/, "").replace(/#.*$/, "").replace(/\/+(?=$|\?)/, "");
+  // Host case, fragments and tracking parameters do not make another page; other parameters (`?id=`) do.
+  const norm = (u: string) => {
+    try {
+      const x = new URL(u);
+      for (const k of [...x.searchParams.keys()]) if (/^(utm_|fbclid$|gclid$|ref$|ref_src$|mc_)/i.test(k)) x.searchParams.delete(k);
+      return `${x.hostname.toLowerCase().replace(/^www\./, "")}${x.pathname.replace(/\/+$/, "")}${x.search}`;
+    } catch {
+      return u;
+    }
+  };
   if (c.class === "web" && oldSources.some((u) => norm(u) === norm(c.source))) return ALL;
   return ["contests", "withdrawsSupport"];
 }
@@ -188,7 +214,7 @@ export function captureNote(c: Capture, rawRel: string): string {
     ...(c.asOf ? [`as_of: ${c.asOf}`] : []),
     "tags: [captured]",
     "---",
-    `# ${c.title}`,
+    `# ${localDay(c.capturedAt)} ${c.title}`,
     "",
     c.class === "owner" ? "**Source:** the vault owner, in conversation" : c.class === "web" && /^https?:\/\//.test(c.source) ? `**URL:** ${c.source}` : `**Source:** ${c.class === "connector" ? "a connector read (not the page itself)" : c.source}`,
     `**Original:** ![[${rawRel}]]`,

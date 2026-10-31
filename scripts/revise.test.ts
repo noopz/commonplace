@@ -380,7 +380,15 @@ test("read capture: the owner's words become a note beside the older one only wh
 
     const q = revise(root, ["job-enqueue"], { capture: { hash: c.hash, pool: [OLD] }, origin: "external-read" });
     assert.equal(q.queued.length, 1, JSON.stringify(q));
-    assert.equal(revise(root, ["job-next"]).job.capture.hash, c.hash);
+    const claimed = revise(root, ["job-next"]).job;
+    assert.equal(claimed.capture.hash, c.hash);
+    revise(root, ["job-done", "--job", claimed.job], {});
+    // An overflow job keeps the pairs the detector already found.
+    const pairs = [{ written: `capture:${c.hash}`, old: OLD, why: "later figure" }];
+    assert.equal(revise(root, ["job-enqueue"], { capture: { hash: c.hash, pool: [OLD], pairs }, origin: "external-read" }).queued.length, 1);
+    const over = revise(root, ["job-next"]).job;
+    assert.deepEqual(over.capture.pairs, pairs);
+    revise(root, ["job-done", "--job", over.job], {});
 
     const p = revise(root, ["propose", "--old", "Old Finding", "--new", `capture:${c.hash}`, "--claim", CLAIM], { origin: "external" });
     assert.equal(p.status, "proposed", JSON.stringify(p));

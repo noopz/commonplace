@@ -396,7 +396,11 @@ switch (sub) {
         : [],
       ...(Array.isArray(body.pairs) ? { pairs: (body.pairs as Array<Record<string, unknown>>).map((p) => ({ written: String(p.written), old: String(p.old), why: String(p.why ?? "") })) } : {}),
       ...(body.capture && typeof body.capture === "object"
-        ? { capture: { hash: String((body.capture as Record<string, unknown>).hash), pool: ((body.capture as Record<string, unknown>).pool as unknown[] ?? []).map(String) } }
+        ? (() => {
+            const c = body.capture as Record<string, unknown>;
+            const pairs = Array.isArray(c.pairs) ? (c.pairs as Array<Record<string, unknown>>).map((p) => ({ written: String(p.written), old: String(p.old), why: String(p.why ?? "") })) : undefined;
+            return { capture: { hash: String(c.hash), pool: ((c.pool as unknown[]) ?? []).map(String), ...(pairs ? { pairs } : {}) } };
+          })()
         : {}),
       origin: String(body.origin ?? actor.type),
       ...(body.unit ? { unit: String(body.unit) } : {}),
@@ -417,8 +421,14 @@ switch (sub) {
     let text = String(body.text ?? "");
     const source = String(body.source ?? "");
     // A web page is fetched here, never taken from WebFetch's summary of it.
-    if (cls === "web" && !text && /^https?:\/\//.test(source)) text = (await loadArtifact(vault, { kind: "url", ref: source }, { fresh: true }))?.text ?? "";
-    if (cls === "web" && privateHost(source)) cls = "connector";
+    let landed = source;
+    if (cls === "web" && !text && /^https?:\/\//.test(source)) {
+      const art = await loadArtifact(vault, { kind: "url", ref: source }, { fresh: true });
+      text = art?.text ?? "";
+      landed = art?.url ?? source;
+    }
+    // A page on (or redirected to) a host only this network reaches is private, like a connector.
+    if (cls === "web" && (privateHost(source) || privateHost(landed))) cls = "connector";
     // Dry first: nothing read outside the vault is stored until the gate finds notes it bears on.
     const c = writeCapture(vault, { class: cls, source, text, ...(body.asOf ? { asOf: String(body.asOf) } : {}) }, body.dry === true);
     print(c ? { hash: c.hash, class: c.class, title: c.title, chars: c.text.length, text: c.text } : { none: true, why: "too little text" });

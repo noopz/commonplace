@@ -208,7 +208,7 @@ export type AcceptResult =
   | { status: "refused"; reason: string };
 
 /** Concepts and MOCs that cite `oldRel` and may have absorbed its claim. */
-async function dependents(ctx: Ctx, oldRel: string, exclude: string): Promise<string[]> {
+async function dependents(ctx: Ctx, oldRel: string, exclude: string): Promise<Array<{ rel: string; shard: string }>> {
   const loaded = await loadIndex(ctx.vault, ctx.open);
   const v = loaded?.index.view;
   if (!loaded || !v) return [];
@@ -216,13 +216,25 @@ async function dependents(ctx: Ctx, oldRel: string, exclude: string): Promise<st
   if (id === undefined) return [];
   const ins = v.links(id, "in").filter((l) => l.kind !== "supersedes" && l.kind !== "contests" && l.kind !== "bounds" && l.kind !== "withdrawsSupport");
   const cards = await loaded.index.cards(ins.map((l) => l.id));
-  const out = new Set<string>();
+  const out = new Map<string, string>();
   for (const l of ins) {
     const c = cards.get(l.id);
     const rel = v.relOfId(l.id);
-    if (c && rel && rel !== exclude && (c.k === "concept" || c.k === "moc")) out.add(rel);
+    if (c && rel && rel !== exclude && (c.k === "concept" || c.k === "moc")) out.set(rel, v.shard(l.id));
   }
-  return [...out].sort();
+  return [...out].sort((a, b) => a[0].localeCompare(b[0])).map(([rel, shard]) => ({ rel, shard }));
+}
+
+/** Stale marks, each in a ledger that may name it: a private dependent's in its own shard, never the public one. */
+function appendStale(ctx: Ctx, p: ProposalState, event: string, deps: Array<{ rel: string; shard: string }>): number {
+  const by = new Map<string, Array<{ rel: string; displaced: string }>>();
+  for (const d of deps) {
+    const shard = d.shard === MAIN ? p.shard : d.shard;
+    if (!by.has(shard)) by.set(shard, []);
+    by.get(shard)!.push({ rel: d.rel, displaced: p.propose.old.title });
+  }
+  for (const [shard, marks] of by) append(ctx.vault, shard, ctx.actor, { kind: "stale", event, marks });
+  return deps.length;
 }
 
 function pendingOn(ctx: Ctx, p: ProposalState, reason: string): AcceptResult {
@@ -263,7 +275,7 @@ export async function accept(ctx: Ctx, proposalId: string): Promise<AcceptResult
       if (!cap) return pendingOn(ctx, p, "the capture is gone");
       if (existsSync(join(ctx.vault, newRel))) {
         reuse = readFileSync(join(ctx.vault, newRel), "utf-8");
-        if (String(parseFrontmatter(reuse).data.capture ?? "") !== cap.hash) return pendingOn(ctx, p, "a file already exists where the captured note would go");
+        if (!new RegExp(`^capture: ${cap.hash}$`, "m").test(reuse.split(/\n---/)[0])) return pendingOn(ctx, p, "a file already exists where the captured note would go");
       } else if (existsSync(join(ctx.vault, rawRelFor(newRel)))) return pendingOn(ctx, p, "a file already exists where the captured note's excerpt would go");
     } else if (!sameRev(ctx.vault, newRel, p.propose.new.rev)) return pendingOn(ctx, p, "the newer note changed after review");
     const oldText = readFileSync(join(ctx.vault, oldRel), "utf-8");
@@ -293,18 +305,34 @@ export async function accept(ctx: Ctx, proposalId: string): Promise<AcceptResult
     // decision rests on, never the whole capture.
     const abs = join(ctx.vault, newRel);
     let rawRel: string | null = null;
-    if (cap && reuse === null) {
+    let rawBefore: string | null = null;
+    let rawOld: string | null = null;
+    if (cap) {
+      // The excerpt this decision rests on; a second edge adds its own passages to the note's excerpt.
       rawRel = rawRelFor(newRel);
+      const rawAbs = join(ctx.vault, rawRel);
       const art = { ref: `capture:${cap.hash}`, hash: `sha256:${cap.hash}`, text: cap.text, fetchedAt: cap.capturedAt };
       const query = [p.propose.old.claim, p.decision?.because ?? "", ...(p.reviews[0]?.quotesNew ?? [])].join(" ");
-      mkdirSync(dirname(join(ctx.vault, rawRel)), { recursive: true });
-      writeFileSync(join(ctx.vault, rawRel), rawText(cap, passages(art, query, 3)));
+      const found = passages(art, query, 3);
+      rawOld = reuse !== null && existsSync(rawAbs) ? readFileSync(rawAbs, "utf-8") : null;
+      if (rawOld !== null) rawBefore = blobOfFile(repo, rawRel, true);
+      mkdirSync(dirname(rawAbs), { recursive: true });
+      if (rawOld === null) writeFileSync(rawAbs, rawText(cap, found));
+      else {
+        const add = found.filter((x) => !rawOld!.includes(`--- ${x.locator} ---`));
+        if (add.length) writeFileSync(rawAbs, `${rawOld.trimEnd()}\n\n${add.flatMap((x) => [`--- ${x.locator} ---`, x.text.trim(), ""]).join("\n")}`);
+        else rawRel = null; // nothing new to add: the excerpt is not part of this commit
+      }
     }
     const text = reuse ?? (cap ? captureNote(cap, rawRel!) : readFileSync(abs, "utf-8"));
     let next: string;
     try {
       next = insertEdge(text, edge.relation, p.propose.old.title, edge.rel);
     } catch (e) {
+      if (rawRel) {
+        if (rawOld !== null) writeFileSync(join(ctx.vault, rawRel), rawOld);
+        else rmSync(join(ctx.vault, rawRel), { force: true });
+      }
       append(ctx.vault, p.shard, ctx.actor, { kind: "accept-failed", accept: acceptEv.id, reason: `frontmatter: ${String((e as Error).message)}` });
       return { status: "pending", reason: "the newer note's frontmatter could not take the edge" };
     }
@@ -314,7 +342,7 @@ export async function accept(ctx: Ctx, proposalId: string): Promise<AcceptResult
     const unit = `rev-${acceptEv.id}`;
     const who = { actor: ctx.actor.type, session: ctx.actor.session };
     recordTouch(ctx.vault, unit, who, newRel, before, after, repo);
-    if (rawRel) recordTouch(ctx.vault, unit, who, rawRel, null, blobOfFile(repo, rawRel, true), repo);
+    if (rawRel) recordTouch(ctx.vault, unit, who, rawRel, rawBefore, blobOfFile(repo, rawRel, true), repo);
     recordAppendOnly(ctx.vault, unit, who, [...new Set([ledgerRel(p.shard, ctx.actor.session || "cli"), ...ledgerFiles(ctx.vault, p.shard)])], repo);
     const res = commitUnit(ctx.vault, unit, {
       message: `commonplace revision: accept ${acceptEv.id}`,
@@ -327,7 +355,10 @@ export async function accept(ctx: Ctx, proposalId: string): Promise<AcceptResult
         // Nothing of a capture stays in the vault unless its accept landed.
         rmSync(abs, { force: true });
         if (rawRel) rmSync(join(ctx.vault, rawRel), { force: true });
-      } else if (blobOfFile(repo, newRel) === after) writeFileSync(abs, text); // take our uncommitted edit back out
+      } else {
+        if (blobOfFile(repo, newRel) === after) writeFileSync(abs, text); // take our uncommitted edit back out
+        if (rawRel && rawOld !== null) writeFileSync(join(ctx.vault, rawRel), rawOld);
+      }
       const reason = res.status === "conflict" ? res.conflicts.map((c) => c.reason).join("; ") : res.status;
       // Retryable: the branch moved or a path was busy. The proposal returns to
       // "accept" and is tried again (after DEFER_MS, or once HEAD moves).
@@ -337,10 +368,9 @@ export async function accept(ctx: Ctx, proposalId: string): Promise<AcceptResult
 
     // Publish.
     append(ctx.vault, p.shard, ctx.actor, { kind: "committed", accept: acceptEv.id, commit: res.commit });
-    const marks = (await dependents(ctx, oldRel, newRel)).map((rel) => ({ rel, displaced: p.propose.old.title }));
-    if (marks.length) append(ctx.vault, p.shard, ctx.actor, { kind: "stale", event: acceptEv.id, marks });
+    const stale = appendStale(ctx, p, acceptEv.id, await dependents(ctx, oldRel, newRel));
     writeProjections(ctx);
-    return { status: "accepted", accept: acceptEv.id, commit: res.commit, stale: marks.length };
+    return { status: "accepted", accept: acceptEv.id, commit: res.commit, stale };
   } finally {
     releaseLock(lock);
   }
@@ -433,8 +463,7 @@ export async function revert(ctx: Ctx, acceptId: string, reason: string): Promis
     const already = [...red2.proposals.values()].some((x) => x.revert?.id === revertId);
     if (!already) append(ctx.vault, p.shard, ctx.actor, { id: revertId, kind: "revert", accept: a.id, reason, ...(conflict ? { conflict } : {}) });
     if (commit) append(ctx.vault, p.shard, ctx.actor, { kind: "committed", accept: revertId, commit });
-    const marks = (await dependents(ctx, p.propose.old.rel, a.from)).map((rel) => ({ rel, displaced: p.propose.old.title }));
-    if (marks.length) append(ctx.vault, p.shard, ctx.actor, { kind: "stale", event: revertId, marks });
+    appendStale(ctx, p, revertId, await dependents(ctx, p.propose.old.rel, a.from));
     writeProjections(ctx);
     return { status: "reverted", revert: revertId, ...(commit ? { commit } : {}), ...(conflict ? { conflict } : {}) };
   } finally {
@@ -469,11 +498,13 @@ export function recover(ctx: Ctx, minAgeMs = 120_000): { bound: number; abandone
         bound++;
       } else if (age > minAgeMs) {
         const u = readUnit(ctx.vault, `rev-${p.accept.id}`);
-        const path = u?.paths[p.accept.from];
-        if (repo && path?.after && blobOfFile(repo, p.accept.from) === path.after && path.before) {
+        // The note, and for a capture its excerpt: each put back if still exactly ours; one the accept created is removed.
+        for (const rel of p.propose.capture ? [p.accept.from, rawRelFor(p.accept.from)] : [p.accept.from]) {
+          const path = u?.paths[rel];
+          if (!repo || !path?.after || blobOfFile(repo, rel) !== path.after) continue;
           try {
-            const text = execFileSync("git", ["cat-file", "blob", path.before], { cwd: repo.top, stdio: "pipe" }).toString();
-            writeFileSync(join(ctx.vault, p.accept.from), text);
+            if (path.before) writeFileSync(join(ctx.vault, rel), execFileSync("git", ["cat-file", "blob", path.before], { cwd: repo.top, stdio: "pipe" }).toString());
+            else rmSync(join(ctx.vault, rel), { force: true });
           } catch {}
         }
         append(ctx.vault, p.shard, ctx.actor, { kind: "accept-failed", accept: p.accept.id, reason: "interrupted before commit; recovered" });

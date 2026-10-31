@@ -112,7 +112,7 @@ import { Witness, renderWitness } from "./lib/surfaces/witness.ts";
 import { EXPLAIN_PAGES, liveSvg, liveBars, type LiveCounts } from "./lib/explain/diagrams.ts";
 import { quarantinedFolders, domainIdFor, type QuarantinedFolder } from "./lib/core/quarantine.ts";
 import { runCapture, runTrigger, type TriggerPorts, type Pair } from "./lib/revision/trigger.ts";
-import { captureFraming, capturePool } from "./lib/revision/capture-gate.ts";
+import { GATE_POOL_MAX, captureFraming, capturePool } from "./lib/revision/capture-gate.ts";
 import { runSteps, type RunnerPorts } from "./lib/revision/runner.ts";
 import {
   DEFAULT_DAILY_USD,
@@ -535,6 +535,7 @@ const workOf = (vp: string, agentId: string | undefined) => {
   return w;
 };
 const noteWrite = (_$: EngineInterface, vp: string, rel: string, agentId: string | undefined) => {
+  lastVaultWriteAt = Date.now();
   if (!features.revision) return;
   const w = workOf(vp, agentId);
   w.written.add(rel);
@@ -737,45 +738,85 @@ const runnerPorts = ($: EngineInterface, vp: string): RunnerPorts => ({
  * assistant's own text is never captured.
  */
 const capturing = new Set<string>();
-const captureRead = async ($: EngineInterface, c: { class: "owner" | "connector" | "web"; source: string; text?: string; asOf?: string }, agentId?: string) => {
+type CaptureIn = { class: "owner" | "connector" | "web"; source: string; text?: string; asOf?: string };
+/**
+ * Reads wait for the turn to end: a turn that wrote the vault (an ingest of
+ * the page it fetched, a note the person asked for) already sends what it
+ * read through the write trigger and the impact checker, so its captures are
+ * dropped rather than proposed twice.
+ */
+let pendingCaptures: Array<{ c: CaptureIn; agentId?: string; at: number }> = [];
+let lastVaultWriteAt = 0;
+const queueCapture = (c: CaptureIn, agentId?: string) => {
   if (!features.revision || !features.capture) return;
-  // commonplace's own agents read in order to write the vault; that is not news to it.
-  if (agentId && (await agentTypeOf($, agentId)).startsWith("commonplace:")) return;
-  // The same read twice at once is one capture, and a burst of reads waits for none.
+  pendingCaptures.push({ c, ...(agentId ? { agentId } : {}), at: Date.now() });
+  if (pendingCaptures.length > 20) pendingCaptures = pendingCaptures.slice(-20);
+};
+const flushCaptures = ($: EngineInterface) => {
+  const list = pendingCaptures;
+  pendingCaptures = [];
+  for (const p of list) {
+    if (lastVaultWriteAt > p.at) void captureRead($, p.c, p.agentId, "ingested");
+    else void captureRead($, p.c, p.agentId);
+  }
+};
+const captureRead = async ($: EngineInterface, c: CaptureIn, agentId?: string, drop?: string) => {
+  let vp = "";
   const key = `${c.class}\u0000${c.source}\u0000${c.text?.length ?? 0}`;
-  if (capturing.has(key) || capturing.size >= 3) return;
-  const vault = await pickVault($);
-  if (!vault) return;
-  const vp = vault.path;
-  capturing.add(key);
+  let mine = false;
   try {
+    const vault = await pickVault($);
+    if (!vault) return;
+    vp = vault.path;
+    // commonplace's own agents read in order to write the vault; that is not news to it.
+    const why = drop ?? (agentId && (await agentTypeOf($, agentId)).startsWith("commonplace:") ? "own-agent" : capturing.has(key) ? "in-flight" : capturing.size >= 3 ? "busy" : "");
+    if (why) {
+      traceTo($, vp, "capture:skip", { class: c.class, why });
+      return;
+    }
+    capturing.add(key);
+    mine = true;
+    const idx = await getIndex($, vp, vault.domains);
+    const view = idx.state === "ready" ? idx.view : null;
+    if (!view) {
+      traceTo($, vp, "capture:skip", { class: c.class, why: "no-index" });
+      return;
+    }
     const got = await revCli($, vp, ["capture"], { class: c.class, source: c.source, ...(c.text ? { text: c.text } : {}), ...(c.asOf ? { asOf: c.asOf } : {}), dry: true });
     const hash = typeof got?.hash === "string" ? got.hash : "";
     if (!hash) {
-      traceTo($, vp, "capture:none", { class: c.class });
+      traceTo($, vp, "capture:none", { class: c.class, why: String(got?.why ?? "no answer") });
       return;
     }
-    const idx = await getIndex($, vp, vault.domains);
-    const view = idx.state === "ready" ? idx.view : null;
-    if (!view) return;
     // The CLI may have made a page private (an intranet host): its class is the one stored.
     const privateOnly = (got?.class ?? c.class) === "connector";
-    const ids = capturePool(String(got?.text ?? ""), (q) =>
-      view.search(q, { limit: 3, rank: RANK_LINEAR, filter: (id) => view.visible(id) && (!privateOnly || view.shard(id) !== "main") }),
+    const hits = capturePool(
+      String(got?.text ?? ""),
+      (q) => view.search(q, { limit: 8, rank: RANK_LINEAR, filter: (id) => view.visible(id) && (!privateOnly || view.shard(id) !== "main") }),
+      { max: 24 },
     );
-    const pool = ids.map((id) => view.relOfId(id)).filter((r): r is string => !!r);
+    // Only notes that carry claims: concepts and MOCs are short and title-dense, and would crowd them out.
+    const cards = await idx.cards(hits);
+    const pool = hits
+      .filter((id) => ["source", "other"].includes(String(cards.get(id)?.k ?? "")))
+      .slice(0, GATE_POOL_MAX)
+      .map((id) => view.relOfId(id))
+      .filter((r): r is string => !!r);
     // Counts only: a connector's source and a private note's path are never logged.
-    traceTo($, vp, "capture:gate", { class: c.class, pool: pool.length });
+    traceTo($, vp, "capture:gate", { class: c.class, pool: pool.length, hits: hits.length });
     if (pool.length === 0) return;
     // Only now is it stored: the text as read (a page as fetched above, not fetched again).
-    const kept = await revCli($, vp, ["capture"], { class: c.class, source: c.source, text: String(got?.text ?? ""), ...(c.asOf ? { asOf: c.asOf } : {}) });
-    if (kept?.hash !== hash) return;
+    const kept = await revCli($, vp, ["capture"], { class: privateOnly ? "connector" : c.class, source: c.source, text: String(got?.text ?? ""), ...(c.asOf ? { asOf: c.asOf } : {}) });
+    if (kept?.hash !== hash) {
+      traceTo($, vp, "capture:error", { err: kept ? "hash changed between gate and store" : "store failed" });
+      return;
+    }
     await revCli($, vp, ["job-enqueue"], { capture: { hash, pool }, origin: "external-read" });
     processRevision($, vp);
   } catch (err) {
-    traceTo($, vp, "capture:error", { err: String(err).slice(0, 80) });
+    if (vp) traceTo($, vp, "capture:error", { err: String(err).slice(0, 80) });
   } finally {
-    capturing.delete(key);
+    if (mine) capturing.delete(key);
   }
 };
 
@@ -960,7 +1001,8 @@ const budgetOpen = async ($: EngineInterface, vp?: string): Promise<boolean> => 
   const s = await budgetNow($);
   if (canSpend(s, budgetSetting)) return true;
   if (vp) traceTo($, vp, "budget:skip", { spent: Number(s.spent.toFixed(4)) });
-  await budgetNotice($, s);
+  // A limit of 0 is background work switched off: nothing to announce or raise.
+  if (limitOf(s, budgetSetting) > 0) await budgetNotice($, s);
   return false;
 };
 
@@ -1009,6 +1051,10 @@ const budgetNotice = async ($: EngineInterface, s: BudgetState) => {
 };
 
 const raiseBudget = async ($: EngineInterface) => {
+  if (limitOf(await budgetNow($), budgetSetting) === 0) {
+    notice($, "background work is off", "`dailyBudgetUSD` is 0, so there is no limit to raise; set it above 0 to turn background work on.", undefined, { card: false });
+    return;
+  }
   const s = await budgetWrite(async () => {
     const next = raiseBudgetState(await budgetNow($), budgetSetting);
     await $.store.set(BUDGET_KEY, next);
@@ -2842,22 +2888,25 @@ export const register: Register = (on, options) => {
       const code = Number((r as { result?: { code?: unknown } }).result?.code ?? 0);
       const url = p && code >= 200 && code < 300 ? p.urls.find((u) => sameUrl(u, e.url)) : undefined;
       if (p && url && !p.fetched.includes(url)) pendingLinks = { ...p, fetched: [...p.fetched, url] };
-      if (code >= 200 && code < 300 && typeof e.url === "string") void captureRead(_$, { class: "web", source: e.url }, e.agentId);
+      if (code >= 200 && code < 300 && typeof e.url === "string") queueCapture({ class: "web", source: e.url }, e.agentId);
     } catch {}
     return r;
   });
 
   // A connector's result (Slack, Docs, Confluence, any MCP server but ours and
   // the browser, nor Claude Docs, which reads back what the model wrote), captured
-  // as it came. Too short to rest anything on is dropped.
+  // as it came. Too short to rest anything on is dropped, and so is what a
+  // write-type tool (send, post, create, update…) echoes back: the model wrote it.
   on("tool.call", { tool: /^mcp__(?!commonplace__|plugin_playwright|claude-in-chrome|computer-use|Claude_Browser|remote-devices__|claude_ai_Claude_Docs__)/ }, async ($, e, next) => {
     const r = await next(e);
     try {
-      const text = resultText((r as { result?: unknown }).result);
+      const verb = String(e.tool).split("__").pop() ?? "";
+      const writes = /^(send|post|create|update|write|edit|reply|comment|add|delete|remove|upload|publish|set|put|patch|append|insert|move|rename|draft)/i.test(verb);
+      const text = writes ? "" : resultText((r as { result?: unknown }).result);
       if (text.length >= 300) {
-        const input = (e as { input?: Record<string, unknown> }).input ?? {};
-        const url = Object.values(input).find((v) => typeof v === "string" && /^https?:\/\//.test(v)) as string | undefined;
-        void captureRead($, { class: "connector", source: url ?? String(e.tool), text }, e.agentId);
+        // MCP arguments sit beside `tool` on the event itself.
+        const url = Object.entries(e as Readonly<Record<string, unknown>>).find(([k, v]) => k !== "tool" && typeof v === "string" && /^https?:\/\//.test(v))?.[1] as string | undefined;
+        queueCapture({ class: "connector", source: url ?? String(e.tool), text }, e.agentId);
       }
     } catch {}
     return r;
@@ -3401,7 +3450,7 @@ export const register: Register = (on, options) => {
       const t = e.text.trim();
       if (t.length >= 120 && !t.startsWith("/")) {
         const pasted = t.length > 1500 || t.includes("```") || /^\s*>|^(?:From|Subject|Sent|To|Date):\s|\bwrote:\s*$|^-{3,} ?Forwarded/im.test(t);
-        void captureRead($, pasted ? { class: "web", source: "pasted in conversation", text: t } : { class: "owner", source: "conversation", text: t, asOf: dayOf(new Date()) });
+        queueCapture(pasted ? { class: "web", source: "pasted in conversation", text: t } : { class: "owner", source: "conversation", text: t, asOf: dayOf(new Date()) });
       }
     }
     // PRIME, sync lane (§8.1): postings only, no model call, prompt untouched.
@@ -3724,6 +3773,7 @@ export const register: Register = (on, options) => {
     try {
       scheduleRevisionFlush($, e.agentId);
     } catch {}
+    if (e.agentId === undefined) flushCaptures($);
     // The main loop's answers only. A subagent's turn ends here too, and the
     // pass would judge (and surface under) a reply the person never read.
     if (e.agentId !== undefined) return base;

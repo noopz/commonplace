@@ -223,7 +223,10 @@ async function proposePairs(ports: TriggerPorts, pairs: Pair[], res: TriggerResu
     if (p.written.startsWith("capture:")) {
       const cap = ports.capture ? await ports.capture(p.written.slice(8)) : null;
       const old = cap ? await ports.info(p.old) : null;
-      if (!cap || !old) continue;
+      if (!cap || !old) {
+        ports.log("revision:skip", { why: cap ? "old-note-missing" : "capture-missing" });
+        continue;
+      }
       res.examined++;
       res.changed++;
       const cw: NoteInfo = { rel: p.written, title: cap.title, abstraction: "", kind: "source", shard: "main" };

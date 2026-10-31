@@ -167,7 +167,8 @@ function enqueueCapture(
     // An overflow carries the pairs the detector already found, so it proposes them rather than detecting again.
     const pairs = cap.pairs?.filter((p) => pool.includes(p.old));
     const key = createHash("sha256")
-      .update(`capture:${cap.hash}\n${pool.sort().join("\n")}${pairs ? "\npairs" : ""}`)
+      // The pool notes' versions are in the key: the same text read again after a note changed is checked again.
+      .update(`capture:${cap.hash}\n${pool.sort().map((r) => `${r}@${noteRev(ctx.vault, r) ?? ""}`).join("\n")}${pairs ? "\npairs" : ""}`)
       .digest("hex")
       .slice(0, 24);
     if ([...red.jobs.values()].some((j) => j.queued.key === key && j.status !== "abandoned")) {

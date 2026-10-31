@@ -59,7 +59,7 @@ async function trial(c: CaptureCase): Promise<CaptureTrial> {
   const rv = parseReview(await ask(MODELS.review, REVIEW_SYSTEM, reviewPrompt({ claim: c.older.claim, older: c.older, newer, oldFirst: Math.random() < 0.5 })));
   const verdict = rv?.verdict ?? null;
   // The edge the reducer would write for that decision, limit included.
-  const allowed = allowedRelations({ class: c.class, source: c.source }, []);
+  const allowed = allowedRelations({ class: c.class, source: c.source }, c.older.sources ?? []);
   const decided = verdict && verdict !== "none" && verdict !== "insufficient";
   const p = { decision: { relation: verdict, because: "" }, propose: { old: { claim: c.older.claim, title: c.older.title }, new: { rel: "capture:eval" }, capture: { hash: "eval", class: c.class, source: c.source, allowed } } };
   const final = decided ? (edgeFor(p as unknown as ProposalState)?.relation ?? null) : null;
