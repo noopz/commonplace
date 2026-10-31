@@ -178,10 +178,10 @@ for (const surface of SURFACES) {
     "Marble Notes/One.md": "# One\n\nA loose thought.\n",
   };
 
-  test(`${surface}: /vault domain lists the quarantined folders, and Details opens the activity log`, async ($, on) => {
+  test(`${surface}: /vault domain lists the quarantined folders, and Details opens them as a tree`, async ($, on) => {
     mock.store(on);
     mock.clock(on, { now: 1_000_000 });
-    serveVault(on, { quarantined: QUARANTINED });
+    const v = serveVault(on, { quarantined: QUARANTINED });
     engineFloor(on);
     const opened: string[] = [];
     on("ui.open", async (_$, e) => {
@@ -197,7 +197,16 @@ for (const surface of SURFACES) {
     expect(out).toMatch(/Marble Notes · 1 note/);
     opened.length = 0;
     await band.press({ key: "cp-notice-text" } as never);
-    expect(opened).toEqual(["commonplace-activity"]);
+    expect(opened).toEqual(["commonplace-quarantine"]);
+    const pane = await $.ui.mount({ plugin: "commonplace", surface, component: "Pane", requestId: "commonplace-quarantine", props: { bodyColumns: 60 } as never });
+    expect((await pane.find({ text: /Acme Robot · 2/ }))?.text).toBeTruthy();
+    expect(await pane.find({ text: /Wiring/ })).toBeFalsy();
+    await pane.press({ key: "cp-q-row-0" } as never);
+    await pane.press({ key: "cp-q-row-1" } as never);
+    expect((await pane.find({ text: /Wiring/ }))?.text).toBeTruthy();
+    await pane.press({ key: "cp-q-pub-0" } as never);
+    expect((await pane.find({ text: /✓ public/ }))?.text).toBeTruthy();
+    expect(JSON.parse(v.file("/fixture/acme-vault/.wiki/domains.json")!).domains["acme-robot"]).toEqual({ path: "Acme Robot", scope: "public" });
   });
 
   test(`${surface}: /vault domain takes a quarantined folder, and the notice goes once none is left`, async ($, on) => {

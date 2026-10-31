@@ -110,7 +110,7 @@ import { wikiRefs, linkWikiRefs, fileHref, citationFooter, citationCounts, type 
 import { pastedUrls, sameUrl, triagePrompt, parseTriage, triageLine, addLater, formatLater, TRIAGE_NOTE_CHARS, type Triage, type LaterItem } from "./lib/surfaces/triage.ts";
 import { Witness, renderWitness } from "./lib/surfaces/witness.ts";
 import { EXPLAIN_PAGES, liveSvg, liveBars, type LiveCounts } from "./lib/explain/diagrams.ts";
-import { quarantinedFolders, domainIdFor, type QuarantinedFolder } from "./lib/core/quarantine.ts";
+import { quarantinedFolders, domainIdFor, treeRows, type QuarantinedFolder } from "./lib/core/quarantine.ts";
 import { runCapture, runTrigger, type TriggerPorts, type Pair } from "./lib/revision/trigger.ts";
 import { GATE_POOL_MAX, captureFraming, capturePool } from "./lib/revision/capture-gate.ts";
 import { runSteps, type RunnerPorts } from "./lib/revision/runner.ts";
@@ -981,13 +981,13 @@ const scheduleRevisionFlush = ($: EngineInterface, agentId: string | undefined) 
  */
 /** `action`: a press the notice offers besides Details (the card's primary button); `acted` once pressed. */
 type NoticeAction = { kind: "commit-waiting"; vp: string; label: string } | { kind: "budget-raise"; day: string; label: string };
-type ActivityEntry = { id: number; at: string; text: string; details: string; revert?: { vp: string; event: string }; undone?: boolean; action?: NoticeAction; acted?: boolean };
+type ActivityEntry = { id: number; at: string; text: string; details: string; revert?: { vp: string; event: string }; undone?: boolean; action?: NoticeAction; acted?: boolean; quarantine?: string };
 const vaultActivity: ActivityEntry[] = [];
 let activitySeq = 0;
 const ACTIVITY_PANE = "commonplace-activity";
 const ACTIVITY_MAX = 50;
 
-const notice = ($: EngineInterface, text: string, details: string, revert?: { vp: string; event: string }, opts: { card?: boolean; action?: NoticeAction } = {}): number => {
+const notice = ($: EngineInterface, text: string, details: string, revert?: { vp: string; event: string }, opts: { card?: boolean; action?: NoticeAction; quarantine?: string } = {}): number => {
   const entry: ActivityEntry = {
     id: ++activitySeq,
     at: new Date().toISOString(),
@@ -995,6 +995,7 @@ const notice = ($: EngineInterface, text: string, details: string, revert?: { vp
     details,
     ...(revert ? { revert } : {}),
     ...(opts.action ? { action: opts.action } : {}),
+    ...(opts.quarantine ? { quarantine: opts.quarantine } : {}),
   };
   vaultActivity.unshift(entry);
   if (vaultActivity.length > ACTIVITY_MAX) vaultActivity.length = ACTIVITY_MAX;
@@ -1172,13 +1173,26 @@ const renderActivity = (): string => {
   ].join("\n\n");
 };
 
-const openActivity = async ($: EngineInterface): Promise<boolean> => {
+/**
+ * Whether the pane was seated. The engine seats a pane at any width only when
+ * the open answers the person's press or command; call this before the press
+ * handler's first await, or it counts as unasked and waits undrawn on a
+ * terminal under 144 columns.
+ */
+const openPane = async ($: EngineInterface, id: string, title: string, size: { rows?: number; columns?: number } = {}): Promise<boolean> => {
   try {
-    return (await $.ui.open({ id: ACTIVITY_PANE, title: "⟡ vault · activity" })).isPlaced;
+    const r = await $.ui.open({ id, title, ...size });
+    if (!r.isPlaced) {
+      const vp = (await pickVault($))?.path;
+      if (vp) traceTo($, vp, "ui:not-placed", { pane: id, reason: r.reason });
+    }
+    return r.isPlaced;
   } catch {
     return false;
   }
 };
+
+const openActivity = ($: EngineInterface): Promise<boolean> => openPane($, ACTIVITY_PANE, "⟡ vault · activity");
 
 /**
  * The revision explainer (`/vault explain`, "How it works" in the activity
@@ -1193,6 +1207,7 @@ const explainPng = new Map<string, string>();
 
 const openExplain = async ($: EngineInterface, vp: string | undefined, page = 0): Promise<boolean> => {
   explainPage = Math.max(0, Math.min(page, EXPLAIN_PAGES.length - 1));
+  const placed = openPane($, EXPLAIN_PANE, "⟡ vault · how revision works");
   if (vp) {
     const st = await revCli($, vp, ["status"]);
     if (st) {
@@ -1206,19 +1221,20 @@ const openExplain = async ($: EngineInterface, vp: string | undefined, page = 0)
     }
   }
   bumpPanes($);
-  try {
-    return (await $.ui.open({ id: EXPLAIN_PANE, title: "⟡ vault · how revision works" })).isPlaced;
-  } catch {
-    return false;
-  }
+  return placed;
 };
 
 /**
  * Quarantined folders: folders that appeared after the first index and are in
- * no domain. `/vault domain` lists them; `/vault domain public|private <folder>`
- * registers one as a domain (there is no entry to flip) and reindexes. Folder
- * names stay in module memory and the command's reply; the model never sees them.
+ * no domain. The quarantine pane shows them as a tree with Public / Private on
+ * each (the notice's Details, `/vault domain`); `/vault domain public|private
+ * <folder>` does the same. Classifying registers a domain (there is no entry to
+ * flip) and reindexes. Names stay in module memory, the pane and the command's
+ * reply, which the person reads; the model never sees them.
  */
+const QUARANTINE_PANE = "commonplace-quarantine";
+/** Tree paths the person expanded. */
+const quarantineOpen = new Set<string>();
 let quarantine: { vp: string; folders: QuarantinedFolder[]; done: Map<string, string> } | null = null;
 
 const loadQuarantine = async ($: EngineInterface, vp: string): Promise<QuarantinedFolder[]> => {
@@ -1239,6 +1255,13 @@ const loadQuarantine = async ($: EngineInterface, vp: string): Promise<Quarantin
   });
   quarantine = { vp, folders, done: quarantine?.vp === vp ? quarantine.done : new Map() };
   return folders;
+};
+
+const openQuarantine = async ($: EngineInterface, vp: string): Promise<boolean> => {
+  const placed = openPane($, QUARANTINE_PANE, "⟡ vault · new folders", { rows: 16, columns: 56 });
+  await loadQuarantine($, vp).catch(() => []);
+  bumpPanes($);
+  return placed;
 };
 
 /** Register `folder` as a domain of `scope` and reindex. Returns the transcript line. */
@@ -1482,7 +1505,9 @@ const getIndex = async ($: EngineInterface, vp: string, domains: DomainMap): Pro
         quarantineNotice = notice(
           $,
           `🔒 ${n} note${n === 1 ? "" : "s"} in new folders quarantined`,
-          `${n} note${n === 1 ? "" : "s"} live in folders that appeared after the first index. They stay sealed (no vault tool sees them), which is safe to leave as it is. To use them, type \`/vault domain\` to see the folders, then \`/vault domain public <folder>\` or \`/vault domain private <folder>\`. This notice comes back only when more new folders appear.`,
+          `${n} note${n === 1 ? "" : "s"} live in folders that appeared after the first index. They stay sealed (no vault tool sees them), which is safe to leave as it is. Details, or \`/vault domain\`, shows them with Public / Private. This notice comes back only when more new folders appear.`,
+          undefined,
+          { quarantine: vp },
         );
       }
     } catch {}
@@ -1729,7 +1754,7 @@ const VAULT_HELP = [
   "/vault close [domain]          seal it again (all when omitted)",
   "/vault reindex                 rebuild the vault index in the background",
   "/vault skills [trust|untrust <name>]   list vault skills / trust one's current content",
-  "/vault domain [public|private <id|folder>]   list quarantined folders / classify a domain or folder",
+  "/vault domain [public|private <id|folder>]   show quarantined folders / classify a domain or folder",
   "/vault witness [clear]         everything commonplace added to context that the transcript does not show",
   "/vault later [clear]           links saved with Later on a link card",
   "/vault revise [log [note]]     revision status, or the history of what was revised and why",
@@ -1912,7 +1937,8 @@ const runVaultCommand = async ($: EngineInterface, argsText: string): Promise<{ 
     const id = words.join(" ");
     if ((scope !== "public" && scope !== "private") || !id) {
       // Bare, or anything but a classification (`list`, a typo): the quarantined folders waiting.
-      const folders = (await loadQuarantine($, vp)).filter((f) => !quarantine?.done.has(f.folder));
+      await openQuarantine($, vp);
+      const folders = (quarantine?.vp === vp ? quarantine.folders : []).filter((f) => !quarantine?.done.has(f.folder));
       if (!folders.length) return { text: "No quarantined folders. Usage: /vault domain public|private <id|folder>" };
       return {
         text: [
@@ -2332,21 +2358,21 @@ const bandPress = async ($: EngineInterface, action: string) => {
   const card = bandCard;
   if (!card) return;
   bandCard = null;
+  const entry = card.kind === "notice" ? vaultActivity.find((a) => a.id === card.entry) : undefined;
+  // Before the first await: see openPane.
+  const details = action === "details" && card.kind === "notice" ? (entry?.quarantine ? openQuarantine($, entry.quarantine) : openActivity($)) : null;
   try {
     await update($, band, (b) => ({ ...b, visible: false }));
   } catch {}
   try {
     if (card.kind !== "notice") showHeldNotice($);
     if (card.kind === "notice") {
-      const entry = vaultActivity.find((a) => a.id === card.entry);
       if (action === "undo" && entry?.revert && !entry.undone) await undoRevision($, entry.revert.vp, entry.revert.event);
       if (action === "act" && entry) await runAction($, entry);
       // Stop for today is what ignoring the notice does anyway: the card just goes.
       if (action === "stop") retireBudgetNotices($);
-      if (action === "details" && !(await openActivity($)) && entry) {
-        // No surface can seat the pane: the one line of detail it would have shown.
-        $.ui.toast(entry.details.replace(/[*`]/g, "").slice(0, 240));
-      }
+      // No surface seats panes here: a toast cannot hold the details, so say where they are.
+      if (details && !(await details)) $.ui.toast(entry?.quarantine ? "No pane here: /vault domain lists the folders." : "No pane here: /vault activity lists it.");
       return;
     }
     traceTo($, card.vp, `triage:${action}`, { verdict: card.triage.verdict });
@@ -3769,6 +3795,7 @@ export const register: Register = (on, options) => {
     const { Box, Markdown, Button, Text } = $.ui.resolve(e);
     const undoable = vaultActivity.filter((a) => a.revert && !a.undone).slice(0, 5);
     const act = vaultActivity.find((a) => a.action && !a.acted);
+    const activityVault = (await pickVault($))?.path;
     return (
       <Box flexDirection="column">
         <Markdown text={renderActivity()} />
@@ -3795,8 +3822,70 @@ export const register: Register = (on, options) => {
           <Text dimColor>{" "}</Text>
         )}
         <Box flexDirection="row" marginTop={1}>
-          <Button key="cp-activity-explain" label="How it works" onPress={() => void (async () => openExplain($, (await pickVault($))?.path))()} />
+          <Button key="cp-activity-explain" label="How it works" onPress={() => void openExplain($, activityVault)} />
         </Box>
+      </Box>
+    );
+  });
+
+  /** The quarantine pane: each new folder as a tree, with Public / Private. */
+  on("ui.render", { component: "Pane", requestId: QUARANTINE_PANE }, async ($, e, next) => {
+    await read($, paneRev);
+    const { Box, Text, Button } = $.ui.resolve(e);
+    const q = quarantine;
+    const wide = e.props.bodyColumns >= 44;
+    const rows = q ? treeRows(q.folders, quarantineOpen) : [];
+    const toggle = (path: string) => {
+      if (!quarantineOpen.delete(path)) quarantineOpen.add(path);
+      bumpPanes($);
+    };
+    // Done shows a ✓ on the row; a press that failed must say so.
+    const classify = (folder: string, scope: "public" | "private") =>
+      void classifyFolder($, q!.vp, folder, scope).then((line) => {
+        if (line.startsWith("Could not")) $.ui.toast(line);
+      });
+    return (
+      <Box flexDirection="column">
+        <Text dimColor>{"Sealed until you choose. Public: every vault tool sees it. Private: sealed unless opened. Leaving one is safe."}</Text>
+        {rows.length === 0 ? <Text>{q ? "No new folders." : "Reading folders…"}</Text> : <Text>{" "}</Text>}
+        {rows.map((r, i) => {
+          const indent = "  ".repeat(r.depth);
+          const count = r.notes === null ? "" : ` · ${r.notes}`;
+          const done = r.depth === 0 ? q!.done.get(r.path) : undefined;
+          const row =
+            r.notes === null ? (
+              <Text dimColor wrap="truncate-end">{`${indent}  ${r.name}`}</Text>
+            ) : (
+              <Button key={`cp-q-row-${i}`} label={`${r.open ? "Collapse" : "Expand"}: ${r.name}`} onPress={() => toggle(r.path)}>
+                <Text bold={r.depth === 0} wrap="truncate-end">{`${indent}${r.open ? "▾" : "▸"} ${r.name}${count}`}</Text>
+              </Button>
+            );
+          if (r.depth > 0) return row;
+          return (
+            <Box flexDirection={wide ? "row" : "column"}>
+              <Box flexShrink={1} flexGrow={1}>
+                {row}
+              </Box>
+              <Box flexShrink={0} flexDirection="row" marginLeft={2}>
+                {done ? (
+                  <Text color="green">{`✓ ${done}`}</Text>
+                ) : (
+                  <Box flexDirection="row">
+                    <Button key={`cp-q-pub-${i}`} label={`Public: ${r.name}`} onPress={() => classify(r.path, "public")}>
+                      <Text color="cyan" bold>
+                        {"Public"}
+                      </Text>
+                    </Button>
+                    <Text>{"  "}</Text>
+                    <Button key={`cp-q-priv-${i}`} label={`Private: ${r.name}`} onPress={() => classify(r.path, "private")}>
+                      <Text color="magenta">{"Private"}</Text>
+                    </Button>
+                  </Box>
+                )}
+              </Box>
+            </Box>
+          );
+        })}
       </Box>
     );
   });

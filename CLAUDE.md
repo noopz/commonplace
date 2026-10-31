@@ -325,7 +325,7 @@ comparison against haiku).
 judge replies the person never saw.
 
 **`hook-log.jsonl` stage vocabulary** (beyond the connection pass's own):
-`tool:vault_*`, `index:patch|sweep|build|built`, `guard:*`, `scope:proposed`,
+`ui:not-placed`, `tool:vault_*`, `index:patch|sweep|build|built`, `guard:*`, `scope:proposed`,
 `skill:delivered`, `unit:command`, `revision:*`, `prime:sync|skip-cold|appended|judged-no|unanswered|late-drop|no-turn|error`, `budget:spend|skip`, `capture:gate|none|skip|error` (counts only),
 `skip:segment-budget`, `connect:appended|followed`,
 `triage:verdict|not-fetched|unanswered|ingest|later|skip|read|error`, `cite:check`
@@ -689,4 +689,4 @@ The set of vaults lives in `vaults.json` under `CLAUDE_PLUGIN_DATA` (a registry 
 
 ## Domain System
 
-Domains are inferred from file paths, never stored in frontmatter. The registry is `<vault>/.wiki/domains.json`: `{path, scope, linkGroup?, aliases?}` per domain. A private domain's shard is its `linkGroup` (else its id), so opening one domain opens its group. `aliases` are other names the user calls it, used by `/vault open` and prompt proposals. Folders that appear after the first v2 index are quarantined (sealed) until classified: `/vault domain` lists them and `/vault domain public|private <folder>` classifies one (a side pane for this was cut in v2.6 as not worth its code). A quarantined folder has no domain entry, so classifying registers one (`hooks/lib/core/quarantine.ts`). A notice's text is a press, like its Details. Classifying the last folder takes the notice down; the reindex it starts is not announced.
+Domains are inferred from file paths, never stored in frontmatter. The registry is `<vault>/.wiki/domains.json`: `{path, scope, linkGroup?, aliases?}` per domain. A private domain's shard is its `linkGroup` (else its id), so opening one domain opens its group. `aliases` are other names the user calls it, used by `/vault open` and prompt proposals. Folders that appear after the first v2 index are quarantined (sealed) until classified: the notice's Details and `/vault domain` open a pane with them as an expandable tree and Public / Private on each, and `/vault domain public|private <folder>` classifies one by name. A quarantined folder has no domain entry, so classifying registers one (`hooks/lib/core/quarantine.ts`). A notice's text is a press, like its Details. Classifying the last folder takes the notice down; the reindex it starts is not announced.
