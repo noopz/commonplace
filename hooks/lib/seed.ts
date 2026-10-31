@@ -3,7 +3,7 @@
  *
  * Pure — no `$`, so the static scanner is satisfied and every decision that
  * gates a model call stays unit-testable. The tiering mirrors
- * `commonplace seed`: abstraction, cue anchors (tags + mocs + anchors), then
+ * the v1 tiered seed: abstraction, cue anchors (tags + mocs + anchors), then
  * names/titles.
  */
 
@@ -59,7 +59,7 @@ function overlap(a: Set<string>, b: Set<string>): string[] {
 
 /**
  * Tiered lexical score for one index record against the turn's tokens, in the
- * same key-space order `commonplace seed` uses: abstraction, then cue anchors,
+ * same key-space order the v1 tiered seed uses: abstraction, then cue anchors,
  * then the name/title itself. A title match is the strongest single signal, so
  * it weighs most; abstraction next, because it is the note's own summary of
  * what it is about; anchors last, being the loosest association.
@@ -83,7 +83,7 @@ export function scoreRecord(
 
   const nameHits = substantive(overlap(tokens, tokenize(label)));
   const absHits = substantive(overlap(tokens, tokenize(String(rec.abstraction ?? ""))));
-  // Tier B is cue anchors — the same key space `commonplace seed` uses, which
+  // Tier B is cue anchors — the same key space the v1 tiered seed uses, which
   // is tags + MOC names + anchors, not anchors alone.
   const cues = [
     ...(Array.isArray(rec.anchors) ? rec.anchors : []),

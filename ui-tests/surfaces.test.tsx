@@ -175,10 +175,10 @@ for (const surface of SURFACES) {
     "Marble Notes/One.md": "# One\n\nA loose thought.\n",
   };
 
-  test(`${surface}: the quarantine notice opens its pane, and a press there classifies the folder`, async ($, on) => {
+  test(`${surface}: /vault domain lists the quarantined folders, and Details opens the activity log`, async ($, on) => {
     mock.store(on);
     mock.clock(on, { now: 1_000_000 });
-    const v = serveVault(on, { quarantined: QUARANTINED });
+    serveVault(on, { quarantined: QUARANTINED });
     engineFloor(on);
     const opened: string[] = [];
     on("ui.open", async (_$, e) => {
@@ -189,18 +189,12 @@ for (const surface of SURFACES) {
     await $.tool.call({ tool: "mcp__commonplace__vault_list", tool_use_id: "toolu_q0", what: "domains" } as never);
     const band = await $.ui.mount({ plugin: "commonplace", surface, component: "AbovePrompt", props: { hasSurvey: false } as never });
     expect((await band.find({ text: /quarantined/ }))?.text).toMatch(/3 notes in new folders/);
+    const out = String(((await $.command.run({ command: "vault", args: "domain" } as never)) as { text?: unknown }).text);
+    expect(out).toMatch(/Acme Robot · 2 notes/);
+    expect(out).toMatch(/Marble Notes · 1 note/);
     opened.length = 0;
     await band.press({ key: "cp-notice-text" } as never);
-    expect(opened).toEqual(["commonplace-quarantine"]);
-
-    const pane = await $.ui.mount({ plugin: "commonplace", surface, component: "Pane", requestId: "commonplace-quarantine", props: { title: "x", isFocused: true, bodyColumns: 100, placement: "dock" } as never });
-    expect((await pane.find({ text: /^Acme Robot · 2 notes$/ }))?.text).toBeTruthy();
-    expect((await pane.find({ text: /^Marble Notes · 1 note$/ }))?.text).toBeTruthy();
-    await pane.press({ key: "cp-q-pub-0" } as never);
-    for (let i = 0; i < 50 && !(await pane.find({ text: /✓ public/ })); i++);
-    expect((await pane.find({ text: /✓ public/ }))?.text).toBeTruthy();
-    expect(JSON.parse(v.file("/fixture/acme-vault/.wiki/domains.json")!).domains["acme-robot"]).toEqual({ path: "Acme Robot", scope: "public" });
-    expect(await pane.find({ key: "cp-q-priv-1" } as never)).toBeTruthy();
+    expect(opened).toEqual(["commonplace-activity"]);
   });
 
   test(`${surface}: /vault domain takes a quarantined folder, and the notice goes once none is left`, async ($, on) => {

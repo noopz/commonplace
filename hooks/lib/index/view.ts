@@ -480,7 +480,6 @@ export class VaultView implements Adjacency {
           aliases: note.aliases,
           abstraction: note.af ? "" : note.abstraction,
           headings: note.headings,
-          cues: note.cues,
           anchors: note.links.filter((l) => l.k === "body" && l.d).map((l) => l.d!),
           tags: note.tags,
           mocs: note.links.filter((l) => l.k === "moc").map((l) => l.d ?? l.t),

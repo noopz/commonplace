@@ -4,11 +4,8 @@
  * Replaces scoring every index record per query (linear in the vault) with a
  * lookup of the query's terms: a query touches only its postings lists.
  *
- * fieldScore = 4·title + 4·alias + 3·abstraction + 2·heading + W·cues
+ * fieldScore = 4·title + 4·alias + 3·abstraction + 2·heading
  *            + 1·(anchor display text + tags + MOC names)
- * `cues:` are other phrasings a reader would search by (Doc2Query--, Gospodinov
- * et al. 2023): written by `commonplace cues`, kept only if each one retrieves
- * its own note.
  * Body text is NOT indexed — postings are a jumping-off point to notes worth
  * reading, not a substitute for reading them (CLAUDE.md "No RAG").
  *
@@ -34,7 +31,6 @@ export type PostingsInput = {
   aliases?: string[];
   abstraction?: string;
   headings?: string[];
-  cues?: string[];
   anchors?: string[];
   tags?: string[];
   mocs?: string[];
@@ -42,9 +38,9 @@ export type PostingsInput = {
 
 export type PostingsRow = { t: string; df: number; n: [number, number][] };
 
-export type FieldWeights = { title: number; alias: number; abstraction: number; heading: number; cues: number; other: number };
+export type FieldWeights = { title: number; alias: number; abstraction: number; heading: number; other: number };
 
-export const FIELD_WEIGHTS: FieldWeights = { title: 4, alias: 4, abstraction: 3, heading: 2, cues: 2, other: 1 };
+export const FIELD_WEIGHTS: FieldWeights = { title: 4, alias: 4, abstraction: 3, heading: 2, other: 1 };
 
 export type TermConfig = {
   /** "s": the S-stemmer (plural folding only — readable stems, almost no false merges). */
@@ -87,12 +83,9 @@ export type RankConfig = {
  * query, its MOC fourth). Local 0.5 scores 3.126, beats no authority on both
  * halves, and puts the topical MOC/concept first on such queries.
  *
- * `cues:` are supported but no vault is expected to have them yet. A
- * haiku-drafted set on ~480 notes raised Find MRR 0.762 → 0.823 (with
- * authority 1), but per question that was one rescue (rank 19 → 4) and
- * first-page reshuffles, while Connect lost a gold note outright — too thin
- * against 467 note edits and cue upkeep. Revisit with a larger paraphrase gold
- * set and a rephrase-once eval.
+ * Doc2Query-style `cues:` (other phrasings per note) were built, measured and
+ * removed in v2.6: on ~480 notes one rescue in 30 questions plus first-page
+ * reshuffles, and Connect lost a gold note — too thin for 467 note edits.
  */
 export const TERMS: TermConfig = { stem: "s", phrases: false, weights: FIELD_WEIGHTS };
 export const RANK: RankConfig = { k1: 4, coverage: 2, phrase: 0, authority: 0, local: 0.5 };
@@ -106,7 +99,7 @@ export const RANK_LINEAR: RankConfig = { k1: Infinity, coverage: 0, phrase: 0 };
 /** Stable signature of a term shape, recorded in the manifest. */
 export function termSig(c: TermConfig): string {
   const w = c.weights;
-  return `stem=${c.stem};phr=${c.phrases ? 1 : 0};w=${w.title},${w.alias},${w.abstraction},${w.heading},${w.other};c=${w.cues}`;
+  return `stem=${c.stem};phr=${c.phrases ? 1 : 0};w=${w.title},${w.alias},${w.abstraction},${w.heading},${w.other}`;
 }
 
 /**
@@ -155,7 +148,6 @@ export function noteTerms(n: PostingsInput, c: TermConfig = TERMS): Map<string, 
   field(n.aliases ?? [], W.alias);
   field([n.abstraction], W.abstraction);
   field(n.headings ?? [], W.heading);
-  field(n.cues ?? [], W.cues);
   field([...(n.anchors ?? []), ...(n.tags ?? []), ...(n.mocs ?? [])], W.other);
   return m;
 }

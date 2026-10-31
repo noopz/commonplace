@@ -283,7 +283,7 @@ test("generic terms do not inflate the score past the threshold", () => {
   assert.deepEqual(rankCandidates([rec], tokens, 4), []);
 });
 
-test("scoreRecord counts tags and mocs as cue anchors, like commonplace seed", () => {
+test("scoreRecord counts tags and mocs as cue anchors, like the v1 tiered seed", () => {
   const tokens = tokenize("a discussion of calibration drift in gamma cohorts");
   const viaTags = scoreRecord(
     { name: "Unrelated", path: "c/a.md", tags: ["calibration", "drift"], anchors: [] },

@@ -25,7 +25,7 @@ import type { JobState } from "./reducer.ts";
 
 /** Origins whose writes make no claims: never a trigger. */
 const GENERATED_ORIGIN =
-  /^(commonplace|cli-revise|commonplace:wiki-(linter|pruner|moc-updater|moc-splitter|deep-linker|cross-domain-linker|freshness-checker|impact-checker|conventions-tuner|domain-manager))$/;
+  /^(commonplace|cli-revise|commonplace:wiki-(linter|pruner|moc-updater|moc-splitter|cross-domain-linker|freshness-checker|impact-checker|conventions-tuner|domain-manager))$/;
 
 /** How long a claimed job is held before another session may take it. */
 export const JOB_LEASE_MS = 15 * 60_000;

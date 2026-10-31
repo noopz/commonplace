@@ -1080,9 +1080,8 @@ if (shouldRun("cross-scope-bridge")) {
 // === Check: concept density without source-to-source links ===
 // A source note's concepts: frontmatter array signals topical breadth. If a note covers
 // many concepts but rarely wikilinks to other source notes, it's an isolated hub —
-// candidate for manual `commonplace deep-link` review. Lets the user decide when
-// embedding-based candidate surfacing is worth the Ollama call, instead of running
-// it implicitly. DCI's coverage_all evidence motivates surfacing link-density gaps.
+// candidate for reading and linking by hand. DCI's coverage_all evidence
+// motivates surfacing link-density gaps.
 if (shouldRun("concept-density-without-source-links")) {
   const sourceTitles = new Set(sourceIndex.map((s) => s.title.toLowerCase()));
   for (const source of sourceIndex) {
@@ -1103,7 +1102,7 @@ if (shouldRun("concept-density-without-source-links")) {
           check: "concept-density-without-source-links",
           severity: "suggestion",
           file: source.path,
-          message: `${conceptCount} concepts in frontmatter but only ${outboundSourceLinks} outbound link${outboundSourceLinks === 1 ? "" : "s"} to other sources — consider \`commonplace deep-link --note "${source.path}"\` to surface paraphrase-level connections`,
+          message: `${conceptCount} concepts in frontmatter but only ${outboundSourceLinks} outbound link${outboundSourceLinks === 1 ? "" : "s"} to other sources — read it for paraphrase-level connections to link`,
           fixable: false,
         });
       }
@@ -1164,7 +1163,7 @@ if (values.instruct && result.summary.total > 0) {
   }
   const fmCoherenceCount = result.suggestion.filter(i => i.check === "underlinked" && i.message.includes("frontmatter concept")).length;
   if (fmCoherenceCount > 0) {
-    lines.push(`${fmCoherenceCount} notes have frontmatter concepts with no inline body link — run \`commonplace link\` or \`commonplace deep-link\` to resolve.`);
+    lines.push(`${fmCoherenceCount} notes have frontmatter concepts with no inline body link — run \`commonplace link\` to resolve.`);
   }
   const cohesionCount = result.suggestion.filter(i => i.check === "cluster-cohesion").length;
   if (cohesionCount > 0) {

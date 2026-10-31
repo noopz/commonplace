@@ -345,8 +345,7 @@ with no matching note is the false-prime rate, and real frequency is read from
 `--used` scores used-in-answer on stored answers.
 
 **`commonplace eval:search` measures what the model actually calls.**
-`eval:retrieval` and `eval:connect` drive the v1 CLI seed/connect code;
-this one scores `vault_search` (postings) on `gold.jsonl` and the in-module
+It scores `vault_search` (postings) on `gold.jsonl` and the in-module
 Connect pool on `connect-gold.jsonl`, rebuilding the index IN MEMORY from the
 vault (read-only, `scripts/lib/index-notes.ts`) so build-time knobs can vary.
 Postings have two kinds of knob: `TERMS` (stemming, phrase keys, field
@@ -365,14 +364,7 @@ thresholds were pinned on the old scale; re-pin them with `eval:prime` before
 moving it. Measured and rejected so far: phrase keys (no gain) and
 HippoRAG-style down-weighting of source seeds (`docSeed` < 1 lowered Connect
 MRR — sources are the targets here and many concepts are stubs).
-**`cues:`** (Doc2Query--) are a postings field: `commonplace cues` drafts them
-with haiku into `$VAULT/.wiki/evals/cues-draft.jsonl` (kept only if each cue
-ranks its own note top-3 with every cue indexed), `eval:search --cues <draft>`
-measures the draft in memory, and only `cues --write` touches notes. Measured
-and NOT written on the reference vault: one real rescue in 30 Find questions,
-the rest first-page reshuffles, and a Connect regression — so cues stay
-dormant until a larger paraphrase gold set and a rephrase-once eval say
-otherwise (then: wiki-ingest writes them for new notes, not a bulk backfill).
+Doc2Query-style `cues:` were measured and removed (one rescue in 30 questions, a Connect regression).
 
 **Revision: decisions about claims, accepted on git.** (docs/revision-design.md.)
 Four things stay apart in the data: the **artifact** (the captured source,
@@ -544,7 +536,7 @@ commonplace is not a RAG system. Never substitute keyword/concept-string matchin
 
 **Mental model:** `vault_search` (or `commonplace search`) is a jumping-off point, not an answer. It tells you which few notes are worth reading; `vault_links`/`vault_path`/`vault_neighbourhood` follow the graph from there. The relevance judgment itself comes from reading those notes (`vault_note`) and reasoning about whether they actually connect — not from whether a keyword, concept name or graph proximity matched.
 
-This applies anywhere a "does X relate to Y" decision gets made — cross-domain bridging, deep-linking, pre-ingest triage, wiki-query. A note can be highly relevant to another with zero shared concept names or strings (e.g. a shipping-delay story bearing on a supplier note's "Single-Source Risk" angle without ever naming the supplier). If a check only compares index fields and stops there, it isn't finished — it must follow the grep hit to the real file and read it before concluding anything. Seeding itself is tiered-lexical (`commonplace seed`): abstraction → cue anchors → names/titles → whole-record grep as a gated fallback. Better jumping-off points, same rule — the tier tells you where to start reading, never whether something is relevant.
+This applies anywhere a "does X relate to Y" decision gets made — cross-domain bridging, pre-ingest triage, wiki-query. A note can be highly relevant to another with zero shared concept names or strings (e.g. a shipping-delay story bearing on a supplier note's "Single-Source Risk" angle without ever naming the supplier). If a check only compares index fields and stops there, it isn't finished — it must follow the grep hit to the real file and read it before concluding anything. The ambient pass seeds tiered-lexically (abstraction → cue anchors → names/titles → whole-record grep as a gated fallback): better jumping-off points, same rule — the tier tells you where to start reading, never whether something is relevant.
 
 ## Never use Python or shell one-liners to parse JSON
 
@@ -584,9 +576,8 @@ All commands auto-discover the vault via cwd (`.obsidian/` or `.wiki/` marker) o
 - `commonplace eval:judge [--feedback] [--prime|--used] [--repeat N]` — The judge alone on stored (answer, note) pairs; `--feedback` uses your Read it / Not for me presses as the labels
 - `commonplace eval:connection [--plugin-dir .]` — The whole connection pass in live `claude -p` sessions
 - `commonplace eval:prime [--repeat 3] [--init]` — Prime's gate (live `claude -p` sessions)
-- `commonplace eval:search [--tune] [--cfg '<json>'] [--cues <draft>] [--show "<q>"] [--json] [--history]` — `vault_search` + Connect pool over the vault's gold sets, in-memory build, zero tokens
+- `commonplace eval:search [--tune] [--cfg '<json>'] [--show "<q>"] [--json] [--history]` — `vault_search` + Connect pool over the vault's gold sets, in-memory build, zero tokens
 - `commonplace dates [--dry-run] [--json]` — Backfill `published:` on source notes from their labelled source line (`**Published:**`, `**arXiv:**`, `**Source:**`…); never guesses; a note with `published:`/`date:` is left alone
-- `commonplace cues [--limit N] [--match <text>] [--concurrency N] | --filter-only | --write [--dry-run]` — Draft `cues:` (other phrasings a reader would search by) with haiku, public notes only, filtered by self-retrieval; `--write` inserts them as the last frontmatter line
 - `commonplace vaults [--match "<phrase>"] [--json]` — List registered vaults, or match one by name (used by wiki-query to resolve "search in <name>")
 - `commonplace config` — Print `.wiki/config.json` contents (no script spawn, instant)
 - `commonplace index [--incremental] [--json]` — The single index writer: `.wiki/graph/` (v2 graph artefacts), `.wiki/sealed/`, and the per-shard records files (v1's `*-index.jsonl` are no longer written; stale ones are deleted). `--incremental` is a no-op when no note is newer than the last build.
@@ -601,11 +592,7 @@ All commands auto-discover the vault via cwd (`.obsidian/` or `.wiki/` marker) o
 - `commonplace freshen [--sample <n>] [--min-age-days <n>]` — Sample oldest-unchecked live source URLs for freshness checking
 - `commonplace freshen --record` — Record a check result (reads JSON from stdin, merges into `.wiki/freshness.json`)
 - `commonplace freshen --clear <relative-path>` — Clear stale flag after re-ingesting a note
-- `commonplace deep-link [--mode concepts|notes] [--threshold <n>] [--top <n>] [--note <path>]` — Find implicit concept connections via semantic similarity (requires Ollama + nomic-embed-text)
-- `commonplace hub-score [--top <n>] [--json]` — HITS hub/authority scoring over the backlink records; ranks top hubs and authorities, flags high-hub-low-authority nodes as likely administrative aggregators (MOCs/index pages) vs. genuine topical authorities
-- `commonplace eval:retrieval [--gold <path>] [--seed-mode flat|tiered] [--no-abstraction] [--no-authority] [--answers <dir>] [--history] [--json]` — Deterministic retrieval eval: seed recall over a gold question set (default `$VAULT/.wiki/evals/gold.jsonl`, never committed — the committed fixture set is CI-only), optional answer-transcript citation/groundedness scoring, optional history append to `.wiki/eval-history.jsonl`. Reports seed recall and mean reciprocal rank (position-sensitive, for ranking ablations).
 - `commonplace abstract [--dry-run] [--json]` — Backfill `abstraction:` frontmatter (deterministic derivation from Summary/definition text) across source + concept notes; on completion sets the vault's `abstractions: true` adoption flag (switches `isStub` to also key on missing abstractions and makes validation require the field). Run `commonplace index` afterwards.
-- `commonplace seed --query "<text>" [--mode tiered|flat] [--no-abstraction] [--no-authority] [--json]` — Deterministic tiered seed helper for wiki-query: matches query terms against explicit key spaces in order (A `abstraction`, B cue anchors = tags/MOC names/wikilink display texts, C names/titles, D whole-record grep only when A–C yield <3 seeds); prints candidates with tier + matched terms. Seeds are jumping-off points — read the notes before judging relevance. Tiered hits are ordered by HITS authority within each tier (`--no-authority` disables the ordering).
 - `commonplace commit --message "<what>" [--unit <id>] | --list [--json]` — Commit this agent's unit of work (the files it wrote this unit, nothing else); the unit id comes from `COMMONPLACE_UNIT`, which the module injects
 - `commonplace revise status | waiting | log [--note <ref>] | propose --old <ref> --new <ref> --claim "<exact quote>" [--rationale …] [--input <ref>]… | checked --note <rel> --event <id>` — Vault revision. The module alone runs `ensure|next|record|accept|job-enqueue|job-next|job-done|job-failed|projection`; the person runs `revert --event <id|last>`, `pause|resume`, `commit-waiting` (as `/vault revise …`)
 - `commonplace log --entry "<text>"` — Append an entry to `.wiki/log.md` (use instead of printf/bash redirection)
@@ -631,4 +618,4 @@ The set of vaults lives in `vaults.json` under `CLAUDE_PLUGIN_DATA` (a registry 
 
 ## Domain System
 
-Domains are inferred from file paths, never stored in frontmatter. The registry is `<vault>/.wiki/domains.json`: `{path, scope, linkGroup?, aliases?}` per domain. A private domain's shard is its `linkGroup` (else its id), so opening one domain opens its group. `aliases` are other names the user calls it, used by `/vault open` and prompt proposals. Folders that appear after the first v2 index are quarantined (sealed) until classified: the quarantine notice's Details (or its text) opens a pane listing each folder with Public / Private, and `/vault domain public|private <folder>` does the same. A quarantined folder has no domain entry, so classifying registers one (`hooks/lib/core/quarantine.ts`). A notice's text is a press, like its Details. Classifying the last folder takes the notice down; the reindex it starts is not announced.
+Domains are inferred from file paths, never stored in frontmatter. The registry is `<vault>/.wiki/domains.json`: `{path, scope, linkGroup?, aliases?}` per domain. A private domain's shard is its `linkGroup` (else its id), so opening one domain opens its group. `aliases` are other names the user calls it, used by `/vault open` and prompt proposals. Folders that appear after the first v2 index are quarantined (sealed) until classified: `/vault domain` lists them and `/vault domain public|private <folder>` classifies one (a side pane for this was cut in v2.6 as not worth its code). A quarantined folder has no domain entry, so classifying registers one (`hooks/lib/core/quarantine.ts`). A notice's text is a press, like its Details. Classifying the last folder takes the notice down; the reindex it starts is not announced.

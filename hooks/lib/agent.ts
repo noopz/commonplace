@@ -66,7 +66,7 @@ export const SPAWN_CLASSIFY_PROMPT = (prompt: string): string =>
  * lookahead, which real wikilinks never trip.
  */
 export const VAULT_MARKERS: readonly RegExp[] = [
-  /\bwiki-(query|ingest|domain|compile|lint|supersede|deep-link)\b/i,
+  /\bwiki-(query|ingest|domain|compile|lint|supersede)\b/i,
   /\bcommonplace\s+(query|ingest|index|lint|seed|connect|score|prune|supersede|abstract)\b/i,
   /\bobsidian\b/i,
   /\b(concept|source|MOC)\s+notes?\b/i,

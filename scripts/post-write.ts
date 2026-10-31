@@ -262,7 +262,7 @@ if (
   }
   if (output.sourceWritten) {
     notes.push(
-      `Source note written. Vault connectedness opportunity: consider running wiki-lint (orphans, underlinked, weak summaries, bridge thinness) and/or \`/wiki-deep-link\` (embedding-discovered concept connections, requires Ollama).`,
+      `Source note written. Vault connectedness opportunity: consider running wiki-lint (orphans, underlinked, weak summaries, bridge thinness).`,
     );
   }
   if (researchContext) notes.push(researchContext);

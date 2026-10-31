@@ -787,33 +787,30 @@ const scheduleRevisionFlush = ($: EngineInterface, agentId: string | undefined) 
 /** `pane`: the pane Details opens instead of the activity log (one that can act on the notice). */
 /** `action`: a press the notice offers besides Details (the card's primary button); `acted` once pressed. */
 type NoticeAction = { kind: "commit-waiting"; vp: string; label: string };
-type ActivityEntry = { id: number; at: string; text: string; details: string; revert?: { vp: string; event: string }; undone?: boolean; pane?: string; action?: NoticeAction; acted?: boolean };
+type ActivityEntry = { id: number; at: string; text: string; details: string; revert?: { vp: string; event: string }; undone?: boolean; action?: NoticeAction; acted?: boolean };
 const vaultActivity: ActivityEntry[] = [];
 let activitySeq = 0;
 const ACTIVITY_PANE = "commonplace-activity";
 const ACTIVITY_MAX = 50;
 
-const notice = ($: EngineInterface, text: string, details: string, revert?: { vp: string; event: string }, opts: { card?: boolean; pane?: string; action?: NoticeAction } = {}) => {
+const notice = ($: EngineInterface, text: string, details: string, revert?: { vp: string; event: string }, opts: { card?: boolean; action?: NoticeAction } = {}): number => {
   const entry: ActivityEntry = {
     id: ++activitySeq,
     at: new Date().toISOString(),
     text,
     details,
     ...(revert ? { revert } : {}),
-    ...(opts.pane ? { pane: opts.pane } : {}),
     ...(opts.action ? { action: opts.action } : {}),
   };
   vaultActivity.unshift(entry);
   if (vaultActivity.length > ACTIVITY_MAX) vaultActivity.length = ACTIVITY_MAX;
   bumpPanes($);
-  if (opts.card === false) return;
+  if (opts.card === false) return entry.id;
   // A connection or triage card is waiting on a press; a notice never covers
   // it, and shows once that card comes down (a press, or the next prompt).
-  if (bandCard && bandCard.kind !== "notice") {
-    heldNotice = entry.id;
-    return;
-  }
-  showCard($, { kind: "notice", entry: entry.id }, text);
+  if (bandCard && bandCard.kind !== "notice") heldNotice = entry.id;
+  else showCard($, { kind: "notice", entry: entry.id }, text);
+  return entry.id;
 };
 let heldNotice: number | null = null;
 /** The notice a card held back, if any; true when it is now on the band. */
@@ -875,12 +872,11 @@ const openExplain = async ($: EngineInterface, vp: string | undefined, page = 0)
 };
 
 /**
- * The quarantine pane: folders that appeared after the first index and are in
- * no domain, each with Public / Private. Classifying registers the folder as a
- * domain (there is no entry to flip) and reindexes. Folder names stay in
- * module memory and the pane; the model never sees them.
+ * Quarantined folders: folders that appeared after the first index and are in
+ * no domain. `/vault domain` lists them; `/vault domain public|private <folder>`
+ * registers one as a domain (there is no entry to flip) and reindexes. Folder
+ * names stay in module memory and the command's reply; the model never sees them.
  */
-const QUARANTINE_PANE = "commonplace-quarantine";
 let quarantine: { vp: string; folders: QuarantinedFolder[]; done: Map<string, string> } | null = null;
 
 const loadQuarantine = async ($: EngineInterface, vp: string): Promise<QuarantinedFolder[]> => {
@@ -932,7 +928,7 @@ const classifyFolder = async ($: EngineInterface, vp: string, folder: string, sc
 };
 
 const dropQuarantineNotice = async ($: EngineInterface) => {
-  const isQuarantine = (id: number | null) => id !== null && vaultActivity.find((a) => a.id === id)?.pane === QUARANTINE_PANE;
+  const isQuarantine = (id: number | null) => id !== null && id === quarantineNotice;
   if (isQuarantine(heldNotice)) heldNotice = null;
   if (bandCard?.kind === "notice" && isQuarantine(bandCard.entry)) {
     bandCard = null;
@@ -942,22 +938,8 @@ const dropQuarantineNotice = async ($: EngineInterface) => {
   }
 };
 
-const openQuarantine = async ($: EngineInterface, vp: string): Promise<boolean> => {
-  await loadQuarantine($, vp);
-  bumpPanes($);
-  try {
-    return (await $.ui.open({ id: QUARANTINE_PANE, title: "⟡ vault · quarantined folders" })).isPlaced;
-  } catch {
-    return false;
-  }
-};
-
-/** Details on a notice: the pane that can act on it, else the activity log. */
-const openNoticePane = async ($: EngineInterface, entry: ActivityEntry | undefined): Promise<boolean> => {
-  if (entry?.pane === QUARANTINE_PANE && quarantineVault) return openQuarantine($, quarantineVault);
-  return openActivity($);
-};
-let quarantineVault: string | null = null;
+/** The quarantine notice on the band or held, so classifying the last folder can take it down. */
+let quarantineNotice: number | null = null;
 
 /** No pane (a surface that cannot seat one): the pages as text. */
 const renderExplainText = (): string =>
@@ -1151,13 +1133,10 @@ const getIndex = async ($: EngineInterface, vp: string, domains: DomainMap): Pro
       const sm = JSON.parse(String(await $.fs.read(`${vp}/.wiki/sealed/manifest.json`)));
       const n = Number(sm?.shards?.quarantine?.nodes ?? 0);
       if (n > 0) {
-        quarantineVault = vp;
-        notice(
+        quarantineNotice = notice(
           $,
           `🔒 ${n} note${n === 1 ? "" : "s"} in new folders quarantined`,
-          `${n} note${n === 1 ? "" : "s"} live in folders that appeared after the first index. They stay sealed (no vault tool sees them) until you classify each folder: Details lists them with Public / Private, or \`/vault domain public|private <folder>\`.`,
-          undefined,
-          { pane: QUARANTINE_PANE },
+          `${n} note${n === 1 ? "" : "s"} live in folders that appeared after the first index. They stay sealed (no vault tool sees them) until you classify each folder: \`/vault domain\` lists them, \`/vault domain public|private <folder>\` classifies one.`,
         );
       }
     } catch {}
@@ -1402,7 +1381,7 @@ const VAULT_HELP = [
   "/vault close [domain]          seal it again (all when omitted)",
   "/vault reindex                 rebuild the vault index in the background",
   "/vault skills [trust|untrust <name>]   list vault skills / trust one's current content",
-  "/vault domain public|private <id>      classify a domain (e.g. a quarantined folder)",
+  "/vault domain [public|private <id|folder>]   list quarantined folders / classify a domain or folder",
   "/vault witness [clear]         everything commonplace added to context that the transcript does not show",
   "/vault later [clear]           links saved with Later on a link card",
   "/vault revise [log [note]]     revision status, or the history of what was revised and why",
@@ -1577,6 +1556,18 @@ const runVaultCommand = async ($: EngineInterface, argsText: string): Promise<{ 
   if (sub === "domain") {
     const [scope, ...words] = rest;
     const id = words.join(" ");
+    if (!scope) {
+      // Bare: the quarantined folders waiting to be classified.
+      const folders = (await loadQuarantine($, vp)).filter((f) => !quarantine?.done.has(f.folder));
+      if (!folders.length) return { text: "No quarantined folders. Usage: /vault domain public|private <id|folder>" };
+      return {
+        text: [
+          "Quarantined folders (sealed until classified):",
+          ...folders.map((f) => `  ${f.folder} · ${f.notes} note${f.notes === 1 ? "" : "s"}`),
+          "/vault domain public <folder>: every vault tool sees it · /vault domain private <folder>: sealed unless opened",
+        ].join("\n"),
+      };
+    }
     if ((scope !== "public" && scope !== "private") || !id) return { text: "Usage: /vault domain public|private <id|folder>" };
     let reg: { domains?: Record<string, Record<string, unknown>> } = {};
     try {
@@ -2009,7 +2000,7 @@ const bandPress = async ($: EngineInterface, action: string) => {
       const entry = vaultActivity.find((a) => a.id === card.entry);
       if (action === "undo" && entry?.revert && !entry.undone) await undoRevision($, entry.revert.vp, entry.revert.event);
       if (action === "act" && entry?.action?.kind === "commit-waiting" && !entry.acted) await commitWaiting($, entry.action.vp, true);
-      if (action === "details" && !(await openNoticePane($, entry)) && entry) {
+      if (action === "details" && !(await openActivity($)) && entry) {
         // No surface can seat the pane: the one line of detail it would have shown.
         $.ui.toast(entry.details.replace(/[*`]/g, "").slice(0, 240));
       }
@@ -3434,63 +3425,7 @@ export const register: Register = (on, options) => {
         )}
         <Box flexDirection="row" marginTop={1}>
           <Button key="cp-activity-explain" label="How it works" onPress={() => void (async () => openExplain($, (await pickVault($))?.path))()} />
-          {quarantineVault && vaultActivity.some((a) => a.pane === QUARANTINE_PANE) ? (
-            <Box marginLeft={2}>
-              <Button key="cp-activity-quarantine" label="Quarantined folders" onPress={() => void openQuarantine($, quarantineVault!)} />
-            </Box>
-          ) : (
-            <Text>{" "}</Text>
-          )}
         </Box>
-      </Box>
-    );
-  });
-
-  /** The quarantine pane: each new folder with Public / Private. */
-  on("ui.render", { component: "Pane", requestId: QUARANTINE_PANE }, async ($, e, next) => {
-    await read($, paneRev);
-    const { Box, Markdown, Button, Text } = $.ui.resolve(e);
-    const q = quarantine;
-    const intro =
-      "Notes in folders that appeared after the first index stay sealed until you say what the folder is. " +
-      "**Public**: every vault tool sees it. **Private**: sealed unless a session starts inside it or you `/vault open` it.";
-    if (!q || q.folders.length === 0) {
-      return (
-        <Box flexDirection="column">
-          <Markdown text={`${intro}\n\nNo quarantined folders.`} />
-        </Box>
-      );
-    }
-    return (
-      <Box flexDirection="column">
-        <Markdown text={intro} />
-        {q.folders.map((f, i) => {
-          const done = q.done.get(f.folder);
-          return (
-            <Box flexDirection="row" marginTop={1}>
-              <Box flexShrink={1}>
-                <Text wrap="truncate-end">{`${f.folder} · ${f.notes} note${f.notes === 1 ? "" : "s"}`}</Text>
-              </Box>
-              <Box flexShrink={0} flexDirection="row" marginLeft={2}>
-                {done ? (
-                  <Text color="green">{`✓ ${done}`}</Text>
-                ) : (
-                  <Box flexDirection="row">
-                    <Button key={`cp-q-pub-${i}`} label={`Public: ${f.folder}`} onPress={() => void classifyFolder($, q.vp, f.folder, "public")}>
-                      <Text color="cyan" bold>
-                        {"Public"}
-                      </Text>
-                    </Button>
-                    <Text>{"  "}</Text>
-                    <Button key={`cp-q-priv-${i}`} label={`Private: ${f.folder}`} onPress={() => void classifyFolder($, q.vp, f.folder, "private")}>
-                      <Text color="magenta">{"Private"}</Text>
-                    </Button>
-                  </Box>
-                )}
-              </Box>
-            </Box>
-          );
-        })}
       </Box>
     );
   });

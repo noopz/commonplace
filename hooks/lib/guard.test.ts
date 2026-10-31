@@ -222,7 +222,7 @@ test("checkBashCommand allows commonplace CLI calls of every shape", () => {
     "commonplace index --incremental",
     "commonplace seed --query \"alpha method\" --json",
     "OUT=$(commonplace score --json)",
-    "commonplace eval:retrieval --gold .wiki/evals/gold.jsonl --json",
+    "commonplace eval:search --json",
     "node ${CLAUDE_PLUGIN_ROOT}/bin/commonplace post-write",
     "commonplace lint --json > /tmp/out.json && echo ok",
   ]) {

@@ -14,7 +14,6 @@ Works on any directory — Obsidian vault, plain folder, whatever. Obsidian is n
 - **wiki-compile**: Fill concept stubs with real definitions from source papers
 - **wiki-supersede**: Retire an entity replaced by a successor, propagate the live→historical reframing
 - **wiki-domain**: Create or manage research domains with scope rules
-- **wiki-deep-link**: Find hidden concept connections via local embeddings (Ollama)
 - **paper-analyzer**: Deep paper analysis with smart PDF extraction and multi-agent review
 
 ## In the session
@@ -87,11 +86,11 @@ Skills auto-trigger from natural conversation. You never type slash commands —
   │  (diagnose)  │     wanted        │ (score loop) │
   └──────────────┘                   └──────┬───────┘
                                             │ dispatches per round
-                          ┌─────────────────┼────────────────┬──────────────────┐
-                          ▼                 ▼                ▼                  ▼
-                   wiki-linter      wiki-pruner      wiki-moc-updater   wiki-deep-linker
-                                   (refuses retired                       (semantic
-                                    → wiki-supersede)                      candidates)
+                          ┌─────────────────┼────────────────┐
+                          ▼                 ▼                ▼
+                   wiki-linter      wiki-pruner      wiki-moc-updater
+                                   (refuses retired
+                                    → wiki-supersede)
                                             │
                                             ▼
                                     wiki-compile (inline at main-model cost)
@@ -115,9 +114,8 @@ Skills auto-trigger from natural conversation. You never type slash commands —
 | wiki-query | "how does X relate to Y"; post-ingest pivot | wiki-supersede (retired note) | wiki-ingest |
 | wiki-supersede | "mark X retired"; body declares supersession; retired-but-live debt | (terminal) | wiki-ingest, wiki-query, wiki-pruner, wiki-impact-checker |
 | wiki-lint | "how's the vault" — read-only | autoimprove (if fixes wanted) | (entry point) |
-| autoimprove | "improve the vault", "what's the score" | wiki-linter, wiki-pruner, wiki-moc-updater, wiki-deep-linker, wiki-compile, wiki-freshness-checker | wiki-lint |
+| autoimprove | "improve the vault", "what's the score" | wiki-linter, wiki-pruner, wiki-moc-updater, wiki-compile, wiki-freshness-checker | wiki-lint |
 | wiki-compile | "fill the stubs" | (none) | autoimprove; wiki-lint |
-| wiki-deep-link | "find hidden connections" (needs Ollama) | (none) | autoimprove (optional) |
 
 Three-tier cost model:
 1. **TypeScript scripts** (zero LLM cost) — indexing, validation, linting
@@ -132,4 +130,4 @@ Three-tier cost model:
 
 Then, in any session, point it at your notes: "set up commonplace for ~/Notes" (the wiki-init skill runs `commonplace init` and builds the index).
 
-Needs Claude Code 2.1.288 or later and Node.js 22.18 or later (it runs the TypeScript directly). `wiki-deep-link` also needs [Ollama](https://ollama.com) with `nomic-embed-text`; nothing else does.
+Needs Claude Code 2.1.288 or later and Node.js 22.18 or later (it runs the TypeScript directly).

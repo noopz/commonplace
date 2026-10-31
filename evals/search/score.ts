@@ -1,7 +1,7 @@
 /**
  * Pure scoring + tuning for `eval:search` — the v2 model-facing path
  * (`vault_search` postings and the in-module Connect pool), which
- * `eval:retrieval` / `eval:connect` do not measure (they drive the v1 CLI
+ * the v1 retrieval/connect evals did not measure (they drove the v1 CLI
  * seed and connect code).
  *
  * Tuning is EvolveMem's loop without the LLM: coordinate ascent over a fixed
@@ -116,4 +116,19 @@ export function foldOf(id: string): 0 | 1 {
     h = Math.imul(h, 0x01000193) >>> 0;
   }
   return (h & 1) as 0 | 1;
+}
+
+/** A Connect gold case (`connect-gold.jsonl`). Empty `expected_notes` for negatives. */
+export interface ConnectGold {
+  id: string;
+  question: string;
+  seed_notes?: string[];
+  expected_notes: string[];
+  type: string; // connect-explicit | connect-latent | connect-bridge | negative
+}
+
+/** Non-seed targets: the notes Connect must REACH (the seed is where you start). */
+export function targetsOf(g: ConnectGold): string[] {
+  const seed = new Set(g.seed_notes ?? []);
+  return g.expected_notes.filter((e) => !seed.has(e));
 }

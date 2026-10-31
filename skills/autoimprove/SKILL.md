@@ -179,7 +179,6 @@ Run this after each round completes, not just once at the end of the whole run.
 - Answer research questions (that's wiki-query)
 - Delete notes or rename concepts (needs human judgment)
 - Revert changes automatically (git checkpoint is for manual recovery)
-- **Run `wiki-deep-link`**. Embedding-based candidate surfacing is opt-in only — the user runs `commonplace deep-link` (and the `wiki-deep-link` skill) manually when they suspect link-density gaps. Autoimprove sticks to grep-based linking via `commonplace link`. The `concept-density-without-source-links` lint check surfaces notes that would benefit from manual deep-link review.
 
 ## Cost Awareness
 

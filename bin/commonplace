@@ -31,8 +31,6 @@ const SCRIPTS = {
   'log':          'scripts/log.ts',
   'impact':       'scripts/impact.ts',
   'cross-domain': 'scripts/cross-domain.ts',
-  'deep-link':    'scripts/deep-link.ts',
-  'hub-score':    'scripts/hub-score.ts',
   'connect':      'scripts/connect.ts',
   'post-write-research': 'scripts/post-write-research.ts',
   'session-check':       'scripts/session-check.ts',
@@ -42,8 +40,6 @@ const SCRIPTS = {
   'revise':              'scripts/revise.ts',
   'vaults':              'scripts/vaults.ts',
   'vault':               'scripts/vault.ts',
-  'eval:retrieval':      'evals/retrieval/run.ts',
-  'eval:connect':        'evals/connect/run.ts',
   'eval:connection':     'evals/connection/run.ts',
   'eval:judge':          'evals/judge/run.ts',
   'eval:scale':          'evals/scale/run.ts',
@@ -52,9 +48,7 @@ const SCRIPTS = {
   'test:ui':             'scripts/test-ui.ts',
   'synthetic':           'scripts/synthetic.ts',
   'abstract':            'scripts/abstract.ts',
-  'cues':                'scripts/cues.ts',
   'dates':               'scripts/dates.ts',
-  'seed':                'scripts/seed.ts',
   // CLI twins of the vault tools (same hooks/lib code and formatters)
   'records':             'scripts/records.ts',
   'search':              'scripts/search.ts',
@@ -203,7 +197,6 @@ if (!cmd || cmd === '--help' || cmd === '-h') {
   console.error('  log           Append an entry to .wiki/log.md');
   console.error('  impact        Find existing notes affected by a source');
   console.error('  cross-domain  Find cross-domain bridge concepts for a source');
-  console.error('  deep-link     Find implicit concept connections via embeddings (requires Ollama)');
   console.error('  connect       Ranked pool of notes graph-close to a query/note (PPR substrate for wiki-query)');
   console.error('  moc:sync      Reconcile MOC headers/bullet lists with the source index');
   console.error('  supersede     Retire an entity superseded by a successor; propagate live-framing rewrites');
@@ -220,9 +213,8 @@ if (!cmd || cmd === '--help' || cmd === '-h') {
   console.error('  synthetic     Generate a deterministic synthetic vault: --scale N --out <dir> [--seed S]');
   console.error('  test:ui       Module UI tests (band, tool row, spinner) under `claude plugin test`, terminal + desktop');
   console.error('  eval:prime    Gate for primeContext: live claude -p sessions over $VAULT/.wiki/evals/prime-gold.jsonl [--repeat 3] [--init]');
-  console.error('  eval:search   vault_search + Connect pool over the gold sets (in-memory build) [--tune] [--cues draft] [--json]');
+  console.error('  eval:search   vault_search + Connect pool over the gold sets (in-memory build) [--tune] [--json]');
   console.error('  dates         Backfill published: on sources from their labelled source line [--dry-run]');
-  console.error('  cues          Draft cues: (other phrasings) for notes with haiku, filtered by self-retrieval; writes no note');
   console.error('  eval:scale    Benchmark index/seed/connect on synthetic 1x/10x/50x vaults [--scales 1,10,50] [--json] [--keep]');
   console.error('');
   console.error('  paper:fetch          Download paper from arXiv/URL');

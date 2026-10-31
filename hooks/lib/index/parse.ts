@@ -56,8 +56,6 @@ export interface ParsedNote {
   created?: string;
   /** `published:` (else `date:`) — when the knowledge itself was produced (YYYY, YYYY-MM or YYYY-MM-DD). */
   published?: string;
-  /** `cues:` — other phrasings a reader would search for this note by (≤8, ≤80 chars each). */
-  cues?: string[];
   headings: string[];
   links: ParsedLink[];
   /** Body carries the stub sentinel ("Definition pending - please update."). */
@@ -79,8 +77,6 @@ export interface ParseOptions {
 
 const SENTENCE_MAX = 200;
 const ABSTRACTION_MAX = 120;
-const CUES_MAX = 8;
-const CUE_CHARS = 80;
 const STUB_SENTINEL = "Definition pending - please update.";
 
 /** Frontmatter field → link kind. snake_case is what the schema writes. */
@@ -352,11 +348,6 @@ export function parseNote(path: string, text: string, opts: ParseOptions = {}): 
     if (abstraction) abstractionFallback = true;
   }
 
-  const cues = strList(fm.cues)
-    .map((c) => c.trim().slice(0, CUE_CHARS))
-    .filter(Boolean)
-    .slice(0, CUES_MAX);
-
   return {
     title,
     aliases,
@@ -365,7 +356,6 @@ export function parseNote(path: string, text: string, opts: ParseOptions = {}): 
     tags,
     abstraction,
     ...(abstractionFallback ? { abstractionFallback } : {}),
-    ...(cues.length ? { cues } : {}),
     ...(normDate(fm.created) ? { created: normDate(fm.created) } : {}),
     ...(normDate(fm.published ?? fm.date) ? { published: normDate(fm.published ?? fm.date) } : {}),
     headings,

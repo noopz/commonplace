@@ -1,6 +1,6 @@
 {
   "name": "commonplace",
-  "version": "2.5.2",
+  "version": "2.6.0",
   "license": "MIT",
   "private": true,
   "type": "module",
@@ -19,10 +19,8 @@
     "scope-check": "node scripts/scope-check.ts",
     "vault-score": "node scripts/vault-score.ts",
     "prune": "node scripts/prune.ts",
-    "eval:retrieval": "node evals/retrieval/run.ts",
     "eval:connection": "node evals/connection/run.ts",
     "eval:judge": "node evals/judge/run.ts",
-    "eval:connect": "node evals/connect/run.ts",
     "eval:scale": "node evals/scale/run.ts",
     "explain:render": "node scripts/explain-render.ts",
     "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.hooks.json",
