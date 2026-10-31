@@ -41,13 +41,13 @@ Papers get the deepest treatment because they're the densest sources.
 
 ### Sources behind a login (Slack, Google Docs, Confluence, internal wikis)
 
-Revision verifies a claim against the captured source, and it cannot fetch anything that needs a login, so an uncaptured internal source is a claim nothing can check later. Whenever the content came from such a place (pasted, or read through a connector or MCP tool):
+Revision checks a claim against the source's own words, and it cannot fetch anything behind a login. Keep the link, and save only the words the note's claims rest on, not the whole thread or doc:
 
-1. **Snapshot it**: write the text exactly as you received it to `$VAULT_PATH/raw/<YYYY-MM-DD> <short title>.md`, with the original URL and the capture date on its first two lines. No summarising, no cleanup beyond removing UI chrome.
-2. **Link it** from the source note: `**Original:** ![[raw/<YYYY-MM-DD> <short title>.md]]` beside `**URL:**`.
-3. **Date it**: set `as_of:` to the date the content describes (a thread's last message, a doc's last edit), not today's date when they differ.
+1. **Excerpt**: write the messages or passages the note actually cites, verbatim, with author and date for each, to `$VAULT_PATH/raw/<YYYY-MM-DD> <short title>.md`. The first two lines are the original URL and the capture date. Typically a handful of messages; never the whole conversation.
+2. **Link it** from the source note: `**URL:** <link>` and `**Original:** ![[raw/<YYYY-MM-DD> <short title>.md]]`.
+3. **Date it**: set `as_of:` to the date the content describes (the cited messages' date), not today's date when they differ.
 
-A later change in that source is captured the same way, as a new snapshot and a new source note, never by editing the old one: that new note is what lets revision mark the old claim as overtaken.
+A later change in that source is captured the same way, as a new excerpt and a new source note, never by editing the old one: that new note is what lets revision mark the old claim as overtaken.
 
 ### Coding Projects
 
