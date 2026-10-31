@@ -38,6 +38,10 @@ export function timeLines(c: CommonplaceCard): string[] {
     if (c.supersededBy?.length) out.push(`⚠ superseded by ${c.supersededBy.map((x) => `[[${x}]]`).join(", ")} — kept for history; read the newer note before relying on this one`);
     if (c.contestedBy?.length) out.push(`⚠ contested by ${c.contestedBy.map((x) => `[[${x}]]`).join(", ")} — read both before relying on either`);
   }
+  // The note's own word on itself, and the date its claims describe: both are
+  // status, so they come before the clocks and survive `statusOnly`.
+  const own = [c.noteStatus ? `status: ${c.noteStatus}` : "", c.asOf ? `as of ${c.asOf}` : ""].filter(Boolean);
+  if (own.length) out.push(own.join(" · "));
   if (c.mayRelyOnDisplaced?.length) {
     out.push(`⚠ may still rely on a displaced claim of ${c.mayRelyOnDisplaced.map((x) => `[[${x}]]`).join(", ")} — check before relying on this summary`);
   }

@@ -13,7 +13,7 @@
  * Pure: everything outside comes through `TriggerPorts`; every branch logs.
  */
 
-import { MODELS, DETECT_SYSTEM, detectPrompt, parseDetect, PROPOSE_SYSTEM, proposePrompt, parsePropose } from "./review.ts";
+import { MODELS, DETECT_SYSTEM, claimExcerpt, detectPrompt, parseDetect, PROPOSE_SYSTEM, proposePrompt, parsePropose } from "./review.ts";
 
 export type NoteInfo = { rel: string; title: string; abstraction: string; kind: string; shard: string };
 
@@ -102,12 +102,15 @@ export async function runTrigger(ports: TriggerPorts, job: TriggerJob): Promise<
       continue;
     }
 
-    const det = await ports.complete({ model: MODELS.detect, system: DETECT_SYSTEM, prompt: detectPrompt({ title: w.title, text: wText }, pool), maxTokens: 400 });
+    const shown = [];
+    for (const p of pool) shown.push({ ...p, excerpt: claimExcerpt((await ports.text(p.rel)) ?? "", wText) });
+    const prompt = detectPrompt({ title: w.title, text: wText }, shown);
+    const det = await ports.complete({ model: MODELS.detect, system: DETECT_SYSTEM, prompt, maxTokens: 400 });
     if (det === null) res.unanswered++;
     let changed = parseDetect(det ?? undefined, pool.length);
     ports.log("revision:detect", { pool: pool.length, truncated, changed: changed?.length ?? -1, answered: det !== null });
     if (changed && changed.length === 0 && ports.random() < AUDIT_RATE) {
-      const again = await ports.complete({ model: AUDIT_MODEL, system: DETECT_SYSTEM, prompt: detectPrompt({ title: w.title, text: wText }, pool), maxTokens: 400 });
+      const again = await ports.complete({ model: AUDIT_MODEL, system: DETECT_SYSTEM, prompt, maxTokens: 400 });
       const audit = parseDetect(again ?? undefined, pool.length);
       ports.log("revision:audit", { answered: audit !== null, agree: audit !== null && audit.length === 0, found: audit?.length ?? 0 });
       if (audit && audit.length) changed = audit;

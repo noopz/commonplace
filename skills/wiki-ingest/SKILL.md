@@ -39,6 +39,16 @@ Papers get the deepest treatment because they're the densest sources.
 3. **Synthesize source note**: Extract key findings, techniques, or information
 4. **Determine domain**: Match against existing domains by topic. If no domain matches, ask the user or hand off to wiki-domain.
 
+### Sources behind a login (Slack, Google Docs, Confluence, internal wikis)
+
+Revision verifies a claim against the captured source, and it cannot fetch anything that needs a login, so an uncaptured internal source is a claim nothing can check later. Whenever the content came from such a place (pasted, or read through a connector or MCP tool):
+
+1. **Snapshot it**: write the text exactly as you received it to `$VAULT_PATH/raw/<YYYY-MM-DD> <short title>.md`, with the original URL and the capture date on its first two lines. No summarising, no cleanup beyond removing UI chrome.
+2. **Link it** from the source note: `**Original:** ![[raw/<YYYY-MM-DD> <short title>.md]]` beside `**URL:**`.
+3. **Date it**: set `as_of:` to the date the content describes (a thread's last message, a doc's last edit), not today's date when they differ.
+
+A later change in that source is captured the same way, as a new snapshot and a new source note, never by editing the old one: that new note is what lets revision mark the old claim as overtaken.
+
 ### Coding Projects
 
 1. **Read key files**: README.md, CLAUDE.md, package.json, key source files

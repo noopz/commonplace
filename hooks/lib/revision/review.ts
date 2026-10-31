@@ -15,11 +15,14 @@
  */
 
 import type { RevisionRelation } from "./edges.ts";
+import { tokenize } from "../core/text.ts";
 
 export const MODELS = { detect: "haiku", propose: "sonnet", review: "sonnet", verify: "sonnet", escalate: "opus", wording: "sonnet", wordingCheck: "haiku" } as const;
 
 export const NOTE_CHARS = 20_000;
 export const DETECT_NOTE_CHARS = 5_000;
+/** Body lines shown per older candidate, beside its summary. */
+export const DETECT_EXCERPT_CHARS = 600;
 
 function json<T>(text: string | undefined): T | null {
   const s = String(text ?? "");
@@ -44,13 +47,42 @@ export const DETECT_SYSTEM =
   "Agreement, elaboration, a different topic, or merely citing the same work is NOT a change. Most candidates are not changed; " +
   'an empty list is the usual answer. Reply with JSON only: {"changed":[{"n":<candidate number>,"why":"<one short clause>"}]}';
 
-export function detectPrompt(written: { title: string; text: string }, candidates: ReadonlyArray<{ title: string; abstraction: string }>): string {
+/**
+ * The lines of an older note's body that share the most terms with the new
+ * note, in their original order, up to `max` characters. A summary names a
+ * note's subject; the claims a new note changes are usually in the body.
+ * Lexical, and it only chooses which lines the detector sees: whether one is
+ * changed is the detector's judgment.
+ */
+export function claimExcerpt(body: string, against: string, max = DETECT_EXCERPT_CHARS): string {
+  const want = new Set(tokenize(against));
+  const lines = String(body ?? "")
+    .split("\n")
+    .map((l) => l.replace(/^[\s>*#-]+/, "").trim())
+    .filter((l) => l.length >= 25);
+  const scored = lines.map((l, i) => ({ i, l, s: new Set(tokenize(l).filter((t) => want.has(t))).size })).filter((x) => x.s > 0);
+  scored.sort((a, b) => b.s - a.s || a.i - b.i);
+  const picked: typeof scored = [];
+  let used = 0;
+  for (const x of scored) {
+    const l = x.l.length > 240 ? `${x.l.slice(0, 239)}…` : x.l;
+    if (used + l.length > max) continue;
+    picked.push({ ...x, l });
+    used += l.length + 3;
+  }
+  return picked.sort((a, b) => a.i - b.i).map((x) => x.l).join(" / ");
+}
+
+export function detectPrompt(
+  written: { title: string; text: string },
+  candidates: ReadonlyArray<{ title: string; abstraction: string; excerpt?: string }>,
+): string {
   return [
     `NEW NOTE: [[${written.title}]]`,
     clip(written.text, DETECT_NOTE_CHARS),
     "",
-    "OLDER CANDIDATES:",
-    ...candidates.map((c, i) => `${i + 1}. [[${c.title}]] — ${c.abstraction || "(no summary)"}`),
+    "OLDER CANDIDATES (summary, then the lines of the note nearest the new one):",
+    ...candidates.map((c, i) => `${i + 1}. [[${c.title}]] — ${c.abstraction || "(no summary)"}${c.excerpt ? `\n   Lines: ${c.excerpt}` : ""}`),
   ].join("\n");
 }
 

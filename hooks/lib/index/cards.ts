@@ -34,6 +34,9 @@ export type Card = {
   /** When the knowledge was produced (`published:`/`date:`), when it entered the vault (`created:`). */
   pub?: string;
   cr?: string;
+  /** `as_of:` and the note's own `status:`. */
+  asof?: string;
+  st?: string;
 };
 
 export const CARD_ABSTRACTION_MAX = 120;
@@ -60,6 +63,8 @@ export function makeCard(c: Omit<Card, "a"> & { a: string }): Card {
   if (!c.af) delete card.af;
   if (!c.pub) delete card.pub;
   if (!c.cr) delete card.cr;
+  if (!c.asof) delete card.asof;
+  if (!c.st) delete card.st;
   const size = () => new TextEncoder().encode(JSON.stringify(card)).length;
   while (size() > CARD_MAX_BYTES && card.tags.length > 0) card.tags.pop();
   while (size() > CARD_MAX_BYTES && card.nb.length > 0) card.nb.pop();

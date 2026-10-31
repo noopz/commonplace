@@ -318,6 +318,8 @@ export function buildIndex(notes: readonly IndexNote[], opts: BuildOptions): Bui
       ret: isRetired(p),
       pub: p.published,
       cr: p.created,
+      asof: p.asOf,
+      st: p.status,
     });
   };
   const postingsFor = (id: number, visible: (t: number) => boolean): PostingsInput => {

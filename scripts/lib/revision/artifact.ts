@@ -3,8 +3,10 @@
  * 4): the captured source behind a source note, retrieved by commonplace
  * itself — never the proposer's quotes. A note names its source on labelled
  * lines (`**URL:**`, `**Source:**`, `**arXiv:**`, `**Paper:**`, `**Links:**`)
- * or in frontmatter (`url`, `source`, `arxiv`), or embeds a captured file
- * (`![[raw/…]]`). The text is cached under `.wiki/revision/artifacts/` by
+ * or in frontmatter (`url`, `source`, `arxiv`), or links a captured file in
+ * any `raw/` folder (`![[raw/…]]`, `[[99 - Meta/raw/…]]`) or on an
+ * `**Original PDF:**` line, which may name it by file name alone, as Obsidian
+ * does. The text is cached under `.wiki/revision/artifacts/` by
  * reference, and its hash is what the ledger records.
  *
  * Passage finding is lexical and only LOCATES text (windows sharing the most
@@ -13,7 +15,7 @@
  */
 
 import { createHash } from "crypto";
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from "fs";
 import { join, resolve } from "path";
 import { tmpdir } from "os";
 import { parseFrontmatter } from "../../../hooks/lib/index/yaml.ts";
@@ -23,6 +25,8 @@ export type Artifact = { ref: string; hash: string; text: string; fetchedAt: str
 export type Passage = { locator: string; text: string };
 
 const LABELLED = /\*\*(?:URL|Source|Link|Links|Paper|arXiv|Webpage|Doc|PDF):?\*\*:?\s*(\S+)/gi;
+const RAW_LINK = /!?\[\[((?:[^\]|#]*\/)?_?raw\/[^\]|#]+\.(?:pdf|md|txt|html?))(?:[|#][^\]]*)?\]\]/gi;
+const ORIGINAL = /\*\*Original(?: PDF| file| source)?:?\*\*:?\s*(?:!?\[\[([^\]|#]+)(?:[|#][^\]]*)?\]\]|(\S[^\n]*\.(?:pdf|md|txt|html?)))/gi;
 const ARXIV_ID = /(?:arxiv\.org\/(?:abs|pdf)\/|arXiv:\s*)?(\d{4}\.\d{4,5})(v\d+)?/i;
 
 /** Where a note's source can be read, best first: a captured file, then an arXiv PDF, then a URL. */
@@ -32,9 +36,16 @@ export function sourceRefs(vault: string, noteText: string): ArtifactRef[] {
     if (!out.some((x) => x.ref === r.ref)) out.push(r);
   };
   const { data, body } = parseFrontmatter(noteText);
-  for (const m of body.matchAll(/!?\[\[((?:raw|_raw)\/[^\]|#]+\.(?:pdf|md|txt|html?))(?:[|#][^\]]*)?\]\]/gi)) {
-    const abs = resolve(vault, m[1]);
-    if (abs.startsWith(resolve(vault) + "/") && existsSync(abs)) add({ kind: "file", ref: abs });
+  const root = resolve(vault) + "/";
+  const addFile = (rel: string) => {
+    const abs = resolve(vault, rel);
+    if (abs.startsWith(root) && existsSync(abs)) add({ kind: "file", ref: abs });
+  };
+  for (const m of body.matchAll(RAW_LINK)) addFile(m[1]);
+  for (const m of body.matchAll(ORIGINAL)) {
+    const named = (m[1] ?? m[2]).trim();
+    if (named.includes("/")) addFile(named);
+    else for (const dir of rawDirs(vault)) addFile(join(dir, named));
   }
   const urls: string[] = [];
   for (const k of ["url", "source", "arxiv", "link"]) {
@@ -48,6 +59,18 @@ export function sourceRefs(vault: string, noteText: string): ArtifactRef[] {
     if (ax && (/arxiv/i.test(u) || /^\d{4}\.\d{4,5}/.test(u))) add({ kind: "url", ref: `https://arxiv.org/pdf/${ax[1]}${ax[2] ?? ""}` });
     else if (/^https?:\/\//.test(u)) add({ kind: "url", ref: u });
   }
+  return out;
+}
+
+/** The vault's `raw/` folders, for a file named without its path: `raw`, `_raw`, and either one inside a top-level folder. */
+function rawDirs(vault: string): string[] {
+  const out = ["raw", "_raw"];
+  try {
+    for (const d of readdirSync(vault, { withFileTypes: true })) {
+      if (!d.isDirectory() || d.name.startsWith(".")) continue;
+      for (const r of ["raw", "_raw"]) if (existsSync(join(vault, d.name, r))) out.push(join(d.name, r));
+    }
+  } catch {}
   return out;
 }
 

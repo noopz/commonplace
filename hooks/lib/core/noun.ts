@@ -97,6 +97,8 @@ export function toCard(c: Card, ctx: Pick<NounCtx, "vaultId" | "index">): Common
     isRetired: c.ret,
     ...(c.pub ? { published: c.pub } : {}),
     ...(c.cr ? { added: c.cr } : {}),
+    ...(c.asof ? { asOf: c.asof } : {}),
+    ...(c.st ? { noteStatus: c.st } : {}),
     ...(sup.length ? { supersededBy: sup } : {}),
     ...(con.length ? { contestedBy: con } : {}),
     ...(shard !== MAIN ? { isPrivate: true as const } : {}),

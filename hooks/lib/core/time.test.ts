@@ -10,7 +10,7 @@ import { buildIndex, type IndexNote } from "../index/model.ts";
 import { serializeIndex } from "../index/layout.ts";
 import { VaultIndex, type IndexPorts } from "../index/load.ts";
 import * as noun from "./noun.ts";
-import { formatSearch, formatNote, timeLines } from "../tools/format.ts";
+import { formatSearch, formatNote, timeLines, statusOnly } from "../tools/format.ts";
 import type { DomainMap } from "./scope.ts";
 
 const DOMAINS: DomainMap = {
@@ -111,4 +111,16 @@ test("cards carry no path; search and note take it from the view", async () => {
   const n = await noun.note(ctx(), { ref: "Kestrel Survey" });
   assert.ok(!("error" in n));
   assert.equal(n.card.path, "Research/Alpha/Kestrel Survey.md");
+});
+
+test("as_of and the note's own status are read, shown after revision status and before the clocks, and kept on one-line surfaces", () => {
+  const p = parseNote("Research/Alpha/Kestrel Baseline.md", "---\nas_of: 2026-03-04\nstatus: deprecated\npublished: 2026-02\n---\n# Kestrel Baseline\n");
+  assert.equal(p.asOf, "2026-03-04");
+  assert.equal(p.status, "deprecated");
+  assert.equal(parseNote("a.md", "---\nstatus:\n  - a\n---\n").status, undefined, "a list is not a one-line status");
+  const bare = { id: 1, vault: "v", path: "a.md", title: "A", kind: "source" as const, domain: "", abstraction: "", inDegree: 0, outDegree: 0, tags: [], isStub: false, isRetired: false };
+  const c = { ...bare, supersededBy: ["B"], noteStatus: "deprecated", asOf: "2026-03-04", published: "2026-02" };
+  assert.deepEqual(timeLines(c).slice(1), ["status: deprecated · as of 2026-03-04", "published 2026-02"]);
+  assert.match(timeLines(c)[0], /superseded by \[\[B\]\]/);
+  assert.deepEqual(statusOnly(c).slice(1), ["status: deprecated · as of 2026-03-04"]);
 });

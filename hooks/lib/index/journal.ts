@@ -26,6 +26,8 @@ export type JournalNote = {
   af?: 1;
   created?: string;
   published?: string;
+  asOf?: string;
+  status?: string;
   headings: string[];
   links: JournalLink[];
   stub: boolean;
@@ -56,6 +58,8 @@ export function journalNote(p: ParsedNote, stub: boolean): JournalNote {
     ...(p.abstractionFallback ? { af: 1 as const } : {}),
     ...(p.created ? { created: p.created } : {}),
     ...(p.published ? { published: p.published } : {}),
+    ...(p.asOf ? { asOf: p.asOf } : {}),
+    ...(p.status ? { status: p.status } : {}),
     headings: p.headings.slice(0, MAX_HEADINGS),
     links,
     stub,

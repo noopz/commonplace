@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import { parseFrontmatter } from "../index/yaml.ts";
 import { edgeKey, fmEdges, locateClaim, statusLine } from "./edges.ts";
 import { EMPTY_PROJECTION, statusesFor, type Projection } from "./projection.ts";
-import { parseDetect, parsePropose, parseReview, parseVerify, parseEscalate, parseWording, parseWordingCheck } from "./review.ts";
+import { claimExcerpt, parseDetect, parsePropose, parseReview, parseVerify, parseEscalate, parseWording, parseWordingCheck } from "./review.ts";
 import { runTrigger, type NoteInfo, type TriggerPorts } from "./trigger.ts";
 import { runSteps, type RunnerPorts } from "./runner.ts";
 
@@ -145,6 +145,25 @@ test("trigger: a detected change gets an exact-claim proposal over the pooled no
   assert.deepEqual(calls.models, ["haiku", "sonnet"]);
   assert.equal(calls.proposed[0].old, "Old.md");
   assert.equal(calls.proposed[0].claim, "the old figure");
+});
+
+test("trigger: the detector sees the older note's body lines nearest the new note, not only its summary", async () => {
+  const prompts: string[] = [];
+  const old = { ...note("Old.md"), text: "# Old\nIntro line that says nothing in particular here.\n- The kestrel pipeline finishes a full run in 28 minutes on one node." };
+  const neu = { ...note("New.md"), text: "The kestrel pipeline now needs 41 minutes per full run after the storage move." };
+  const { ports } = triggerFake({ "New.md": neu, "Old.md": old }, ['{"changed":[]}'], {
+    complete: async (req) => (prompts.push(req.prompt), '{"changed":[]}'),
+  });
+  await runTrigger(ports, { written: ["New.md"], reads: ["Old.md"] });
+  assert.match(prompts[0], /Lines: The kestrel pipeline finishes a full run in 28 minutes/);
+  assert.doesNotMatch(prompts[0], /Intro line/);
+});
+
+test("claimExcerpt keeps the best-matching lines in body order within the budget", () => {
+  const body = ["Gamma lattice holds at 8 nodes in the first bench.", "Unrelated aside about the weather this week.", "The gamma lattice degrades past 8 nodes per later runs."].join("\n");
+  assert.equal(claimExcerpt(body, "gamma lattice nodes degrades"), "Gamma lattice holds at 8 nodes in the first bench. / The gamma lattice degrades past 8 nodes per later runs.");
+  assert.equal(claimExcerpt(body, "gamma lattice nodes degrades", 60), "The gamma lattice degrades past 8 nodes per later runs.");
+  assert.equal(claimExcerpt(body, "nothing shared"), "");
 });
 
 test("trigger: a public note never pools a private one, and summaries are not triggered", async () => {

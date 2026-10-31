@@ -388,7 +388,8 @@ the **summary** (concepts and MOCs, revised with receipts).
   the earlier state true for its period, lost support is not refutation.
 - **Status before date.** Every model-facing line (pointers, `vault_note`,
   prime, the connection block, a plain `Read` of a vault note) prints the status
-  first, then `published … · added …`. LLM rerankers drift toward newer dates
+  first (revision lines, then the note's own `status:` and `as_of:`), then
+  `published … · added …`. LLM rerankers drift toward newer dates
   (arXiv 2509.11353); ranking ignores status and both clocks. Age is never a
   reason: overtaken knowledge is labelled, not decayed or evicted.
 - **Units of work** (`scripts/lib/git-unit.ts`, `commonplace commit`): each
@@ -463,8 +464,13 @@ the **summary** (concepts and MOCs, revised with receipts).
   an overflow job of `pairs`, never dropped. `processRevision` (single-flight
   per vault, kicked on the first turn in a vault, so a dead session's jobs are
   picked up, then at most every 5 min and after every successful unit commit) claims jobs, runs `runTrigger` (pool: reads + graph neighbours +
-  a search, same-scope source notes only, ≤12; haiku detects, 10% of "nothing
+  a search, same-scope source notes only, ≤12; haiku detects, seeing each candidate's summary plus the body lines nearest the new note (`claimExcerpt`), 10% of "nothing
   changed" re-asked of sonnet; sonnet quotes the exact claim), then `runSteps`.
+- **Artifacts** (`scripts/lib/revision/artifact.ts`): a note's captured
+  source is a link into any `raw/` folder (`![[raw/…]]`, `[[Meta/raw/…]]`), an
+  `**Original PDF:**` line (a bare file name is looked up in the `raw/`
+  folders), or a labelled URL. Sources behind a login cannot be fetched, so
+  wiki-ingest snapshots them to `raw/` at capture.
 - **Pinned branch**: the branch a vault is on when the session starts is the
   only one it commits to (`session.start` pins every registered vault; the
   pins sit in `$.store` under the session id, so a reload keeps them). `COMMONPLACE_PIN` rides on every CLI the module runs

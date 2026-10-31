@@ -56,6 +56,10 @@ export interface ParsedNote {
   created?: string;
   /** `published:` (else `date:`) — when the knowledge itself was produced (YYYY, YYYY-MM or YYYY-MM-DD). */
   published?: string;
+  /** `as_of:` — the date the note's claims describe the world at (YYYY, YYYY-MM or YYYY-MM-DD). */
+  asOf?: string;
+  /** `status:` — the note's own status as the vault writes it (`draft`, `deprecated`…), one line. */
+  status?: string;
   headings: string[];
   links: ParsedLink[];
   /** Body carries the stub sentinel ("Definition pending - please update."). */
@@ -251,6 +255,13 @@ function fallbackAbstraction(lines: string[], inFence: boolean[]): string {
  * The shared parser keeps a date as the string written; a Date from any other
  * caller lands on the same text.
  */
+/** A `status:` value fit for a one-line display: a short plain string, else nothing. */
+export function noteStatus(v: unknown): string | undefined {
+  if (typeof v !== "string") return undefined;
+  const s = v.replace(/\s+/g, " ").trim();
+  return s && s.length <= 40 ? s : undefined;
+}
+
 export function normDate(v: unknown): string | undefined {
   if (v instanceof Date) return Number.isNaN(v.getTime()) ? undefined : v.toISOString().slice(0, 10);
   if (typeof v === "number" && v >= 1000 && v <= 9999) return String(v);
@@ -358,6 +369,8 @@ export function parseNote(path: string, text: string, opts: ParseOptions = {}): 
     ...(abstractionFallback ? { abstractionFallback } : {}),
     ...(normDate(fm.created) ? { created: normDate(fm.created) } : {}),
     ...(normDate(fm.published ?? fm.date) ? { published: normDate(fm.published ?? fm.date) } : {}),
+    ...(normDate(fm.as_of ?? fm.asOf) ? { asOf: normDate(fm.as_of ?? fm.asOf) } : {}),
+    ...(noteStatus(fm.status) ? { status: noteStatus(fm.status) } : {}),
     headings,
     links,
     ...(body.includes(STUB_SENTINEL) ? { stubSentinel: true as const } : {}),

@@ -102,6 +102,10 @@ export type CommonplaceCard = {
   published?: string;
   /** When the note entered the vault (`created:`). */
   added?: string;
+  /** The date the note's claims describe the world at (`as_of:`). */
+  asOf?: string;
+  /** The note's own `status:` frontmatter, as written. */
+  noteStatus?: string;
   /** Titles of visible notes whose `supersedes:` names this one (it is replaced, kept for history). */
   supersededBy?: string[];
   /** Titles of visible notes whose `contests:` names this one (disputed, not replaced). */
