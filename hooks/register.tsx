@@ -113,6 +113,23 @@ import { EXPLAIN_PAGES, liveSvg, liveBars, type LiveCounts } from "./lib/explain
 import { quarantinedFolders, domainIdFor, type QuarantinedFolder } from "./lib/core/quarantine.ts";
 import { runTrigger, type TriggerPorts, type Pair } from "./lib/revision/trigger.ts";
 import { runSteps, type RunnerPorts } from "./lib/revision/runner.ts";
+import {
+  DEFAULT_DAILY_USD,
+  FALLBACK_PRICES,
+  PRICING_URL,
+  addSpend,
+  budgetLine,
+  canSpend,
+  costOf,
+  limitOf,
+  parsePricing,
+  raise as raiseBudgetState,
+  today,
+  usd,
+  type BudgetState,
+  type PriceTable,
+  type Usage,
+} from "./lib/core/budget.ts";
 
 // ---------------------------------------------------------------------------
 // Tunables
@@ -660,6 +677,7 @@ const triggerPorts = ($: EngineInterface, vp: string): TriggerPorts => ({
   },
   complete: async (req) => {
     const r = await $.model.complete({ ...req, timeoutMs: 180_000 } as CompletionRequest);
+    await spend($, vp, req.model, r.usage, "revision:trigger");
     return r.isAnswered ? r.text : null;
   },
   propose: async (p) => {
@@ -673,7 +691,10 @@ const triggerPorts = ($: EngineInterface, vp: string): TriggerPorts => ({
 const runnerPorts = ($: EngineInterface, vp: string): RunnerPorts => ({
   cli: (args, stdin) => revCli($, vp, args, stdin),
   complete: async (req) => {
+    // Over budget: no answer, which every step treats as "try again next run".
+    if (!(await budgetOpen($, vp))) return null;
     const r = await $.model.complete({ ...req, timeoutMs: 300_000 } as CompletionRequest);
+    await spend($, vp, req.model, r.usage, "revision:step");
     return r.isAnswered ? r.text : null;
   },
   log: (stage, data) => traceTo($, vp, stage, data),
@@ -713,6 +734,8 @@ const processRevision = ($: EngineInterface, vp: string) => {
   const run = (async () => {
     if (!(await ensureRevision($, vp))) return;
     for (let i = 0; i < JOBS_PER_RUN; i++) {
+      // Over budget: the jobs stay queued for tomorrow (or a raise).
+      if (!(await budgetOpen($, vp))) break;
       const claimed = await revCli($, vp, ["job-next"]);
       const job = claimed?.job as { job: string; written: string[]; reads: string[]; pairs?: Pair[]; attempt: number } | undefined;
       if (!job) break;
@@ -733,7 +756,7 @@ const processRevision = ($: EngineInterface, vp: string) => {
       if (res.unanswered > 0 && res.proposed === 0) await revCli($, vp, ["job-failed", "--job", job.job, "--reason", `${res.unanswered} model calls unanswered`]);
       else await revCli($, vp, ["job-done", "--job", job.job], { poolSize: res.pool, truncated: res.truncated, changed: res.changed, proposals: res.proposed });
     }
-    const steps = await runSteps(runnerPorts($, vp));
+    const steps = (await budgetOpen($, vp)) ? await runSteps(runnerPorts($, vp)) : 0;
     traceTo($, vp, "revision:steps", { steps });
     await checkWaiting($, vp);
   })().catch((err) => traceTo($, vp, "revision:error", { err: String(err).slice(0, 80) }));
@@ -784,9 +807,8 @@ const scheduleRevisionFlush = ($: EngineInterface, agentId: string | undefined) 
  * notice puts one line on the band with Details (this pane) and, for a
  * revision, Undo. Module memory: an entry can name an open private note.
  */
-/** `pane`: the pane Details opens instead of the activity log (one that can act on the notice). */
 /** `action`: a press the notice offers besides Details (the card's primary button); `acted` once pressed. */
-type NoticeAction = { kind: "commit-waiting"; vp: string; label: string };
+type NoticeAction = { kind: "commit-waiting"; vp: string; label: string } | { kind: "budget-raise"; label: string };
 type ActivityEntry = { id: number; at: string; text: string; details: string; revert?: { vp: string; event: string }; undone?: boolean; action?: NoticeAction; acted?: boolean };
 const vaultActivity: ActivityEntry[] = [];
 let activitySeq = 0;
@@ -820,6 +842,93 @@ const showHeldNotice = ($: EngineInterface): boolean => {
   if (!entry) return false;
   showCard($, { kind: "notice", entry: entry.id }, entry.text);
   return true;
+};
+
+/**
+ * The daily budget for background work on connections and stale knowledge
+ * (hooks/lib/core/budget.ts). `$.store`, so a session that runs for weeks and
+ * every resume see the same day; what the person asks for never counts.
+ */
+const BUDGET_KEY = "budget:daily";
+const PRICES_KEY = "budget:prices";
+const PRICES_MAX_AGE_MS = 7 * 24 * 3600_000;
+let budgetSetting = DEFAULT_DAILY_USD;
+let priceTable: PriceTable = FALLBACK_PRICES;
+
+/** The price table: the stored copy of the pricing page, re-read when a week old; the built-in one until then. */
+const loadPrices = async ($: EngineInterface) => {
+  try {
+    const kept = (await $.store.get(PRICES_KEY)) as { at: number; table: PriceTable } | null;
+    if (kept?.table?.length) priceTable = kept.table;
+    if (kept && Date.now() - kept.at < PRICES_MAX_AGE_MS) return;
+    const r = await $.http.fetch(PRICING_URL);
+    const table = r.ok ? parsePricing(r.text) : null;
+    if (table) {
+      priceTable = table;
+      await $.store.set(PRICES_KEY, { at: Date.now(), table });
+    }
+  } catch {
+    /* offline or refused: the stored or built-in prices stand */
+  }
+};
+const budgetNow = async ($: EngineInterface): Promise<BudgetState> => today((await $.store.get(BUDGET_KEY)) as BudgetState | null, new Date());
+
+/** Whether background work may start a model call; raises the over-budget notice once a day when not. */
+const budgetOpen = async ($: EngineInterface, vp?: string): Promise<boolean> => {
+  const s = await budgetNow($);
+  if (canSpend(s, budgetSetting)) return true;
+  if (vp) traceTo($, vp, "budget:skip", { spent: Number(s.spent.toFixed(4)) });
+  await budgetNotice($, s);
+  return false;
+};
+
+/** Record one background call's cost. */
+const spend = async ($: EngineInterface, vp: string | undefined, model: string, u: Usage | undefined, what: string) => {
+  if (!u) return;
+  const cost = costOf(model, u, priceTable);
+  const s = addSpend(await budgetNow($), cost);
+  await $.store.set(BUDGET_KEY, s);
+  if (vp) traceTo($, vp, "budget:spend", { what, model, usd: Number(cost.toFixed(5)), today: Number(s.spent.toFixed(4)) });
+  if (!canSpend(s, budgetSetting)) await budgetNotice($, s);
+};
+
+const budgetNotice = async ($: EngineInterface, s: BudgetState) => {
+  if (s.noticed || s.stopped) return;
+  await $.store.set(BUDGET_KEY, { ...s, noticed: true });
+  const limit = limitOf(s, budgetSetting);
+  notice(
+    $,
+    `vault spent ${usd(limit)} today; background work paused`,
+    [
+      `**Daily budget reached** — commonplace's background work (connections, prime, revision) has spent ${usd(s.spent)} today, against ${usd(limit)}.`,
+      "Revision work waits in its queue and resumes after midnight; the connection pass and prime skip until then. Ingest and anything you ask for are not affected.",
+      "The budget is the plugin's `dailyBudgetUSD` setting.",
+    ].join("\n\n"),
+    undefined,
+    { action: { kind: "budget-raise", label: `Raise to ${usd(limit * 2)} for today` } },
+  );
+};
+
+const raiseBudget = async ($: EngineInterface) => {
+  const s = raiseBudgetState(await budgetNow($), budgetSetting);
+  await $.store.set(BUDGET_KEY, s);
+  for (const a of vaultActivity) if (a.action?.kind === "budget-raise") a.acted = true;
+  bumpPanes($);
+  notice($, `budget raised to ${usd(limitOf(s, budgetSetting))} for today`, "Background work resumes now; the limit returns to the setting at midnight.", undefined, { card: false });
+  for (const v of (await loadGuard($)).vaults) processRevision($, v.path);
+};
+
+const stopBudget = async ($: EngineInterface) => {
+  await $.store.set(BUDGET_KEY, { ...(await budgetNow($)), stopped: true });
+  for (const a of vaultActivity) if (a.action?.kind === "budget-raise") a.acted = true;
+  bumpPanes($);
+};
+
+/** A notice's primary press, from the band or the activity pane. */
+const runAction = async ($: EngineInterface, entry: ActivityEntry) => {
+  if (!entry.action || entry.acted) return;
+  if (entry.action.kind === "commit-waiting") await commitWaiting($, entry.action.vp, true);
+  else await raiseBudget($);
 };
 
 const renderActivity = (): string => {
@@ -1389,6 +1498,7 @@ const VAULT_HELP = [
   "/vault revise pause|resume     stop or restart autonomous acceptance",
   "/vault revise commit-waiting   commit your edits in the notes accepts are waiting on (only those)",
   "/vault activity                what commonplace did on its own this session (the notices)",
+  "/vault budget [raise]          today's spend on background work, against dailyBudgetUSD / double it for today",
   "/vault explain                 how vault revision works, in pictures, with this vault's numbers",
 ].join("\n");
 
@@ -1446,6 +1556,11 @@ const runVaultCommand = async ($: EngineInterface, argsText: string): Promise<{ 
       if (r.isPlaced) return { text: `Witness pane open: ${witness.list().length} hidden additions this session.` };
     } catch {}
     return { text: renderWitness(witness) };
+  }
+  if (sub === "budget") {
+    if (rest[0] === "raise") await raiseBudget($);
+    const s = await budgetNow($);
+    return { text: `${budgetLine(s, budgetSetting)}\nCounts connections, prime and revision only; ingest and what you ask for never count. /vault budget raise doubles today's limit; the setting is dailyBudgetUSD.` };
   }
   if (sub === "activity") {
     if (await openActivity($)) return { text: `Activity pane open: ${vaultActivity.length} entries this session.` };
@@ -1602,6 +1717,7 @@ const runVaultCommand = async ($: EngineInterface, argsText: string): Promise<{ 
       `⟡ ${vault.id ?? "vault"} — ${vp}`,
       m ? `index v${m.version}: ${m.shards.main.nodes} public notes, ${m.shards.main.edges} links, built ${m.builtAt}${idx!.view!.patchCount() ? `, ${idx!.view!.patchCount()} patched since` : ""}` : "index: not built yet (building in the background)",
       openNames.length ? `open private domains: ${openNames.join(", ")} (close cannot unread what the conversation holds)` : "private domains: all sealed",
+      budgetLine(await budgetNow($), budgetSetting),
       "",
       VAULT_HELP,
     ].join("\n"),
@@ -1828,6 +1944,7 @@ const primeAsync = async (
       traceTo($, vp, "prime:no-turn", {});
       return;
     }
+    if (!(await budgetOpen($, vp))) return;
     // 2. Card + note head.
     const idx = await getIndex($, vp, p.vault.domains);
     const card = (await idx.cards([p.id])).get(p.id);
@@ -1845,6 +1962,7 @@ const primeAsync = async (
       prompt: PRIME_JUDGE_PROMPT(p.task, { title: card.t, abstraction: card.a }, text),
     } as CompletionRequest);
     const judgeMs = Date.now() - judgeStart;
+    await spend($, vp, "haiku", r.usage, "prime:judge");
     // No verdict is not a NO: logged apart, and the note stays eligible. An API
     // error counts toward the breaker; a timeout does not.
     if (!r.isAnswered) {
@@ -1954,6 +2072,7 @@ const showCard = ($: EngineInterface, card: BandCard, text: string) => {
 const cardButtons = (card: BandCard): Array<[string, string]> => {
   if (card.kind === "notice") {
     const entry = vaultActivity.find((a) => a.id === card.entry);
+    if (entry?.action?.kind === "budget-raise" && !entry.acted) return [["act", entry.action.label], ["stop", "Stop for today"]];
     if (entry?.action && !entry.acted) return [["act", entry.action.label], ["details", "Details"]];
     return entry?.revert && !entry.undone ? [["details", "Details"], ["undo", "Undo"]] : [["details", "Details"]];
   }
@@ -1978,7 +2097,8 @@ const bandPress = async ($: EngineInterface, action: string) => {
     if (card.kind === "notice") {
       const entry = vaultActivity.find((a) => a.id === card.entry);
       if (action === "undo" && entry?.revert && !entry.undone) await undoRevision($, entry.revert.vp, entry.revert.event);
-      if (action === "act" && entry?.action?.kind === "commit-waiting" && !entry.acted) await commitWaiting($, entry.action.vp, true);
+      if (action === "act" && entry) await runAction($, entry);
+      if (action === "stop") await stopBudget($);
       if (action === "details" && !(await openActivity($)) && entry) {
         // No surface can seat the pane: the one line of detail it would have shown.
         $.ui.toast(entry.details.replace(/[*`]/g, "").slice(0, 240));
@@ -2132,6 +2252,7 @@ export const register: Register = (on, options) => {
     triage: options?.linkTriage === true,
     revision: options?.vaultRevision !== false,
   };
+  budgetSetting = typeof options?.dailyBudgetUSD === "number" && options.dailyBudgetUSD > 0 ? options.dailyBudgetUSD : DEFAULT_DAILY_USD;
 
   /**
    * Register the vault tools so they are listed by turn one.
@@ -2149,6 +2270,7 @@ export const register: Register = (on, options) => {
     resetSessionSurfaces();
     // The branch each vault is on now is the one this session commits to.
     pins.clear();
+    void loadPrices($);
     void (async () => {
       const v = await pickVault($);
       if (v) await pinFor($, v.path);
@@ -3369,7 +3491,7 @@ export const register: Register = (on, options) => {
         <Markdown text={renderActivity()} />
         {act ? (
           <Box marginTop={1}>
-            <Button key="cp-activity-act" label={act.action!.label} onPress={() => void commitWaiting($, act.action!.vp, true)}>
+            <Button key="cp-activity-act" label={act.action!.label} onPress={() => void runAction($, act)}>
               <Text color="cyan" bold>
                 {act.action!.label}
               </Text>
@@ -3521,6 +3643,7 @@ export const register: Register = (on, options) => {
       traceTo($, vp, "skip:segment-budget", {});
       return base;
     }
+    if (!(await budgetOpen($, vp))) return base;
 
     const surfaced = await runConnectionPass(
       {
@@ -3563,8 +3686,11 @@ export const register: Register = (on, options) => {
         },
         // `undefined` means no label fit; the pipeline compares against one
         // label, so "" is the same decision with a string type.
-        classify: async (text: string, labels: readonly string[]) =>
-          (await $.model.classify(text, labels)) ?? "",
+        classify: async (text: string, labels: readonly string[]) => {
+          // classify reports no usage: priced from the text it was given, on the small model.
+          await spend($, vp, "haiku", { input_tokens: Math.ceil(text.length / 4) + 150, output_tokens: 5 }, "connect:classify");
+          return (await $.model.classify(text, labels)) ?? "";
+        },
         // The engine answers a ModelCompleteResult RECORD, never a bare
         // string. Handing the record to `parseVerdict` stringified it to
         // "[object Object]" — 15 characters that pass every skip check — so
@@ -3572,6 +3698,7 @@ export const register: Register = (on, options) => {
         // unanswered call (api-error, empty-reply, aborted) is a SKIP.
         complete: async (req: CompletionRequest) => {
           const r = await $.model.complete(req);
+          await spend($, vp, req.model ?? "haiku", r.usage, "connect:judge");
           return r.isAnswered ? r.text : "";
         },
         now: () => $.clock.now(),

@@ -5,6 +5,7 @@
  */
 import { test, expect, mock } from "claude-code/testing";
 import { serveVault, engineFloor } from "./fixture.tsx";
+import { dayOf } from "../hooks/lib/core/budget.ts";
 
 const SURFACES = ["terminal", "desktop"] as const;
 const REPLY =
@@ -245,6 +246,31 @@ for (const surface of SURFACES) {
     for (let i = 0; i < 50 && !(await band.find({ text: /committed the notes/ })); i++);
     expect(calls).toContain("commit-waiting");
     expect((await band.find({ text: /committed the notes/ }))?.text).toBeTruthy();
+  });
+
+  test(`${surface}: over the daily budget, background work stops and a notice offers to raise it for today`, async ($, on) => {
+    const kept = new Map<string, unknown>([["budget:daily", { day: dayOf(new Date()), spent: 7.5 }], ["budget:prices", { at: Date.now(), table: [] }]]);
+    on("store.get", async (_$, e) => ({ value: kept.get(e.key) ?? null }) as never);
+    on("store.set", async (_$, e) => (kept.set(e.key, e.value), { value: undefined }) as never);
+    mock.clock(on, { now: 1_000_000 });
+    let modelCalls = 0;
+    on("model.classify", async () => (modelCalls++, { value: "technical-substance" }) as never);
+    on("model.complete", async () => (modelCalls++, { value: { isAnswered: true, text: "SKIP", usage: { input_tokens: 1, output_tokens: 1, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 } } }) as never);
+    serveVault(on);
+    engineFloor(on);
+    await $.session.start({ cwd: "/fixture/project", surface, isInteractive: true });
+    await $.prompt.submit({ text: "how does the marble queue shard", origin: { kind: "composer" } } as never);
+    await $.turn.start({ turnId: "turn-b", text: "how does the marble queue shard" } as never);
+    const answer = "Marble queue sharding splits the queue by tenant hash across workers, rebalancing shards when a worker joins or leaves the pool.";
+    await $.turn.complete({ turnId: "turn-b", answer, reason: "answer", isAborted: false, durationMs: 10 } as never);
+    const band = await $.ui.mount({ plugin: "commonplace", surface, component: "AbovePrompt", props: { hasSurvey: false } as never });
+    for (let i = 0; i < 50 && !(await band.find({ text: /background work paused/ })); i++);
+    expect((await band.find({ text: /background work paused/ }))?.text).toMatch(/vault spent \$5\.00 today/);
+    expect(modelCalls).toBe(0);
+    expect(await band.find({ key: "cp-notice-stop" } as never)).toBeTruthy();
+    await band.press({ key: "cp-notice-act" } as never);
+    for (let i = 0; i < 50 && (kept.get("budget:daily") as { limit?: number }).limit !== 10; i++) await band.find({ text: /./ });
+    expect((kept.get("budget:daily") as { limit?: number }).limit).toBe(10);
   });
 
   test(`${surface}: a pasted link nobody fetched is never triaged`, { options: { linkTriage: true } }, async ($, on) => {

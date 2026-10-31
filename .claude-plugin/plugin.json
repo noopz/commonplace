@@ -36,6 +36,12 @@
       "description": "When a note you add changes what an older note claims, record that on the newer note (supersedes, bounds, contests) after a review chain checks it against the sources, and commit it to the vault's git history with Undo. Several small model calls per change found; nothing runs when nothing changed. Off: nothing is proposed, accepted or committed; earlier accepts can still be undone.",
       "default": true
     },
+    "dailyBudgetUSD": {
+      "type": "number",
+      "title": "Daily budget for background work (USD)",
+      "description": "What commonplace may spend per day on its own background model calls: connections, prime and revision. Priced from Anthropic's published rates (on a subscription, a stand-in for plan usage). When it is reached, a notice offers to raise it for the day; revision work waits until midnight. Ingest and anything you ask for never count.",
+      "default": 5
+    },
     "showBand": {
       "type": "boolean",
       "title": "Vault status band",

@@ -29,6 +29,19 @@ an older engine gets a toast, `tooOld: true` in `module-alive.json`, and no
 registrations. There is no shell fallback to keep in step any more, so the v1
 `hooks-module.json` marker and `module-gate` are gone.
 
+**The daily budget** (`hooks/lib/core/budget.ts`, `dailyBudgetUSD`, default $5)
+covers commonplace's own background model calls on connections and stale
+knowledge: the connection pass, prime and revision (and read capture). Ingest,
+what the person asks for, and the subagents a skill dispatches never count and
+are never stopped. Spend is priced from the API's pricing page (its `.md`
+rendering, re-read weekly into `$.store budget:prices`, a built-in table until
+then) and kept per local day in `$.store budget:daily`, so a session that runs
+for weeks and every resume see one day. Over the limit, jobs stay queued and
+steps answer "no answer" (retried next run), the pass and prime skip, and one
+notice a day offers **Raise to $2× for today** / **Stop for today**; ignoring
+it is stopping. `/vault budget [raise]`. `$.model.classify` reports no usage,
+so it is priced from its input length.
+
 `plugin.json` declares a `userConfig` switch for every feature the person
 would want to turn off (guards are not optional): `ambientConnections` (the
 connection pass, default on), `vaultLinks`
@@ -308,7 +321,7 @@ judge replies the person never saw.
 
 **`hook-log.jsonl` stage vocabulary** (beyond the connection pass's own):
 `tool:vault_*`, `index:patch|sweep|build|built`, `guard:*`, `scope:proposed`,
-`skill:delivered`, `unit:command`, `revision:*`, `prime:sync|skip-cold|appended|judged-no|unanswered|late-drop|no-turn|error`,
+`skill:delivered`, `unit:command`, `revision:*`, `prime:sync|skip-cold|appended|judged-no|unanswered|late-drop|no-turn|error`, `budget:spend|skip`,
 `skip:segment-budget`, `connect:appended|followed`,
 `triage:verdict|not-fetched|unanswered|ingest|later|skip|read|error`, `cite:check`
 (counts only), `revision:ensure|enqueue|trigger|detect|audit|proposed|propose-none|pool-empty|skip|written-truncated|proposal-cap|review|verify|escalate|wording|accept|steps|stuck|undo|waiting|commit-waiting|error`. A private note's path is never logged.
