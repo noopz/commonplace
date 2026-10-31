@@ -548,8 +548,13 @@ test("revision steps that create accepted state are denied to the model; propose
     "commonplace revise log --note A",
     "commonplace revise",
     "commonplace revise checked --note C.md --event e1",
+    "commonplace revise --json status",
+    'commonplace revise --vault "/tmp/alpha vault" log',
     "grep -n 'commonplace revise accept' hooks/lib/guard.ts",
   ]) assert.equal(checkRevisionStep(cmd), null, cmd);
+  // Flags before the subcommand do not hide it, and a flag's value is not one.
+  for (const cmd of ["commonplace revise --json accept --proposal x", 'commonplace revise --reason "status" revert --event last'])
+    assert.ok(checkRevisionStep(cmd), cmd);
 });
 
 test("ownCommand takes one plain commit/revise stage and nothing a shell would expand or chain", () => {

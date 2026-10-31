@@ -11,6 +11,7 @@
  *   commonplace revise revert --event <id> [--reason "…"]
  *   commonplace revise log [--note <ref>] [--limit N]
  *   commonplace revise status
+ *   commonplace revise waiting | commit-waiting       accepts held by uncommitted notes; commit those notes (the person's press)
  *   commonplace revise pause | resume
  *   commonplace revise checked --note <rel> --event <id>     a concept still holds after a revision
  *   commonplace revise job-enqueue                    (one finished unit's {written, reads, origin, unit, pairs?} on stdin)
@@ -43,13 +44,16 @@ import {
 import { loadArtifact, passages, sourceRefs, type Artifact } from "./lib/revision/artifact.ts";
 import { openShardsFromEnv } from "./lib/revision/vault-index.ts";
 import { enqueue, claim, finish, fail } from "./lib/revision/jobs.ts";
-import { commitUnit, headOf, recordAppendOnly, repoOf } from "./lib/git-unit.ts";
+import { blobAt, blobOfFile, commitUnit, headOf, recordAppendOnly, recordTouch, repoOf } from "./lib/git-unit.ts";
 import { describeDecision } from "../hooks/lib/revision/review.ts";
 import { statusLine } from "../hooks/lib/revision/edges.ts";
+import { reviseSubAt } from "../hooks/lib/guard.ts";
 
-const sub = process.argv[2] ?? "status";
+const argv = process.argv.slice(2);
+const subAt = reviseSubAt(argv);
+const sub = argv[subAt] ?? "status";
 const { values } = parseArgs({
-  args: process.argv.slice(3),
+  args: argv.filter((_, i) => i !== subAt),
   options: {
     vault: { type: "string" },
     json: { type: "boolean", default: false },
@@ -111,6 +115,27 @@ async function artifactOf(rel: string): Promise<Artifact | null> {
     if (a) return a;
   }
   return null;
+}
+
+/**
+ * The newer notes that decided-on accepts are waiting for: proposals at
+ * "accept" whose newer note has uncommitted changes (engine.accept defers on
+ * those, since an uncommitted edit there is the person's work, not ours).
+ */
+function waitingNotes(red: ReturnType<typeof state>): { rels: string[]; proposals: number } {
+  const repo = repoOf(vault);
+  if (!repo) return { rels: [], proposals: 0 };
+  const head = headOf(repo);
+  const rels = new Set<string>();
+  let proposals = 0;
+  for (const p of red.proposals.values()) {
+    if (p.status !== "accept") continue;
+    const rel = p.propose.new.rel;
+    if (blobOfFile(repo, rel) === blobAt(repo, head, rel)) continue;
+    rels.add(rel);
+    proposals++;
+  }
+  return { rels: [...rels].sort(), proposals };
 }
 
 const DEFER_MS = 10 * 60_000;
@@ -307,6 +332,34 @@ switch (sub) {
     break;
   }
 
+  case "waiting": {
+    const w = waitingNotes(state(ctx));
+    print(w, w.proposals ? `${w.proposals} accepts wait on ${w.rels.length} notes with uncommitted changes:\n${w.rels.map((r) => `  ${r}`).join("\n")}` : "No accept is waiting on an uncommitted note.");
+    break;
+  }
+
+  case "commit-waiting": {
+    // The person's press (the notice's button, /vault revise commit-waiting):
+    // commit THEIR edits in exactly the notes an accept is waiting on, as they
+    // stand, so the accepts can land. Never anything else in the worktree.
+    const repo = repoOf(vault);
+    const w = waitingNotes(state(ctx));
+    if (!repo || !w.rels.length) {
+      print({ status: "empty" }, "No accept is waiting on an uncommitted note.");
+      break;
+    }
+    const head = headOf(repo);
+    const unit = `owner-${actor.session}-${Date.now().toString(36)}`.replace(/[^A-Za-z0-9._-]/g, "_");
+    const who = { actor: "owner", session: actor.session };
+    for (const rel of w.rels) recordTouch(vault, unit, who, rel, blobAt(repo, head, rel), blobOfFile(repo, rel, true), repo);
+    const r = commitUnit(vault, unit, { message: `Commit ${w.rels.length} edited notes so ${w.proposals} vault revisions can land` });
+    print(
+      { ...r, notes: w.rels.length, proposals: w.proposals },
+      r.status === "committed" ? `Committed ${w.rels.length} notes as ${r.commit.slice(0, 10)}; ${w.proposals} accepts can land now.` : `Not committed: ${r.status === "conflict" ? r.conflicts.map((c) => `${c.path}: ${c.reason}`).join("; ") : r.status}.`,
+    );
+    break;
+  }
+
   case "pause":
   case "resume": {
     append(vault, MAIN, actor, { kind: sub });
@@ -398,7 +451,11 @@ switch (sub) {
     for (const p of red.proposals.values()) counts[p.status] = (counts[p.status] ?? 0) + 1;
     const mode = red.scopes.get(MAIN)?.mode ?? "manual";
     const stale = openStale(ctx, red).length;
-    const out = { mode, paused: red.paused, accepted: red.accepted.length, counts, stale };
-    print(out, `revision: ${mode}${red.paused ? " (paused)" : ""} · ${Object.entries(counts).map(([k, n]) => `${k} ${n}`).join(" · ") || "no proposals"}${stale ? ` · ${stale} summaries to recheck` : ""}`);
+    const waiting = waitingNotes(red);
+    const out = { mode, paused: red.paused, accepted: red.accepted.length, counts, stale, waiting: { notes: waiting.rels.length, proposals: waiting.proposals } };
+    print(
+      out,
+      `revision: ${mode}${red.paused ? " (paused)" : ""} · ${Object.entries(counts).map(([k, n]) => `${k} ${n}`).join(" · ") || "no proposals"}${stale ? ` · ${stale} summaries to recheck` : ""}${waiting.proposals ? ` · ${waiting.proposals} accepts waiting on ${waiting.rels.length} uncommitted notes` : ""}`,
+    );
   }
 }

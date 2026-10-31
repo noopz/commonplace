@@ -387,14 +387,24 @@ export function checkScopeEscalation(command: string): { deny: string } | null {
  */
 const MODEL_REVISE = new Set(["propose", "log", "status", "checked"]);
 
+/** Where the `revise` subcommand sits among its args: the first bare word past the flags (every flag but `--json`/`--offline` takes a value), or -1. */
+export function reviseSubAt(args: readonly string[]): number {
+  for (let i = 0; i < args.length; i++) {
+    if (!args[i].startsWith("-")) return i;
+    if (args[i] !== "--json" && args[i] !== "--offline" && !args[i].includes("=")) i++;
+  }
+  return -1;
+}
+export const reviseSub = (args: readonly string[]): string => args[reviseSubAt(args)] ?? "status";
+
 export function checkRevisionStep(command: string): { deny: string } | null {
   const cleaned = stripCommentLines(stripDataHeredocs(String(command ?? "")));
   for (const stages of splitPipelines(cleaned)) {
     for (const st of stages) {
       if (firstCommandWord(st) !== "commonplace") continue;
-      const m = /(^|\s)commonplace\s+revise(?:\s+([a-z-]+))?/.exec(st);
+      const m = /(^|\s)commonplace\s+revise(\s.*)?$/.exec(st);
       if (!m) continue;
-      const sub = m[2] ?? "status";
+      const sub = reviseSub(shellWords(m[2] ?? ""));
       if (MODEL_REVISE.has(sub)) continue;
       return {
         deny:

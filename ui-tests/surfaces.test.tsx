@@ -169,6 +169,90 @@ for (const surface of SURFACES) {
     expect(opened).toEqual(["commonplace-activity"]);
   });
 
+  const QUARANTINED = {
+    "Acme Robot/README.md": "# Acme Robot\n\nA hobby arm.\n",
+    "Acme Robot/docs/Wiring.md": "# Wiring\n\nServo leads.\n",
+    "Marble Notes/One.md": "# One\n\nA loose thought.\n",
+  };
+
+  test(`${surface}: the quarantine notice opens its pane, and a press there classifies the folder`, async ($, on) => {
+    mock.store(on);
+    mock.clock(on, { now: 1_000_000 });
+    const v = serveVault(on, { quarantined: QUARANTINED });
+    engineFloor(on);
+    const opened: string[] = [];
+    on("ui.open", async (_$, e) => {
+      opened.push(String((e as { id: string }).id));
+      return { value: { isPlaced: true } } as never;
+    });
+    await $.session.start({ cwd: "/fixture/project", surface, isInteractive: true });
+    await $.tool.call({ tool: "mcp__commonplace__vault_list", tool_use_id: "toolu_q0", what: "domains" } as never);
+    const band = await $.ui.mount({ plugin: "commonplace", surface, component: "AbovePrompt", props: { hasSurvey: false } as never });
+    expect((await band.find({ text: /quarantined/ }))?.text).toMatch(/3 notes in new folders/);
+    opened.length = 0;
+    await band.press({ key: "cp-notice-text" } as never);
+    expect(opened).toEqual(["commonplace-quarantine"]);
+
+    const pane = await $.ui.mount({ plugin: "commonplace", surface, component: "Pane", requestId: "commonplace-quarantine", props: { title: "x", isFocused: true, bodyColumns: 100, placement: "dock" } as never });
+    expect((await pane.find({ text: /^Acme Robot · 2 notes$/ }))?.text).toBeTruthy();
+    expect((await pane.find({ text: /^Marble Notes · 1 note$/ }))?.text).toBeTruthy();
+    await pane.press({ key: "cp-q-pub-0" } as never);
+    for (let i = 0; i < 50 && !(await pane.find({ text: /✓ public/ })); i++);
+    expect((await pane.find({ text: /✓ public/ }))?.text).toBeTruthy();
+    expect(JSON.parse(v.file("/fixture/acme-vault/.wiki/domains.json")!).domains["acme-robot"]).toEqual({ path: "Acme Robot", scope: "public" });
+    expect(await pane.find({ key: "cp-q-priv-1" } as never)).toBeTruthy();
+  });
+
+  test(`${surface}: /vault domain takes a quarantined folder, and the notice goes once none is left`, async ($, on) => {
+    mock.store(on);
+    mock.clock(on, { now: 1_000_000 });
+    const v = serveVault(on, { quarantined: QUARANTINED });
+    engineFloor(on);
+    await $.session.start({ cwd: "/fixture/project", surface, isInteractive: true });
+    await $.tool.call({ tool: "mcp__commonplace__vault_list", tool_use_id: "toolu_q1", what: "domains" } as never);
+    const band = await $.ui.mount({ plugin: "commonplace", surface, component: "AbovePrompt", props: { hasSurvey: false } as never });
+    expect((await band.find({ text: /quarantined/ }))?.text).toBeTruthy();
+    const out = String(((await $.command.run({ command: "vault", args: "domain public Acme Robot" } as never)) as { text?: unknown }).text);
+    expect(out).toMatch(/public domain "acme-robot"/);
+    // One folder still waits: the notice stays.
+    expect((await band.find({ text: /quarantined/ }))?.text).toBeTruthy();
+    await $.command.run({ command: "vault", args: "domain private Marble Notes" } as never);
+    expect(await band.find({ text: /quarantined/ })).toBeFalsy();
+    expect(JSON.parse(v.file("/fixture/acme-vault/.wiki/domains.json")!).domains["marble-notes"]).toEqual({ path: "Marble Notes", scope: "private" });
+  });
+
+  test(`${surface}: accepts waiting on uncommitted notes raise a notice whose button commits them`, async ($, on) => {
+    mock.store(on);
+    mock.clock(on, { now: 1_000_000 });
+    const calls: string[] = [];
+    let committed = false;
+    serveVault(on, {
+      revise: (sub) => {
+        calls.push(sub);
+        if (sub === "ensure") return { ok: true, enabled: [], work: 0, jobs: 0 };
+        if (sub === "job-next") return {};
+        if (sub === "next") return { none: true };
+        if (sub === "waiting") return committed ? { rels: [], proposals: 0 } : { rels: ["Research/Alpha/Marble Queue Sharding.md"], proposals: 2 };
+        if (sub === "commit-waiting") {
+          committed = true;
+          return { status: "committed", commit: "0123456789abcdef", paths: ["Research/Alpha/Marble Queue Sharding.md"], notes: 1, proposals: 2 };
+        }
+        return undefined;
+      },
+    });
+    engineFloor(on);
+    await $.session.start({ cwd: "/fixture/project", surface, isInteractive: true });
+    await $.prompt.submit({ text: "hello", origin: { kind: "composer" } } as never);
+    await $.turn.start({ turnId: "turn-w", text: "hello" } as never);
+    const band = await $.ui.mount({ plugin: "commonplace", surface, component: "AbovePrompt", props: { hasSurvey: false } as never });
+    for (let i = 0; i < 50 && !(await band.find({ text: /haven't committed/ })); i++);
+    expect((await band.find({ text: /haven't committed/ }))?.text).toMatch(/2 revisions wait on 1 note/);
+    await band.press({ key: "cp-notice-act" } as never);
+    for (let i = 0; i < 50 && !(await band.find({ text: /committed the notes/ })); i++);
+    expect(calls).toContain("commit-waiting");
+    expect((await band.find({ text: /committed the notes/ }))?.text).toBeTruthy();
+  });
+
   test(`${surface}: a pasted link nobody fetched is never triaged`, { options: { linkTriage: true } }, async ($, on) => {
     mock.store(on);
     mock.clock(on, { now: 1_000_000 });

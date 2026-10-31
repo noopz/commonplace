@@ -167,6 +167,32 @@ test("an accept waits while the newer note has uncommitted changes, and pause st
   }
 });
 
+test("commit-waiting commits only the notes accepts wait on, and the accepts then land", () => {
+  const root = vault();
+  try {
+    revise(root, ["ensure"]);
+    const rel = "Research/Alpha/New Finding.md";
+    writeFileSync(join(root, rel), readFileSync(join(root, rel), "utf-8") + "\nOwner's draft line.\n");
+    const other = "Concepts/Batch Window.md";
+    writeFileSync(join(root, other), readFileSync(join(root, other), "utf-8") + "\nUnrelated owner edit.\n");
+    const p = revise(root, ["propose", "--old", "Old Finding", "--new", "New Finding", "--claim", CLAIM]);
+    toAccept(root, p.id);
+    assert.equal(revise(root, ["accept", "--proposal", p.id]).status, "deferred");
+    assert.deepEqual(revise(root, ["waiting"]), { rels: [rel], proposals: 1 });
+    assert.deepEqual(revise(root, ["status"]).waiting, { notes: 1, proposals: 1 });
+
+    const c = revise(root, ["commit-waiting"]);
+    assert.equal(c.status, "committed", JSON.stringify(c));
+    assert.deepEqual(c.paths, [rel]);
+    assert.match(git(root, "status", "--porcelain"), /Batch Window/, "an unrelated edit stays uncommitted");
+    assert.deepEqual(revise(root, ["waiting"]), { rels: [], proposals: 0 });
+    assert.equal(revise(root, ["accept", "--proposal", p.id]).status, "accepted");
+    assert.equal(revise(root, ["commit-waiting"]).status, "empty");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("one newer note can carry several accepted edges: the first accept does not stale the rest", () => {
   const root = vault();
   try {

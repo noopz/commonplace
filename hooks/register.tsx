@@ -443,12 +443,14 @@ const BUILD_WAIT_MS = 30_000;
 const BUILD_COOLDOWN_MS = 60_000;
 
 /**
- * The current unit of work per agent (main loop = "main"): the vault writes a
- * `commonplace commit` will commit together. Created on the first vault write,
- * rotated once a commit succeeds (scripts/lib/git-unit.ts).
+ * The current unit of work per agent (main loop = "main") and vault: the vault
+ * writes a `commonplace commit` will commit together. A unit lives in one
+ * vault's `.wiki/units/`, so an agent writing in two vaults holds two. Created
+ * on the first vault write, rotated once a commit succeeds (scripts/lib/git-unit.ts).
  */
 const units = new Map<string, { id: string; actor: string; session: string }>();
 const agentKey = (agentId: string | undefined) => (agentId ? agentId.replace(/[^A-Za-z0-9_.-]/g, "_").slice(0, 24) : "main");
+const unitKey = (agentId: string | undefined, vp: string) => `${agentKey(agentId)}\u0000${vp}`;
 /** Each subagent's type (`commonplace:wiki-linter`, `general-purpose`, …), by id. */
 const agentTypes = new Map<string, string>();
 async function agentTypeOf($: EngineInterface, agentId: string | undefined): Promise<string> {
@@ -464,15 +466,15 @@ async function agentTypeOf($: EngineInterface, agentId: string | undefined): Pro
   return t;
 }
 
-async function unitFor($: EngineInterface, agentId: string | undefined, vp?: string) {
+async function unitFor($: EngineInterface, agentId: string | undefined, vp: string) {
   const key = agentKey(agentId);
-  let u = units.get(key);
+  let u = units.get(unitKey(agentId, vp));
   if (!u) {
     const session = String(await $.session.id()).replace(/[^A-Za-z0-9_.-]/g, "").slice(0, 12) || "s";
     const actor = (await agentTypeOf($, agentId)).replace(/[^A-Za-z0-9_.:-]/g, "_").slice(0, 60);
     const prefix = `${session}-${key}-`.replace(/[^A-Za-z0-9._-]/g, "_");
-    u = { id: (vp && (await openUnitOnDisk($, vp, prefix))) || `${prefix}${Date.now().toString(36)}`, actor, session };
-    units.set(key, u);
+    u = { id: (await openUnitOnDisk($, vp, prefix)) || `${prefix}${Date.now().toString(36)}`, actor, session };
+    units.set(unitKey(agentId, vp), u);
   }
   return u;
 }
@@ -535,22 +537,38 @@ const REVISION_DEBOUNCE_MS = 45_000;
 const flushTimers = new Map<string, { cancel: () => void }>();
 
 /**
- * The branch each vault was on when this session first touched it (design:
- * "the pinned branch is the vault's current branch at session start"). Every
- * commit — the model's `commonplace commit`, an accept, a revert — carries it
- * as `COMMONPLACE_PIN`, and refuses to land on another branch.
+ * The branch each vault was on when this session started (design: "the pinned
+ * branch is the vault's current branch at session start"). Every commit — the
+ * model's `commonplace commit`, an accept, a revert — carries it as
+ * `COMMONPLACE_PIN`, and refuses to land on another branch. `session.start`
+ * pins every registered vault; one reached later (a path outside the registry)
+ * is pinned on first use. Kept in `$.store` under the session id as well, so a
+ * reload — which empties module memory and fires `session.start` again — keeps
+ * the branch the session began on instead of whatever is checked out now.
  */
 const pins = new Map<string, string>();
+const PIN_KEY = "revision:pins";
 const pinFor = async ($: EngineInterface, vp: string): Promise<string> => {
   let p = pins.get(vp);
+  if (p !== undefined) return p;
+  const session = String(await $.session.id());
+  let stored: { session?: string; pins?: Record<string, string> } = {};
+  try {
+    stored = ((await $.store.get(PIN_KEY)) as typeof stored) ?? {};
+  } catch {}
+  const saved = stored.session === session ? stored.pins ?? {} : {};
+  p = saved[vp];
   if (p === undefined) {
     p = "";
     try {
       const r = await $.process.run(["git", "-C", vp, "symbolic-ref", "-q", "HEAD"], { timeoutMs: 5_000 });
       if (r.exitCode === 0) p = String(r.stdout ?? "").trim();
     } catch {}
-    pins.set(vp, p);
+    try {
+      await $.store.set(PIN_KEY, { session, pins: { ...saved, [vp]: p } });
+    } catch {}
   }
+  pins.set(vp, p);
   return p;
 };
 const noteRead = async ($: EngineInterface, vp: string, rel: string, agentId: string | undefined) => {
@@ -717,6 +735,7 @@ const processRevision = ($: EngineInterface, vp: string) => {
     }
     const steps = await runSteps(runnerPorts($, vp));
     traceTo($, vp, "revision:steps", { steps });
+    await checkWaiting($, vp);
   })().catch((err) => traceTo($, vp, "revision:error", { err: String(err).slice(0, 80) }));
   revisionChain.set(vp, run);
   void run.finally(() => {
@@ -737,7 +756,7 @@ const flushRevisionWork = async ($: EngineInterface, agentId: string | undefined
     if (w.agent !== agent || w.written.size === 0) continue;
     revisionWork.delete(key);
     const origin = await agentTypeOf($, w.agentId);
-    const r = await revCli($, w.vp, ["job-enqueue"], { written: [...w.written], reads: [...w.reads].map(([rel, rev]) => ({ rel, rev })), origin, ...(units.get(agent) ? { unit: units.get(agent)!.id } : {}) });
+    const r = await revCli($, w.vp, ["job-enqueue"], { written: [...w.written], reads: [...w.reads].map(([rel, rev]) => ({ rel, rev })), origin, ...(units.get(unitKey(w.agentId, w.vp)) ? { unit: units.get(unitKey(w.agentId, w.vp))!.id } : {}) });
     traceTo($, w.vp, "revision:enqueue", {
       queued: Array.isArray(r?.queued) ? r!.queued.length : 0,
       duplicate: Number(r?.duplicate ?? 0),
@@ -766,14 +785,24 @@ const scheduleRevisionFlush = ($: EngineInterface, agentId: string | undefined) 
  * revision, Undo. Module memory: an entry can name an open private note.
  */
 /** `pane`: the pane Details opens instead of the activity log (one that can act on the notice). */
-type ActivityEntry = { id: number; at: string; text: string; details: string; revert?: { vp: string; event: string }; undone?: boolean; pane?: string };
+/** `action`: a press the notice offers besides Details (the card's primary button); `acted` once pressed. */
+type NoticeAction = { kind: "commit-waiting"; vp: string; label: string };
+type ActivityEntry = { id: number; at: string; text: string; details: string; revert?: { vp: string; event: string }; undone?: boolean; pane?: string; action?: NoticeAction; acted?: boolean };
 const vaultActivity: ActivityEntry[] = [];
 let activitySeq = 0;
 const ACTIVITY_PANE = "commonplace-activity";
 const ACTIVITY_MAX = 50;
 
-const notice = ($: EngineInterface, text: string, details: string, revert?: { vp: string; event: string }, opts: { card?: boolean; pane?: string } = {}) => {
-  const entry: ActivityEntry = { id: ++activitySeq, at: new Date().toISOString(), text, details, ...(revert ? { revert } : {}), ...(opts.pane ? { pane: opts.pane } : {}) };
+const notice = ($: EngineInterface, text: string, details: string, revert?: { vp: string; event: string }, opts: { card?: boolean; pane?: string; action?: NoticeAction } = {}) => {
+  const entry: ActivityEntry = {
+    id: ++activitySeq,
+    at: new Date().toISOString(),
+    text,
+    details,
+    ...(revert ? { revert } : {}),
+    ...(opts.pane ? { pane: opts.pane } : {}),
+    ...(opts.action ? { action: opts.action } : {}),
+  };
   vaultActivity.unshift(entry);
   if (vaultActivity.length > ACTIVITY_MAX) vaultActivity.length = ACTIVITY_MAX;
   bumpPanes($);
@@ -889,10 +918,28 @@ const classifyFolder = async ($: EngineInterface, vp: string, folder: string, sc
   await $.fs.write(`${vp}/.wiki/domains.json`, JSON.stringify(reg, null, 2) + "\n");
   guardCache = null;
   buildStarted.delete(vp);
-  startBuild($, vp, "command");
-  if (quarantine?.vp === vp) quarantine.done.set(folder, scope);
+  // Not "command": the press is its own announcement, and a "refreshed" notice
+  // would cover the quarantine notice while other folders still wait.
+  startBuild($, vp, "classify");
+  if (quarantine?.vp !== vp) await loadQuarantine($, vp).catch(() => []);
+  if (quarantine?.vp === vp) {
+    quarantine.done.set(folder, scope);
+    // Every folder classified: the notice asking for it has nothing left to ask.
+    if (quarantine.folders.every((f) => quarantine!.done.has(f.folder))) await dropQuarantineNotice($);
+  }
   bumpPanes($);
   return `"${folder}" is now the ${scope} domain "${id}". Reindexing in the background.`;
+};
+
+const dropQuarantineNotice = async ($: EngineInterface) => {
+  const isQuarantine = (id: number | null) => id !== null && vaultActivity.find((a) => a.id === id)?.pane === QUARANTINE_PANE;
+  if (isQuarantine(heldNotice)) heldNotice = null;
+  if (bandCard?.kind === "notice" && isQuarantine(bandCard.entry)) {
+    bandCard = null;
+    try {
+      await update($, band, (b) => ({ ...b, visible: false }));
+    } catch {}
+  }
 };
 
 const openQuarantine = async ($: EngineInterface, vp: string): Promise<boolean> => {
@@ -926,6 +973,58 @@ const undoRevision = async ($: EngineInterface, vp: string, event: string): Prom
   for (const a of vaultActivity) if (a.revert?.event === event) a.undone = true;
   const msg = `Undone${r.commit ? ` (commit ${String(r.commit).slice(0, 10)})` : ""}${r.conflict ? `; the file kept its edge: ${String(r.conflict)}` : ""}.`;
   notice($, "revision undone", msg, undefined, { card: false });
+  return msg;
+};
+
+/**
+ * Accepts the chain decided but cannot land: their newer note holds the
+ * person's uncommitted edits (engine.accept never commits someone else's
+ * work). Silent, they wait forever on a vault with a dirty worktree, so a
+ * notice says so once per rise in the count, with a button that commits
+ * exactly those notes (`revise commit-waiting`) — the person's press, never
+ * the model's (the Bash guard denies it).
+ */
+const waitingNotified = new Map<string, number>();
+const checkWaiting = async ($: EngineInterface, vp: string) => {
+  const w = await revCli($, vp, ["waiting"]);
+  const proposals = Number(w?.proposals ?? 0);
+  const rels = Array.isArray(w?.rels) ? (w!.rels as string[]) : [];
+  traceTo($, vp, "revision:waiting", { proposals, notes: rels.length });
+  if (!proposals) {
+    waitingNotified.delete(vp);
+    return;
+  }
+  if (proposals <= (waitingNotified.get(vp) ?? 0)) return;
+  waitingNotified.set(vp, proposals);
+  const notes = `${rels.length} ${rels.length === 1 ? "note" : "notes"}`;
+  notice(
+    $,
+    `${proposals} ${proposals === 1 ? "revision waits" : "revisions wait"} on ${notes} you haven't committed`,
+    `Each accept writes into the newer note and commits only its own change, so it waits while that note has uncommitted edits of yours. ` +
+      `**Commit ${notes}** commits your edits in exactly these notes, as they stand, and nothing else in the vault:\n\n` +
+      `${rels.map((r) => `- ${r}`).join("\n")}\n\nOr commit them yourself; the accepts land on the next run either way. \`/vault revise commit-waiting\` does the same.`,
+    undefined,
+    { action: { kind: "commit-waiting", vp, label: `Commit ${notes}` } },
+  );
+};
+/** `card`: announce the outcome on the band (a press); a command's reply is its own announcement. */
+const commitWaiting = async ($: EngineInterface, vp: string, card: boolean): Promise<string> => {
+  const r = await revCli($, vp, ["commit-waiting"]);
+  traceTo($, vp, "revision:commit-waiting", { status: String(r?.status ?? "error"), notes: Number(r?.notes ?? 0) });
+  let msg: string;
+  if (r?.status === "committed" || r?.status === "empty") {
+    for (const a of vaultActivity) if (a.action?.kind === "commit-waiting" && a.action.vp === vp) a.acted = true;
+    waitingNotified.delete(vp);
+  }
+  if (r?.status === "empty") msg = "No revision is waiting on an uncommitted note.";
+  else if (r?.status === "committed") {
+    processRevision($, vp);
+    msg = `Committed ${Number(r.notes)} notes (commit ${String(r.commit).slice(0, 10)}); ${Number(r.proposals)} revisions can land now.`;
+  } else {
+    const why = r?.status === "conflict" && Array.isArray(r.conflicts) ? (r.conflicts as Array<{ reason: string }>).map((c) => c.reason).join("; ") : String(r?.status ?? "the commit failed");
+    msg = `Not committed: ${why}.`;
+  }
+  notice($, r?.status === "committed" ? "committed the notes revisions were waiting on" : r?.status === "empty" ? "no revision is waiting" : "notes not committed", msg, undefined, { card });
   return msg;
 };
 
@@ -1290,6 +1389,11 @@ const VAULT_COMMANDS = [
   },
 ];
 
+const waitingLine = (st: Record<string, unknown>): string => {
+  const w = (st.waiting ?? {}) as { notes?: number; proposals?: number };
+  return w.proposals ? ` · ${w.proposals} waiting on ${w.notes} uncommitted notes (/vault revise commit-waiting)` : "";
+};
+
 const VAULT_HELP = [
   "/vault                         active vault, index state, open private domains",
   "/vault list                    registered vaults",
@@ -1304,6 +1408,7 @@ const VAULT_HELP = [
   "/vault revise [log [note]]     revision status, or the history of what was revised and why",
   "/vault revise undo <event|last>  revert an accepted revision (git keeps both)",
   "/vault revise pause|resume     stop or restart autonomous acceptance",
+  "/vault revise commit-waiting   commit your edits in the notes accepts are waiting on (only those)",
   "/vault activity                what commonplace did on its own this session (the notices)",
   "/vault explain                 how vault revision works, in pictures, with this vault's numbers",
 ].join("\n");
@@ -1378,6 +1483,7 @@ const runVaultCommand = async ($: EngineInterface, argsText: string): Promise<{ 
     }
     // Off: undoing an earlier accept still works; nothing new is proposed or accepted.
     if (!features.revision && action !== "log") return { text: "Vault revision is off in the plugin's settings (vaultRevision). Earlier accepts can still be undone: /vault revise undo <event|last>." };
+    if (action === "commit-waiting") return { text: await commitWaiting($, vp, false) };
     if (action === "pause" || action === "resume") {
       const r = await revCli($, vp, [action]);
       if (action === "resume") processRevision($, vp);
@@ -1393,7 +1499,7 @@ const runVaultCommand = async ($: EngineInterface, argsText: string): Promise<{ 
     if (!st) return { text: "The revision CLI failed." };
     const counts = Object.entries((st.counts ?? {}) as Record<string, number>).map(([k, n]) => `${k} ${n}`).join(" · ");
     return {
-      text: `revision: ${String(st.mode)}${st.paused ? " (paused)" : ""}${counts ? ` · ${counts}` : " · no proposals"}${Number(st.stale ?? 0) ? ` · ${Number(st.stale)} summaries to recheck` : ""}\n/vault revise log · /vault revise undo last · /vault revise pause`,
+      text: `revision: ${String(st.mode)}${st.paused ? " (paused)" : ""}${counts ? ` · ${counts}` : " · no proposals"}${Number(st.stale ?? 0) ? ` · ${Number(st.stale)} summaries to recheck` : ""}${waitingLine(st)}\n/vault revise log · /vault revise undo last · /vault revise pause`,
     };
   }
   if (sub === "open") {
@@ -1857,6 +1963,7 @@ const cardButtons = (card: BandCard): Array<[string, string]> => {
   if (card.kind === "connection") return [["read", "Read it"], ["not-for-me", "Not for me"]];
   if (card.kind === "notice") {
     const entry = vaultActivity.find((a) => a.id === card.entry);
+    if (entry?.action && !entry.acted) return [["act", entry.action.label], ["details", "Details"]];
     return entry?.revert && !entry.undone ? [["details", "Details"], ["undo", "Undo"]] : [["details", "Details"]];
   }
   return card.triage.verdict === "in-vault"
@@ -1901,6 +2008,7 @@ const bandPress = async ($: EngineInterface, action: string) => {
     if (card.kind === "notice") {
       const entry = vaultActivity.find((a) => a.id === card.entry);
       if (action === "undo" && entry?.revert && !entry.undone) await undoRevision($, entry.revert.vp, entry.revert.event);
+      if (action === "act" && entry?.action?.kind === "commit-waiting" && !entry.acted) await commitWaiting($, entry.action.vp, true);
       if (action === "details" && !(await openNoticePane($, entry)) && entry) {
         // No surface can seat the pane: the one line of detail it would have shown.
         $.ui.toast(entry.details.replace(/[*`]/g, "").slice(0, 240));
@@ -2084,9 +2192,11 @@ export const register: Register = (on, options) => {
     resetSessionSurfaces();
     // The branch each vault is on now is the one this session commits to.
     pins.clear();
-    void pickVault($)
-      .then((v) => (v ? pinFor($, v.path) : ""))
-      .catch(() => "");
+    void (async () => {
+      const v = await pickVault($);
+      if (v) await pinFor($, v.path);
+      for (const r of (await loadGuard($)).vaults) await pinFor($, r.path);
+    })().catch(() => {});
     // MIN-BUILD GATE + WATCHDOG. Read the release defensively (an older engine
     // may lack `version()`); either way tell the shell watchdog
     // (scripts/session-check.ts) that the module ran, by resetting its counter.
@@ -2406,7 +2516,7 @@ export const register: Register = (on, options) => {
         // not after the debounce, and the agent's next write opens a new one.
         if (own.args[0] === "commit" && r.exitCode === 0 && /Committed \d+ file|Nothing to commit/.test(stdout)) {
           await flushRevisionWork($, e.agentId);
-          units.delete(agentKey(e.agentId));
+          units.delete(unitKey(e.agentId, vault.path));
           // An accept deferred on this unit's uncommitted note can land now.
           processRevision($, vault.path);
         }
@@ -3296,9 +3406,21 @@ export const register: Register = (on, options) => {
     await read($, paneRev);
     const { Box, Markdown, Button, Text } = $.ui.resolve(e);
     const undoable = vaultActivity.filter((a) => a.revert && !a.undone).slice(0, 5);
+    const act = vaultActivity.find((a) => a.action && !a.acted);
     return (
       <Box flexDirection="column">
         <Markdown text={renderActivity()} />
+        {act ? (
+          <Box marginTop={1}>
+            <Button key="cp-activity-act" label={act.action!.label} onPress={() => void commitWaiting($, act.action!.vp, true)}>
+              <Text color="cyan" bold>
+                {act.action!.label}
+              </Text>
+            </Button>
+          </Box>
+        ) : (
+          <Text>{" "}</Text>
+        )}
         {undoable.length ? (
           <Box flexDirection="column" marginTop={1}>
             {undoable.map((a) => (

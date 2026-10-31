@@ -304,7 +304,7 @@ judge replies the person never saw.
 `skill:delivered`, `unit:command`, `revision:*`, `prime:sync|skip-cold|appended|judged-no|unanswered|late-drop|no-turn|error`,
 `skip:segment-budget`, `feedback:useful|not-for-me`,
 `triage:verdict|not-fetched|unanswered|ingest|later|skip|read|error`, `cite:check`
-(counts only), `revision:ensure|enqueue|trigger|detect|audit|proposed|propose-none|pool-empty|skip|written-truncated|proposal-cap|review|verify|escalate|wording|accept|steps|stuck|undo|error`. A private note's path is never logged.
+(counts only), `revision:ensure|enqueue|trigger|detect|audit|proposed|propose-none|pool-empty|skip|written-truncated|proposal-cap|review|verify|escalate|wording|accept|steps|stuck|undo|waiting|commit-waiting|error`. A private note's path is never logged.
 
 **Measure it with `commonplace eval:connection`.** It drives real `claude -p`
 sessions and scores the trace log, because the pass is a chain of guards, a
@@ -393,7 +393,7 @@ the **summary** (concepts and MOCs, revised with receipts).
   (arXiv 2509.11353); ranking ignores status and both clocks. Age is never a
   reason: overtaken knowledge is labelled, not decayed or evicted.
 - **Units of work** (`scripts/lib/git-unit.ts`, `commonplace commit`): each
-  agent's vault writes are recorded per path (blob before → after) and
+  agent's vault writes (per agent AND vault: a unit lives in one vault's `.wiki/units/`) are recorded per path (blob before → after) and
   committed together through a temporary index and `update-ref` against the
   expected parent, retried when HEAD moves. A path commits only when HEAD
   still holds its `before` and the worktree its `after`; the person's own
@@ -430,7 +430,10 @@ the **summary** (concepts and MOCs, revised with receipts).
   into the newer note, which must not stale its other proposals) and that the
   claim occurs exactly once, defers while the newer note
   has uncommitted changes (a deferred accept is retried after 10 min, or at
-  once when HEAD has moved since: `deferred.head`), writes the edge into the newer note's frontmatter
+  once when HEAD has moved since: `deferred.head`; after each run the module
+  asks `revise waiting` and, when the count rises, raises a notice whose
+  **Commit N notes** button runs `revise commit-waiting` — the person's edits
+  in exactly those notes, nothing else; also `/vault revise commit-waiting`), writes the edge into the newer note's frontmatter
   (`fm-edit.ts`, round-trip checked), commits note + ledger as unit
   `rev-<event>` with a `Revision-Event:` trailer, then publishes `committed`
   and **stale marks** for concepts/MOCs citing the older note. A commit that
@@ -464,12 +467,14 @@ the **summary** (concepts and MOCs, revised with receipts).
   a search, same-scope source notes only, ≤12; haiku detects, 10% of "nothing
   changed" re-asked of sonnet; sonnet quotes the exact claim), then `runSteps`.
 - **Pinned branch**: the branch a vault is on when the session starts is the
-  only one it commits to. `COMMONPLACE_PIN` rides on every CLI the module runs
+  only one it commits to (`session.start` pins every registered vault; the
+  pins sit in `$.store` under the session id, so a reload keeps them). `COMMONPLACE_PIN` rides on every CLI the module runs
   and every model `commonplace commit|revise` (`ownCommand`); `commitUnit`, accept,
   revert and enable refuse another branch (`off-branch`), and the band says
   revision is propose-only and why. The impact checker proposes at ingest the same way.
   The model may run `revise propose|log|status|checked`; the Bash guard denies
-  `record|accept|revert|pause|resume|…`, and the file guard denies writes to
+  `record|accept|revert|pause|resume|commit-waiting|…` (the subcommand is the
+  first bare word past the flags, `reviseSubAt`, for the guard and the CLI alike), and the file guard denies writes to
   `.revision/`, `.wiki/units`, `.wiki/revision` and every read of `.revision/sealed`.
 - **The explainer** (`/vault explain`, and How it works in the activity pane):
   a pane of five pages, a diagram each, built in `hooks/lib/explain/diagrams.ts`.
@@ -602,7 +607,7 @@ All commands auto-discover the vault via cwd (`.obsidian/` or `.wiki/` marker) o
 - `commonplace abstract [--dry-run] [--json]` — Backfill `abstraction:` frontmatter (deterministic derivation from Summary/definition text) across source + concept notes; on completion sets the vault's `abstractions: true` adoption flag (switches `isStub` to also key on missing abstractions and makes validation require the field). Run `commonplace index` afterwards.
 - `commonplace seed --query "<text>" [--mode tiered|flat] [--no-abstraction] [--no-authority] [--json]` — Deterministic tiered seed helper for wiki-query: matches query terms against explicit key spaces in order (A `abstraction`, B cue anchors = tags/MOC names/wikilink display texts, C names/titles, D whole-record grep only when A–C yield <3 seeds); prints candidates with tier + matched terms. Seeds are jumping-off points — read the notes before judging relevance. Tiered hits are ordered by HITS authority within each tier (`--no-authority` disables the ordering).
 - `commonplace commit --message "<what>" [--unit <id>] | --list [--json]` — Commit this agent's unit of work (the files it wrote this unit, nothing else); the unit id comes from `COMMONPLACE_UNIT`, which the module injects
-- `commonplace revise status | log [--note <ref>] | propose --old <ref> --new <ref> --claim "<exact quote>" [--rationale …] [--input <ref>]… | checked --note <rel> --event <id>` — Vault revision. The module alone runs `ensure|next|record|accept|job-enqueue|job-next|job-done|job-failed|projection`; the person runs `revert --event <id|last>`, `pause|resume` (as `/vault revise …`)
+- `commonplace revise status | waiting | log [--note <ref>] | propose --old <ref> --new <ref> --claim "<exact quote>" [--rationale …] [--input <ref>]… | checked --note <rel> --event <id>` — Vault revision. The module alone runs `ensure|next|record|accept|job-enqueue|job-next|job-done|job-failed|projection`; the person runs `revert --event <id|last>`, `pause|resume`, `commit-waiting` (as `/vault revise …`)
 - `commonplace log --entry "<text>"` — Append an entry to `.wiki/log.md` (use instead of printf/bash redirection)
 - `commonplace supersede --scan --old <name> [--new <name>] [--scope <path>] [--json]` — Find + classify prose mentions of a soon-to-be-retired entity (buckets: historical, comparison, already-retired, live, live-in-code, needs-review)
 - `commonplace supersede --retire --old <name> --new <name> --reason "..." [--date YYYY-MM-DD] [--dry-run]` — Rename old to "(Retired) <title>", inject warning callout, add `retired` tag, update wikilinks across vault, write breadcrumb to `.wiki/supersessions.jsonl`
@@ -626,4 +631,4 @@ The set of vaults lives in `vaults.json` under `CLAUDE_PLUGIN_DATA` (a registry 
 
 ## Domain System
 
-Domains are inferred from file paths, never stored in frontmatter. The registry is `<vault>/.wiki/domains.json`: `{path, scope, linkGroup?, aliases?}` per domain. A private domain's shard is its `linkGroup` (else its id), so opening one domain opens its group. `aliases` are other names the user calls it, used by `/vault open` and prompt proposals. Folders that appear after the first v2 index are quarantined (sealed) until classified: the quarantine notice's Details (or its text) opens a pane listing each folder with Public / Private, and `/vault domain public|private <folder>` does the same. A quarantined folder has no domain entry, so classifying registers one (`hooks/lib/core/quarantine.ts`). A notice's text is a press, like its Details.
+Domains are inferred from file paths, never stored in frontmatter. The registry is `<vault>/.wiki/domains.json`: `{path, scope, linkGroup?, aliases?}` per domain. A private domain's shard is its `linkGroup` (else its id), so opening one domain opens its group. `aliases` are other names the user calls it, used by `/vault open` and prompt proposals. Folders that appear after the first v2 index are quarantined (sealed) until classified: the quarantine notice's Details (or its text) opens a pane listing each folder with Public / Private, and `/vault domain public|private <folder>` does the same. A quarantined folder has no domain entry, so classifying registers one (`hooks/lib/core/quarantine.ts`). A notice's text is a press, like its Details. Classifying the last folder takes the notice down; the reindex it starts is not announced.

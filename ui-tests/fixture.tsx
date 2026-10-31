@@ -30,20 +30,23 @@ export const NOTES: Record<string, string> = {
 
 const STRUCTURE = { sources: "Research", concepts: "Concepts", mocs: "Maps" };
 
-function files(): Map<string, string> {
-  const notes: IndexNote[] = Object.entries(NOTES).map(([rel, text]) => ({
+/** `quarantined`: notes in folders that appeared after the first index (sealed in shard "quarantine"). */
+function files(quarantined: Record<string, string> = {}): Map<string, string> {
+  const all = { ...NOTES, ...quarantined };
+  const notes: IndexNote[] = Object.entries(all).map(([rel, text]) => ({
     rel,
     parsed: parseNote(rel, text, { structure: STRUCTURE, domainPaths: Object.values(DOMAINS).map((d) => d.path) }),
     mt: 1,
     sz: text.length,
     stub: false,
   }));
-  const built = buildIndex(notes, { domains: DOMAINS, version: 1, builtAt: "fixture" });
+  const later = Object.keys(quarantined).length ? { knownLoose: new Set<string>(), structureDirs: [STRUCTURE.concepts, STRUCTURE.mocs] } : {};
+  const built = buildIndex(notes, { domains: DOMAINS, version: 1, builtAt: "fixture", ...later });
   const out = new Map<string, string>();
   for (const [rel, text] of serializeIndex(built, { version: 1, builtAt: "fixture" })) out.set(`${VAULT}/.wiki/${rel}`, text);
   out.set(`${VAULT}/.wiki/domains.json`, JSON.stringify({ domains: DOMAINS }));
   out.set(`${VAULT}/.wiki/config.json`, JSON.stringify({ structure: STRUCTURE }));
-  for (const [rel, text] of Object.entries(NOTES)) out.set(`${VAULT}/${rel}`, text);
+  for (const [rel, text] of Object.entries(all)) out.set(`${VAULT}/${rel}`, text);
   return out;
 }
 
@@ -56,8 +59,11 @@ function files(): Map<string, string> {
  * install finishes). `hold` names a vault-relative file whose read waits until the returned
  * `release` is called: how a test looks at the module mid-call.
  */
-export function serveVault(on: On, opts: { hold?: string; registryDown?: boolean; unbuilt?: boolean; buildDelay?: () => Promise<void>; skills?: Record<string, string> } = {}): { release: () => void; builds: () => number } {
-  const fs = files();
+export function serveVault(
+  on: On,
+  opts: { hold?: string; registryDown?: boolean; unbuilt?: boolean; buildDelay?: () => Promise<void>; skills?: Record<string, string>; quarantined?: Record<string, string>; revise?: (sub: string) => unknown } = {},
+): { release: () => void; builds: () => number; file: (path: string) => string | undefined } {
+  const fs = files(opts.quarantined);
   // `unbuilt`: the graph is not there until the module runs `commonplace index`.
   const pending = new Map<string, string>();
   if (opts.unbuilt) for (const [k, v] of fs) if (k.startsWith(`${VAULT}/.wiki/graph/`) || k.startsWith(`${VAULT}/.wiki/sealed/`)) { pending.set(k, v); fs.delete(k); }
@@ -72,6 +78,17 @@ export function serveVault(on: On, opts: { hold?: string; registryDown?: boolean
     }
     if (argv.includes(" vaults --json")) {
       return { value: { exitCode: 0, stdout: JSON.stringify({ matches: [{ path: VAULT, id: "acme", label: "Acme", aliases: [] }] }), stderr: "", isStdoutTruncated: false, isStderrTruncated: false } };
+    }
+    // `commonplace revise <sub> … --json`: the test's answer as the last stdout line.
+    const ri = e.argv.indexOf("revise");
+    if (opts.revise && ri > 0 && e.argv[ri - 1].endsWith("bin/commonplace")) {
+      const v = opts.revise(e.argv[ri + 1] ?? "status");
+      return { value: { exitCode: v === undefined ? 1 : 0, stdout: v === undefined ? "" : JSON.stringify(v), stderr: "", isStdoutTruncated: false, isStderrTruncated: false } };
+    }
+    // The note walk (findNotesArgv): every note file in the vault.
+    if (e.argv[0] === "find" && e.argv[1] === VAULT && e.argv.includes("*.md") && !e.argv.includes("-newer")) {
+      const found = [...fs.keys()].filter((k) => k.endsWith(".md") && !k.startsWith(`${VAULT}/.`));
+      return { value: { exitCode: 0, stdout: found.join("\n"), stderr: "", isStdoutTruncated: false, isStderrTruncated: false } };
     }
     if (e.argv[0] === "find" && e.argv.includes("*/.claude/skills/*/SKILL.md")) {
       const found = [...fs.keys()].filter((k) => /\/\.claude\/skills\/[^/]+\/SKILL\.md$/.test(k));
@@ -96,12 +113,16 @@ export function serveVault(on: On, opts: { hold?: string; registryDown?: boolean
     return { value: text };
   });
   on("fs.stat", async (_$, e) => {
-    if (e.path === VAULT) return { value: { kind: "dir" as const, size: 0, mtimeMs: 1, isLink: false } };
+    if (e.path === VAULT || [...fs.keys()].some((k) => k.startsWith(`${e.path}/`))) return { value: { kind: "dir" as const, size: 0, mtimeMs: 1, isLink: false } };
     const text = fs.get(e.path);
     if (text === undefined) throw new Error(`ENOENT: ${e.path}`);
     return { value: { kind: "file" as const, size: text.length, mtimeMs: 1, isLink: false } };
   });
-  return { release, builds: () => builds };
+  on("fs.write", async (_$, e) => {
+    fs.set(e.path, String(e.text));
+    return { value: undefined };
+  });
+  return { release, builds: () => builds, file: (path) => fs.get(path) };
 }
 
 /**
