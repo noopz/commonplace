@@ -23,6 +23,7 @@ import {
   stripFrontmatter,
   parseVerdict,
   renderConnection,
+  connectionBlock,
   isSurfaceable,
 } from "./seed.ts";
 
@@ -340,4 +341,14 @@ test("parseVerdict rejects plain-English refusals, not just the SKIP token", () 
   }
   // a genuine verdict still passes
   assert.ok(parseVerdict("Your Alpha Method note records this same drift failure."));
+});
+
+test("connectionBlock puts status before the judge's sentence and names the path", () => {
+  const b = connectionBlock({ title: "Alpha Method", why: "Covers the drift failure.", path: "Concepts/Alpha Method.md", status: ["⚠ corrected by [[Beta Method]]"] });
+  const lines = b.split("\n");
+  assert.equal(lines[0], `<commonplace-connection unverified="true">`);
+  assert.ok(lines[1].includes("[[Alpha Method]]"));
+  assert.ok(lines.indexOf("⚠ corrected by [[Beta Method]]") < lines.indexOf("Covers the drift failure."));
+  assert.ok(b.includes("Path: Concepts/Alpha Method.md."));
+  assert.equal(lines.at(-1), "</commonplace-connection>");
 });

@@ -242,14 +242,9 @@ export type PassInput = {
   answer: string;
   reason: string;
   aborted: boolean;
-  /**
-   * Notes the person answered "Not for me" on, across sessions: never
-   * candidates again. Treated exactly like the session's seen-set.
-   */
-  suppressed?: readonly string[];
 };
 
-/** The line to show, and the note it names (for the card's buttons). */
+/** The line to show, and the note it names. */
 export type PassOutput = { text: string; path: string; title: string; why: string } | null;
 
 // ---------------------------------------------------------------------------
@@ -446,9 +441,7 @@ export async function runConnectionPass(
     // limit tell a promising turn from an ordinary one.
 
     const seen = (state.seen ?? []) as string[];
-    // Suppressed notes are skipped as if already judged, but never written
-    // back into the session record: the store keeps them on their own.
-    const skip = [...seen, ...(input.suppressed ?? [])];
+    const skip = seen;
 
     const lexical = rankCandidates(records, tokens, 4);
     const lexTop = lexical[0]?.score ?? 0;

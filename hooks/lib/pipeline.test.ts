@@ -326,14 +326,6 @@ describe("runConnectionPass", () => {
 
   // -- Happy path ----------------------------------------------------------
 
-  test("a note answered Not for me is never a candidate again", async () => {
-    const out = await runConnectionPass(fake.ports, { ...answerInput(), suppressed: [ALPHA_PATH] });
-    assert.notEqual(out?.path, ALPHA_PATH);
-    assert.ok(fake.traces.every((t) => t.stage !== "judge:candidate" || t.detail.path !== ALPHA_PATH), "never even judged");
-    // Suppression lives in its own store key, never in the session's seen-set.
-    assert.ok(!(fake.sessionRecord()?.seen ?? []).includes(ALPHA_PATH));
-  });
-
   test("full path: classify, read the note, judge, surface, bank the turn", async () => {
     const out = await runConnectionPass(fake.ports, answerInput());
     assert.deepEqual(out, { text: `⟡ vault · [[Alpha Lattice]] — ${VERDICT}`, path: ALPHA_PATH, title: "Alpha Lattice", why: VERDICT });

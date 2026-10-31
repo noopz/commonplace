@@ -44,7 +44,7 @@
 import { atom, read, update } from "claude-code";
 import type { Register, EngineInterface, ToolCallInput } from "claude-code";
 import type { CommonplaceBand, Commonplace, CommonplaceIndexStatus } from "../types/index.js";
-import { parseJsonl, stripFrontmatter } from "./lib/seed.ts";
+import { parseJsonl, stripFrontmatter, connectionBlock } from "./lib/seed.ts";
 import { runConnectionPass, type CompletionRequest } from "./lib/pipeline.ts";
 import { statusLine, type Status } from "./lib/status.ts";
 import { buildVaultBlock, mergeBlocks } from "./lib/context.ts";
@@ -1938,11 +1938,12 @@ const witnessAdd = ($: EngineInterface, kind: string, text: string) => {
  * carries only the band's kind.
  */
 type BandCard =
-  | { kind: "connection"; vp: string; path: string; title: string; answer: string }
   | { kind: "triage"; vp: string; url: string; triage: Triage }
   | { kind: "notice"; entry: number };
 let bandCard: BandCard | null = null;
-const CARD_KINDS = new Set<string>(["connection", "triage", "notice"]);
+/** The note the last connection handed the model, until the next turn says whether it was read. */
+let lastConnection: { vp: string; path: string } | null = null;
+const CARD_KINDS = new Set<string>(["triage", "notice"]);
 
 const showCard = ($: EngineInterface, card: BandCard, text: string) => {
   bandCard = card;
@@ -1951,7 +1952,6 @@ const showCard = ($: EngineInterface, card: BandCard, text: string) => {
 
 /** The buttons each card offers, as [action, label]. */
 const cardButtons = (card: BandCard): Array<[string, string]> => {
-  if (card.kind === "connection") return [["read", "Read it"], ["not-for-me", "Not for me"]];
   if (card.kind === "notice") {
     const entry = vaultActivity.find((a) => a.id === card.entry);
     if (entry?.action && !entry.acted) return [["act", entry.action.label], ["details", "Details"]];
@@ -1962,29 +1962,8 @@ const cardButtons = (card: BandCard): Array<[string, string]> => {
     : [["ingest", "Ingest"], ["later", "Later"], ["skip", "Skip"]];
 };
 
-/** `$.store` keys, per vault. */
-const suppressedKey = (vp: string) => `connect:suppressed:${vp}`;
+/** `$.store` key, per vault. */
 const laterKey = (vp: string) => `triage:later:${vp}`;
-/** Not-for-me notes kept per vault. */
-const SUPPRESSED_MAX = 500;
-
-/**
- * A press on a connection card is a relevance label from real use: it goes
- * to `.wiki/evals/connection-feedback.jsonl` with the answer it was judged
- * against, which `eval:judge --feedback` scores the judge on. In the vault,
- * never committed, like every gold file.
- */
-const recordLabel = ($: EngineInterface, card: Extract<BandCard, { kind: "connection" }>, label: string) => {
-  const dir = `${card.vp}/.wiki/evals`;
-  $.process
-    .run(["mkdir", "-p", dir])
-    .then(() =>
-      $.process.run(["tee", "-a", `${dir}/connection-feedback.jsonl`], {
-        stdin: `${JSON.stringify({ at: new Date().toISOString(), path: card.path, title: card.title, label, answer: card.answer })}\n`,
-      }),
-    )
-    .catch(() => {});
-};
 
 /** One press on the band's card. The card is taken down first, so a second press does nothing. */
 const bandPress = async ($: EngineInterface, action: string) => {
@@ -2003,19 +1982,6 @@ const bandPress = async ($: EngineInterface, action: string) => {
       if (action === "details" && !(await openActivity($)) && entry) {
         // No surface can seat the pane: the one line of detail it would have shown.
         $.ui.toast(entry.details.replace(/[*`]/g, "").slice(0, 240));
-      }
-      return;
-    }
-    if (card.kind === "connection") {
-      const label = action === "read" ? "useful" : "not-for-me";
-      traceTo($, card.vp, `feedback:${label}`, { path: card.path });
-      recordLabel($, card, label);
-      if (action === "read") {
-        await $.prompt.submit({ text: `Read my vault note [[${card.title}]] and tell me how it bears on what we were just discussing.`, asUser: true });
-      } else {
-        const list = ((await $.store.get(suppressedKey(card.vp))) ?? []) as string[];
-        await $.store.set(suppressedKey(card.vp), [...list.filter((p) => p !== card.path), card.path].slice(-SUPPRESSED_MAX));
-        notice($, `won't surface [[${card.title}]] again`, `[[${card.title}]] was marked Not for me; the connection pass skips it from now on in this vault.`);
       }
       return;
     }
@@ -3514,6 +3480,15 @@ export const register: Register = (on, options) => {
     if (!vp) return base;
     const logPath = `${vp}/.wiki/${LOG_FILE}`;
 
+    // Did the turn after a connection read the note? The only usage signal
+    // the connection pass has, now that nothing is pressed.
+    if (lastConnection) {
+      const c = lastConnection;
+      lastConnection = null;
+      const id = indexes.get(c.vp)?.view?.idOfRel(c.path);
+      traceTo($, c.vp, "connect:followed", { followed: id !== undefined && trailOf(c.vp).has(id) });
+    }
+
     // Citations in this answer, counted (no titles: they may be private).
     if (features.links) {
       try {
@@ -3547,7 +3522,6 @@ export const register: Register = (on, options) => {
       return base;
     }
 
-    const suppressed = ((await $.store.get(suppressedKey(vp))) ?? []) as string[];
     const surfaced = await runConnectionPass(
       {
         sessionId: () => $.session.id(),
@@ -3665,12 +3639,9 @@ export const register: Register = (on, options) => {
         // The input names it `isAborted`. This read `e.aborted`, which does
         // not exist, so an interrupted turn was always treated as finished.
         aborted: e.isAborted,
-        suppressed,
       },
     );
     if (!surfaced) return base;
-    // The why is already in the line under the answer, which outlasts the
-    // card; the card names the note and carries the buttons.
     // A connection to a corrected or bounded claim says so up front.
     let status: string[] = [];
     try {
@@ -3679,11 +3650,16 @@ export const register: Register = (on, options) => {
       const card = id === undefined ? undefined : (await idx.cards([id])).get(id);
       if (card) status = statusOnly(await noun.withRevisions(noun.toCard(card, { vaultId: "", index: idx }), { index: idx }));
     } catch {}
-    showCard(
-      $,
-      { kind: "connection", vp, path: surfaced.path, title: surfaced.title, answer: String(e.answer ?? "").slice(0, 1500) },
-      status.length ? `[[${surfaced.title}]] · ${status[0].replace(/^⚠\s*/, "⚠ ")}` : `[[${surfaced.title}]]`,
-    );
+    // The line under the answer is the person's; this is the model's. A
+    // rewrite never enters the transcript, so without the append the note
+    // reached the model only when someone pressed a button.
+    try {
+      const block = connectionBlock({ title: surfaced.title, why: surfaced.why, path: surfaced.path, status });
+      await $.session.append({ message: { type: "user", content: [{ type: "text", text: block }] } });
+      witnessAdd($, "connection", block);
+      lastConnection = { vp, path: surfaced.path };
+      traceTo($, vp, "connect:appended", { path: surfaced.path });
+    } catch {}
     // Keep the engine's `usage` beside the replaced text: a hook that drops
     // it hides the turn's cost from every hook above.
     return { ...base, text: status.length ? `${surfaced.text}\n${status.join("\n")}` : surfaced.text };

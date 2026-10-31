@@ -31,7 +31,7 @@ registrations. There is no shell fallback to keep in step any more, so the v1
 
 `plugin.json` declares a `userConfig` switch for every feature the person
 would want to turn off (guards are not optional): `ambientConnections` (the
-connection pass and its Read it / Not for me card, default on), `vaultLinks`
+connection pass, default on), `vaultLinks`
 (links and citation flags in replies, default on), `linkTriage` (default off:
 a fork per pasted link Claude fetched), `primeContext` (default **off** until `eval:prime`
 passes its gate on the user's vault), `vaultRevision` (default on: trigger
@@ -134,8 +134,8 @@ reindex the person asked for, a quarantine, a card press) goes through
 `notice()`: an entry in the module-memory activity log, and — unless it is a
 receipt the transcript already shows — a band card of kind `notice` with
 **Details** (opens the `commonplace-activity` pane, also `/vault activity`)
-and, for an accepted revision, **Undo**. A notice never covers a connection
-or triage card that is waiting on a press; it is held and shown when that
+and, for an accepted revision, **Undo**. A notice never covers a triage
+card that is waiting on a press; it is held and shown when that
 card comes down (a press, or the next prompt), so an accept is never announced
 only in the pane nobody opened. The only toast left is the
 version gate, which fires before anything else is registered.
@@ -262,14 +262,21 @@ fork-based connection judge; they were cut before release as speculative —
 do not bring them back without evidence (for the judge: an `eval:connection`
 comparison against haiku).
 
-- **The connection card** (`BandCard`, module memory like `bandText`): a
-  surfaced connection puts **Read it / Not for me** on the band. Not for me
-  goes to `$.store connect:suppressed:<vault>`, which the pipeline treats like
-  the seen-set (`PassInput.suppressed`) but never writes into it. Every press
-  appends `{path, title, label, answer}` to `.wiki/evals/connection-feedback.jsonl`,
-  and **`eval:judge --feedback`** scores the judge on those presses: precision
-  from real use, the label a gold set only approximates. A press takes the
-  card down first; typing again is a pass, not a press.
+- **The connection goes to the model, not to a button** (v2.6.1). A
+  `turn.complete` rewrite is shown under the answer but never enters the
+  transcript, so the model only learned of a surfaced note when the person
+  pressed Read it, which they rarely did (3 presses ever). Now the pass
+  appends `<commonplace-connection unverified="true">` (`connectionBlock`,
+  hooks/lib/seed.ts) with `$.session.append`, and the next reply reads the
+  note with `vault_note` and uses it, or ignores it silently. The haiku judges
+  only "same subject"; whether the note adds anything is the main model's
+  call, made against the whole conversation. An "adds something the
+  discussion lacks" judge prompt was measured again in v2.6.1 and failed
+  `eval:judge` (5/10, precision 0: it skips real hits and surfaces the
+  adjacent case) — haiku sees an excerpt and cannot tell what the
+  conversation already knows. `connect:followed` traces whether the next turn
+  read the note: the usage signal now that nothing is pressed. The card, Not
+  for me, its suppression store and `eval:judge --feedback` are gone.
 - **Link triage** (`linkTriage`): a turn that FETCHED a link the person
   pasted (a `tool.call{WebFetch}` hook records it) ends with a card —
   already in the vault as [[X]] / extends / contests / new / skip — with
@@ -302,7 +309,7 @@ judge replies the person never saw.
 **`hook-log.jsonl` stage vocabulary** (beyond the connection pass's own):
 `tool:vault_*`, `index:patch|sweep|build|built`, `guard:*`, `scope:proposed`,
 `skill:delivered`, `unit:command`, `revision:*`, `prime:sync|skip-cold|appended|judged-no|unanswered|late-drop|no-turn|error`,
-`skip:segment-budget`, `feedback:useful|not-for-me`,
+`skip:segment-budget`, `connect:appended|followed`,
 `triage:verdict|not-fetched|unanswered|ingest|later|skip|read|error`, `cite:check`
 (counts only), `revision:ensure|enqueue|trigger|detect|audit|proposed|propose-none|pool-empty|skip|written-truncated|proposal-cap|review|verify|escalate|wording|accept|steps|stuck|undo|waiting|commit-waiting|error`. A private note's path is never logged.
 
@@ -380,7 +387,7 @@ the **summary** (concepts and MOCs, revised with receipts).
   relation: bounds says only where a claim is supported, a world change keeps
   the earlier state true for its period, lost support is not refutation.
 - **Status before date.** Every model-facing line (pointers, `vault_note`,
-  prime, the connection card, a plain `Read` of a vault note) prints the status
+  prime, the connection block, a plain `Read` of a vault note) prints the status
   first, then `published … · added …`. LLM rerankers drift toward newer dates
   (arXiv 2509.11353); ranking ignores status and both clocks. Age is never a
   reason: overtaken knowledge is labelled, not decayed or evicted.
@@ -573,7 +580,7 @@ All commands auto-discover the vault via cwd (`.obsidian/` or `.wiki/` marker) o
 - `commonplace session-check` — The one shell hook (SessionStart): module watchdog
 - `commonplace synthetic --scale N --out <dir>` / `commonplace eval:scale` — Synthetic vaults and the scale benchmark
 - `commonplace test:ui` — Module UI tests under `claude plugin test` (terminal + desktop); in this repo run `npm run test:ui`, because `commonplace` on PATH is the INSTALLED plugin's copy and tests that one
-- `commonplace eval:judge [--feedback] [--prime|--used] [--repeat N]` — The judge alone on stored (answer, note) pairs; `--feedback` uses your Read it / Not for me presses as the labels
+- `commonplace eval:judge [--prime|--used] [--repeat N]` — The judge alone on stored (answer, note) pairs
 - `commonplace eval:connection [--plugin-dir .]` — The whole connection pass in live `claude -p` sessions
 - `commonplace eval:prime [--repeat 3] [--init]` — Prime's gate (live `claude -p` sessions)
 - `commonplace eval:search [--tune] [--cfg '<json>'] [--show "<q>"] [--json] [--history]` — `vault_search` + Connect pool over the vault's gold sets, in-memory build, zero tokens

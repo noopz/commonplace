@@ -24,7 +24,7 @@ Switches in the plugin's settings (`/config`):
 
 | Setting | Default | What it does |
 | --- | --- | --- |
-| Ambient vault connections | on | One line under an answer when it connects to a note you already wrote, with **Read it** / **Not for me** (Not for me never surfaces that note again) |
+| Ambient vault connections | on | When an answer connects to a note you already wrote: one line under it for you, and the note handed to Claude, which reads and uses it in the next reply if it adds anything. Nothing to click |
 | Vault links in replies | on | `[[links]]` in replies open the note; any that isn't in your vault, wasn't read, or is superseded gets flagged |
 | Verdict card for pasted links | off | Paste a link Claude then reads → "already in your vault / extends a note / new" with **Ingest** / **Later** / **Skip** (`/vault later`) |
 | Prime tasks with a vault note | off | A pointer to the vault's best note before a task starts |

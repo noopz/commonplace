@@ -183,6 +183,26 @@ export function parseVerdict(reply: string): string | null {
   return line;
 }
 
+/**
+ * What the assistant reads about a surfaced connection before its next reply.
+ * A `turn.complete` rewrite is shown beneath the answer but never enters the
+ * transcript, so without this the model never learns the note was found. The
+ * judge only says the note is on the subject; whether it adds anything is the
+ * assistant's call, made against the whole conversation.
+ */
+export function connectionBlock(p: { title: string; why: string; path: string; status?: string[] }): string {
+  return [
+    `<commonplace-connection unverified="true">`,
+    `After your last reply the vault's connection pass found [[${p.title}]] on the same subject.`,
+    ...(p.status ?? []),
+    p.why,
+    `Path: ${p.path}. If it holds something this conversation lacks (a decision, a result, an approach already tried, a contradiction), read it with vault_note and use it; otherwise ignore it and do not mention it.`,
+    `</commonplace-connection>`,
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
 /** The rendered line. Deliberately one line and visually quiet. */
 export function renderConnection(label: string, verdict: string): string {
   return `⟡ vault · [[${label}]] — ${verdict}`;

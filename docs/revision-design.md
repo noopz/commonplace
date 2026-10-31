@@ -415,7 +415,7 @@ Because every accept is a single revertible commit, acceptance is autonomous fro
   - `vault_note`'s header;
   - `vault_links`;
   - MOC listings;
-  - the connection card;
+  - the connection block;
   - prime;
   - a note on a plain `Read`, through the `tool.call{Read}` hook.
 - One hop of chaining: "corrected by [[X]]; [[X]] is itself disputed by [[Y]]".
