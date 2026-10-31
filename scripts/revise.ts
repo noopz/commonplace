@@ -44,6 +44,7 @@ import {
 import { loadArtifact, passages, sourceRefs, type Artifact } from "./lib/revision/artifact.ts";
 import { openShardsFromEnv } from "./lib/revision/vault-index.ts";
 import { enqueue, claim, finish, fail } from "./lib/revision/jobs.ts";
+import { captureFraming, pruneCaptures, readCapture, writeCapture, type CaptureClass } from "./lib/revision/capture.ts";
 import { blobAt, blobOfFile, commitUnit, headOf, recordAppendOnly, recordTouch, repoOf } from "./lib/git-unit.ts";
 import { describeDecision } from "../hooks/lib/revision/review.ts";
 import { statusLine } from "../hooks/lib/revision/edges.ts";
@@ -110,7 +111,7 @@ const rawText = (rel: string) => {
 };
 
 async function artifactOf(rel: string): Promise<Artifact | null> {
-  for (const r of sourceRefs(vault, rawText(rel))) {
+  for (const r of sourceRefs(vault, rawText(rel), rel)) {
     const a = await loadArtifact(vault, r, { offline: values.offline });
     if (a) return a;
   }
@@ -173,6 +174,11 @@ switch (sub) {
     const red = state(ctx);
     const work = [...red.proposals.values()].filter((p) => STAGES.has(p.status)).length;
     const jobs = [...red.jobs.values()].filter((j) => j.status === "queued").length;
+    // Captures a live proposal or queued job still rests on stay past the TTL.
+    const keep = new Set<string>();
+    for (const p of red.proposals.values()) if (p.propose.capture && STAGES.has(p.status)) keep.add(p.propose.capture.hash);
+    for (const j of red.jobs.values()) if (j.queued.capture && j.status !== "done" && j.status !== "abandoned") keep.add(j.queued.capture.hash);
+    pruneCaptures(ctx.vault, keep);
     print({ ...en, recovered: rec, paused: red.paused, work, jobs, scopes: Object.fromEntries([...red.scopes].map(([s, v]) => [s === MAIN ? "main" : "private", v.mode])) });
     break;
   }
@@ -201,10 +207,16 @@ switch (sub) {
     const old = { title: p.propose.old.title, rel: p.propose.old.rel };
     const neu = { title: p.propose.new.title, rel: p.propose.new.rel };
     const base = { proposal: p.id, stage: p.status, claim: p.propose.old.claim, older: old, newer: neu };
+    // A capture's newer side is the captured text itself: not yet a note, and
+    // its own artifact (the proposer's summary is never in it).
+    const cap = p.propose.capture ? readCapture(vault, p.propose.capture.hash) : null;
+    const newerText = () => (cap ? captureFraming(cap) : noteText(neu.rel));
+    const newerArtifact = async (): Promise<Artifact | null> =>
+      cap ? { ref: `capture:${cap.hash}`, hash: `sha256:${cap.hash}`, text: cap.text, fetchedAt: cap.capturedAt } : artifactOf(neu.rel);
     if (p.status === "review") {
-      print({ ...base, olderText: noteText(old.rel), newerText: noteText(neu.rel), oldFirst: Math.random() < 0.5 });
+      print({ ...base, olderText: noteText(old.rel), newerText: newerText(), oldFirst: Math.random() < 0.5 });
     } else if (p.status === "verify" || p.status === "escalate") {
-      const [oa, na] = await Promise.all([artifactOf(old.rel), artifactOf(neu.rel)]);
+      const [oa, na] = await Promise.all([artifactOf(old.rel), newerArtifact()]);
       const d = p.decision;
       if (p.status === "verify") {
         const query = [p.propose.old.claim, d?.within ?? "", ...(p.reviews[0]?.quotesOld ?? [])].join(" ");
@@ -219,7 +231,7 @@ switch (sub) {
         print({
           ...base,
           olderText: noteText(old.rel),
-          newerText: noteText(neu.rel),
+          newerText: newerText(),
           olderSource: oa ? { hash: oa.hash, text: oa.text.slice(0, 60_000) } : null,
           newerSource: na ? { hash: na.hash, text: na.text.slice(0, 60_000) } : null,
         });
@@ -381,10 +393,31 @@ switch (sub) {
         ? (body.reads as unknown[]).map((r) => (r && typeof r === "object" ? { rel: String((r as Record<string, unknown>).rel), rev: String((r as Record<string, unknown>).rev ?? "") } : String(r)))
         : [],
       ...(Array.isArray(body.pairs) ? { pairs: (body.pairs as Array<Record<string, unknown>>).map((p) => ({ written: String(p.written), old: String(p.old), why: String(p.why ?? "") })) } : {}),
+      ...(body.capture && typeof body.capture === "object"
+        ? { capture: { hash: String((body.capture as Record<string, unknown>).hash), pool: ((body.capture as Record<string, unknown>).pool as unknown[] ?? []).map(String) } }
+        : {}),
       origin: String(body.origin ?? actor.type),
       ...(body.unit ? { unit: String(body.unit) } : {}),
     });
     print(r);
+    break;
+  }
+
+  case "capture": {
+    // Module-only (the Bash guard denies it to the model): store what was read.
+    const body = await stdinJson();
+    const cls = String(body.class ?? "") as CaptureClass;
+    if (!["owner", "connector", "web"].includes(cls)) {
+      print({ error: "class must be owner, connector or web" });
+      process.exitCode = 1;
+      break;
+    }
+    let text = String(body.text ?? "");
+    const source = String(body.source ?? "");
+    // A web page is fetched here, never taken from WebFetch's summary of it.
+    if (cls === "web" && !text && /^https?:\/\//.test(source)) text = (await loadArtifact(vault, { kind: "url", ref: source }))?.text ?? "";
+    const c = writeCapture(vault, { class: cls, source, text, ...(body.asOf ? { asOf: String(body.asOf) } : {}) });
+    print(c ? { hash: c.hash, title: c.title, chars: c.text.length, text: c.text.slice(0, 20_000) } : { none: true, why: "too little text" });
     break;
   }
 

@@ -13,7 +13,7 @@
  * Pure: everything outside comes through `TriggerPorts`; every branch logs.
  */
 
-import { MODELS, DETECT_SYSTEM, claimExcerpt, detectPrompt, parseDetect, PROPOSE_SYSTEM, proposePrompt, parsePropose } from "./review.ts";
+import { MODELS, DETECT_NOTE_CHARS, DETECT_SYSTEM, claimExcerpt, detectPrompt, parseDetect, PROPOSE_SYSTEM, proposePrompt, parsePropose } from "./review.ts";
 
 export type NoteInfo = { rel: string; title: string; abstraction: string; kind: string; shard: string };
 
@@ -28,6 +28,8 @@ export type TriggerPorts = {
   log(stage: string, data: Record<string, unknown>): void;
   /** [0, 1); the detector audit samples on it. */
   random(): number;
+  /** A read capture's title and text, for capture jobs. */
+  capture?(hash: string): Promise<{ title: string; text: string } | null>;
 };
 
 /**
@@ -46,6 +48,7 @@ const CLAIM_KINDS = new Set(["source", "other"]);
 
 export type Pair = { written: string; old: string; why: string };
 export type TriggerJob = { written: string[]; reads: string[]; /** An overflow job: detection already done, propose these. */ pairs?: Pair[] };
+export type CaptureJob = { capture: { hash: string; pool: string[] } };
 export type TriggerResult = {
   examined: number;
   pool: number;
@@ -155,11 +158,75 @@ async function proposeOne(ports: TriggerPorts, w: NoteInfo, wText: string, old: 
   if (r.status === "proposed") res.proposed++;
 }
 
+/**
+ * A read capture (docs/revision-design.md, "Read capture"): what the agent
+ * read outside the vault, against the notes the gate found it may bear on.
+ * The same detector and proposer as a written note; the newer side is
+ * `capture:<hash>`, which becomes a note only if the proposal is accepted.
+ * The capture can be long, so the detector sees the lines of it nearest the
+ * pooled notes.
+ */
+export async function runCapture(ports: TriggerPorts, job: CaptureJob): Promise<TriggerResult> {
+  const res: TriggerResult = { examined: 0, pool: 0, truncated: false, changed: 0, proposed: 0, unanswered: 0, overflow: [] };
+  const cap = ports.capture ? await ports.capture(job.capture.hash) : null;
+  if (!cap) {
+    ports.log("revision:skip", { why: "capture-missing" });
+    return res;
+  }
+  const pool: NoteInfo[] = [];
+  for (const rel of job.capture.pool) {
+    const n = await ports.info(rel);
+    if (n && CLAIM_KINDS.has(n.kind) && pool.length < POOL_MAX) pool.push(n);
+  }
+  res.examined = 1;
+  res.pool = pool.length;
+  if (pool.length === 0) {
+    ports.log("revision:pool-empty", { kind: "capture" });
+    return res;
+  }
+  const bodies: string[] = [];
+  const shown = [];
+  for (const p of pool) {
+    const body = (await ports.text(p.rel)) ?? "";
+    bodies.push(body);
+    shown.push({ ...p, excerpt: claimExcerpt(body, cap.text) });
+  }
+  const wText = cap.text.length <= DETECT_NOTE_CHARS ? cap.text : claimExcerpt(cap.text.split(/(?<=[.!?])\s+/).join("\n"), bodies.join("\n"), DETECT_NOTE_CHARS);
+  const w: NoteInfo = { rel: `capture:${job.capture.hash}`, title: cap.title, abstraction: "", kind: "source", shard: "main" };
+  const prompt = detectPrompt({ title: cap.title, text: wText }, shown);
+  const det = await ports.complete({ model: MODELS.detect, system: DETECT_SYSTEM, prompt, maxTokens: 400 });
+  if (det === null) res.unanswered++;
+  const changed = parseDetect(det ?? undefined, pool.length);
+  ports.log("revision:detect", { pool: pool.length, truncated: false, changed: changed?.length ?? -1, answered: det !== null, capture: true });
+  if (!changed || changed.length === 0) return res;
+  res.changed = changed.length;
+  for (const c of changed) {
+    const old = pool[c.n - 1];
+    if (res.proposed >= PROPOSALS_MAX) {
+      res.overflow.push({ written: w.rel, old: old.rel, why: c.why });
+      continue;
+    }
+    await proposeOne(ports, w, wText, old, c.why, [old.rel], res);
+  }
+  if (res.overflow.length) ports.log("revision:proposal-cap", { queued: res.overflow.length });
+  return res;
+}
+
 /** An overflow job: the detector already said these changed; propose each, under the same cap. */
 async function proposePairs(ports: TriggerPorts, pairs: Pair[], res: TriggerResult): Promise<TriggerResult> {
   for (const p of pairs) {
     if (res.proposed >= PROPOSALS_MAX) {
       res.overflow.push(p);
+      continue;
+    }
+    if (p.written.startsWith("capture:")) {
+      const cap = ports.capture ? await ports.capture(p.written.slice(8)) : null;
+      const old = cap ? await ports.info(p.old) : null;
+      if (!cap || !old) continue;
+      res.examined++;
+      res.changed++;
+      const cw: NoteInfo = { rel: p.written, title: cap.title, abstraction: "", kind: "source", shard: "main" };
+      await proposeOne(ports, cw, cap.text.slice(0, DETECT_NOTE_CHARS), old, p.why, [old.rel], res);
       continue;
     }
     const w = await ports.info(p.written);

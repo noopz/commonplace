@@ -36,6 +36,8 @@ export type EnqueueInput = {
   written: string[];
   reads?: Array<string | { rel: string; rev?: string }>;
   pairs?: Array<{ written: string; old: string; why: string }>;
+  /** A read capture and the notes the gate found it may bear on. */
+  capture?: { hash: string; pool: string[] };
   origin?: string;
   unit?: string;
 };
@@ -79,6 +81,7 @@ export async function enqueue(ctx: Ctx, input: EnqueueInput): Promise<EnqueueRes
     const id = v.idOfRel(rel);
     return id !== undefined && v.visible(id) ? v.shard(id) : null;
   };
+  if (input.capture) return enqueueCapture(ctx, input.capture, origin, shardOf, res);
   const groups = new Map<string, Array<{ rel: string; rev: string }>>();
   for (const rel of [...new Set(input.written)]) {
     const shard = shardOf(rel);
@@ -139,11 +142,46 @@ export async function enqueue(ctx: Ctx, input: EnqueueInput): Promise<EnqueueRes
   return res;
 }
 
+/**
+ * A capture job per scope its pool touches, each in that scope's own ledger,
+ * so a public ledger never names a private note. Deduped on the capture and
+ * the pool.
+ */
+function enqueueCapture(
+  ctx: Ctx,
+  cap: { hash: string; pool: string[] },
+  origin: string,
+  shardOf: (rel: string) => string | null,
+  res: EnqueueResult,
+): EnqueueResult {
+  const groups = new Map<string, string[]>();
+  for (const rel of [...new Set(cap.pool)]) {
+    const s = shardOf(rel);
+    if (!s) continue;
+    if (!groups.has(s)) groups.set(s, []);
+    groups.get(s)!.push(rel);
+  }
+  if (groups.size === 0) res.skipped.push({ why: "no visible note in the pool" });
+  const red = state(ctx);
+  for (const [shard, pool] of groups) {
+    const key = createHash("sha256").update(`capture:${cap.hash}\n${pool.sort().join("\n")}`).digest("hex").slice(0, 24);
+    if ([...red.jobs.values()].some((j) => j.queued.key === key && j.status !== "abandoned")) {
+      res.duplicate++;
+      continue;
+    }
+    const job = newId();
+    append(ctx.vault, shard, ctx.actor, { kind: "job-queued", job, key, written: [], reads: [], capture: { hash: cap.hash, pool }, origin });
+    res.queued.push(job);
+  }
+  return res;
+}
+
 export type ClaimedJob = {
   job: string;
   written: string[];
   reads: string[];
   pairs?: Array<{ written: string; old: string; why: string }>;
+  capture?: { hash: string; pool: string[] };
   attempt: number;
 };
 
@@ -174,6 +212,7 @@ export function claim(ctx: Ctx, now = Date.now()): { job: ClaimedJob } | { none:
         written: next.queued.written.map((w) => w.rel),
         reads: next.queued.reads.map((r) => r.rel),
         ...(next.queued.pairs ? { pairs: next.queued.pairs } : {}),
+        ...(next.queued.capture ? { capture: next.queued.capture } : {}),
         attempt: next.attempts + 1,
       },
     };

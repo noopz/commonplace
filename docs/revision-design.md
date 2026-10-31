@@ -513,6 +513,17 @@ Deferred: mixing several private shards, plugin extraction, broad concept compil
 - owner interventions per accepted revision (each one a failure; a low rate alone proves nothing);
 - reversals, read rather than counted. Most apparent Wikipedia bot conflicts turned out to be routine work (Geiger & Halfaker 2017).
 
+## Read capture
+
+Revision used to start only from a vault write. A person also revises what they know while reading: an article, a thread, their own correction in passing. Read capture makes those reads inputs, without a fork of the main session and without trusting the model's account of what it read.
+
+- **Recorded by code, at read time.** A WebFetch'd page is fetched again by `revise capture` (WebFetch returns a model's summary). A connector result is the raw tool output. A typed prompt is the owner's word; a long or fenced one is pasted material. Assistant text is never captured: it is the thing being checked.
+- **Free gate.** The capture is cut into paragraph chunks; each is searched against the loaded index with prime's linear thresholds, and only notes that are a strong hit for some chunk are pooled. Most reads stop here at no cost.
+- **The same chain.** The pool becomes an `external-read` job; haiku detects, sonnet quotes the claim, then blind review, evidence verify (the capture is the newer artifact), wording, accept. The daily budget applies.
+- **Who said it limits what it decides.** The owner may supersede or bound. A page or a connector result may only contest a claim or withdraw its support, unless it is the older note's own source. Connector content is private: it revises private-shard notes only.
+- **No note until accept.** The accept writes a source note beside the older note (so it is in the same scope) with the `raw/` excerpt the decision rests on, and commits both with the edge. A rejected or pending capture leaves nothing in the vault; captures expire after 30 days.
+- **Gate.** `eval:capture`: invented traps (hedges, questions, old docs, injected instructions, other entities, opinion, sarcasm) and real changes, scored on precision first.
+
 ## Phases
 
 0. Agent-run sample and proposal rate.
@@ -526,7 +537,7 @@ Deferred: mixing several private shards, plugin extraction, broad concept compil
 Decided 2026-10-27 and 2026-10-28:
 1. **Error tolerance:** wrong revisions are cheap because every one is a revertible commit. Acceptance is autonomous; the eval tunes strictness rather than gating autonomy. No step requires the owner: having to accept, label or clear a queue would itself be a failure of the design.
 2. **Commits:** agents commit, per unit of work, because they know when a unit is done. Autonomous acceptance ships in the first release; git is what keeps data from being lost, so the commit layer is built first.
-3. **Budget:** none as such. Revision triggers when a write follows reads of related notes, with a haiku check deciding whether to propose.
+3. **Budget:** a daily dollar limit on background work (default $5, `dailyBudgetUSD`, 2026-10-30); over it, jobs wait for the next day or a raise. Revision triggers when a write follows reads of related notes, or a read capture clears the gate, with a haiku check deciding whether to propose.
 4. **Two-time questions:** later.
 5. **Old material in answers:** the current view plus its correction, change or scope; history on request.
 6. **Name:** revision, `/vault revise`.

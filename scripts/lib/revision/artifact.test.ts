@@ -33,3 +33,12 @@ test("sourceRefs ignores raw links that leave the vault or do not exist", () => 
   const v = vault();
   assert.deepEqual(sourceRefs(v, "[[../raw/Alpha Report.pdf]] [[raw/Missing.pdf]] **Original PDF:** Nowhere.pdf"), []);
 });
+
+test("sourceRefs resolves a raw/ link from the note's own folder, however deep", () => {
+  const v = vault();
+  mkdirSync(join(v, "Shelf/Inner/raw"), { recursive: true });
+  writeFileSync(join(v, "Shelf/Inner/raw/Delta Notes.md"), "delta");
+  const refs = sourceRefs(v, "**Original:** ![[raw/Delta Notes.md]]", "Shelf/Inner/Delta.md");
+  assert.deepEqual(refs.map((r) => r.ref.slice(v.length + 1)), ["Shelf/Inner/raw/Delta Notes.md"]);
+  assert.deepEqual(sourceRefs(v, "**Original:** ![[raw/Delta Notes.md]]"), [], "without the note's folder it is not found");
+});

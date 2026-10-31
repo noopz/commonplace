@@ -8,7 +8,7 @@ import { parseFrontmatter } from "../index/yaml.ts";
 import { edgeKey, fmEdges, locateClaim, statusLine } from "./edges.ts";
 import { EMPTY_PROJECTION, statusesFor, type Projection } from "./projection.ts";
 import { claimExcerpt, parseDetect, parsePropose, parseReview, parseVerify, parseEscalate, parseWording, parseWordingCheck } from "./review.ts";
-import { runTrigger, type NoteInfo, type TriggerPorts } from "./trigger.ts";
+import { runCapture, runTrigger, type NoteInfo, type TriggerPorts } from "./trigger.ts";
 import { runSteps, type RunnerPorts } from "./runner.ts";
 
 test("fmEdges reads plain links, unquoted lists and mapping items with their claim", () => {
@@ -276,4 +276,23 @@ test("trigger: an unanswered detector is counted, so the job is retried rather t
   const res = await runTrigger(ports, { written: ["New.md"], reads: ["Old.md"] });
   assert.equal(res.unanswered, 1);
   assert.equal(res.proposed, 0);
+});
+
+test("capture: a read capture is detected against its pool and proposed as capture:<hash>", async () => {
+  const prompts: string[] = [];
+  const replies = ['{"changed":[{"n":1,"why":"the page reports a later figure"}]}', '{"claim":"the old figure","rationale":"r"}'];
+  const { ports, calls } = triggerFake({ "Old.md": note("Old.md"), "Hub.md": note("Hub.md", "moc") }, [], {
+    capture: async (h) => (h === "abc" ? { title: "Acme page", text: "The figure is now higher than reported before." } : null),
+    complete: async (req) => (prompts.push(req.prompt), calls.models.push(req.model), replies.shift() ?? null),
+  });
+  const res = await runCapture(ports, { capture: { hash: "abc", pool: ["Old.md", "Hub.md"] } });
+  assert.equal(res.pool, 1, "summaries are not revised by a capture either");
+  assert.equal(res.proposed, 1);
+  assert.equal(calls.proposed[0].new, "capture:abc");
+  assert.equal(calls.proposed[0].old, "Old.md");
+  assert.match(prompts[0], /Acme page/);
+
+  const gone = triggerFake({ "Old.md": note("Old.md") }, [], { capture: async () => null });
+  assert.equal((await runCapture(gone.ports, { capture: { hash: "zzz", pool: ["Old.md"] } })).proposed, 0);
+  assert.deepEqual(gone.calls.models, [], "a capture that is gone costs nothing");
 });

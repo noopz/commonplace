@@ -362,3 +362,68 @@ test("a job claimed by a session that has exited is retried at once, not held fo
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+// ----------------------------------------------------------------- read capture
+
+const SAID = "Kestrel batches stopped settling within two hours after the storage move; on the current cluster they routinely take six hours or more, and the two-hour figure only ever held on the old, mostly idle hardware we had last spring.";
+
+test("read capture: the owner's words become a note beside the older one only when the accept lands", () => {
+  const root = vault();
+  try {
+    revise(root, ["ensure"]);
+    assert.equal(revise(root, ["capture"], { class: "owner", source: "conversation", text: "too short" }).none, true);
+    const c = revise(root, ["capture"], { class: "owner", source: "conversation", text: SAID, asOf: "2026-10-01" });
+    assert.ok(c.hash, JSON.stringify(c));
+    assert.equal(revise(root, ["capture"], { class: "owner", source: "conversation", text: SAID }).hash, c.hash, "the same text is one capture");
+
+    const q = revise(root, ["job-enqueue"], { capture: { hash: c.hash, pool: [OLD] }, origin: "external-read" });
+    assert.equal(q.queued.length, 1, JSON.stringify(q));
+    assert.equal(revise(root, ["job-next"]).job.capture.hash, c.hash);
+
+    const p = revise(root, ["propose", "--old", "Old Finding", "--new", `capture:${c.hash}`, "--claim", CLAIM], { origin: "external" });
+    assert.equal(p.status, "proposed", JSON.stringify(p));
+    const n = revise(root, ["next"]);
+    assert.match(n.newerText, /^The vault owner said, in conversation \(as of 2026-10-01\)/);
+    const listed = git(root, "status", "--porcelain");
+    toAccept(root, p.id);
+    assert.equal(git(root, "status", "--porcelain").replace(/.*\.revision\/.*\n?/g, ""), listed.replace(/.*\.revision\/.*\n?/g, ""), "nothing is written before the accept");
+
+    const a = revise(root, ["accept", "--proposal", p.id]);
+    assert.equal(a.status, "accepted", JSON.stringify(a));
+    const files = git(root, "show", "--name-only", "--format=", "HEAD").trim().split("\n");
+    const note = files.find((f) => /^Research\/Alpha\/\d{4}-\d\d-\d\d .+\.md$/.test(f))!;
+    assert.ok(note, files.join(","));
+    assert.ok(files.includes(`Research/Alpha/raw/${note.split("/").pop()}`), "the excerpt it rests on is committed with it");
+    const text = readFileSync(join(root, note), "utf-8");
+    assert.match(text, /supersedes:/, "the owner's word may supersede");
+    assert.match(text, /as_of: 2026-10-01/);
+    assert.match(readFileSync(join(root, "Research/Alpha/raw", note.split("/").pop()!), "utf-8"), /six hours/);
+    assert.equal(readFileSync(join(root, OLD), "utf-8").includes("supersedes"), false, "the older note is never edited");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("read capture: a page can only contest a claim, and connector text never revises a public note", () => {
+  const root = vault();
+  try {
+    revise(root, ["ensure"]);
+    const web = revise(root, ["capture"], { class: "web", source: "https://example.com/kestrel-notes", text: SAID });
+    const p = revise(root, ["propose", "--old", "Old Finding", "--new", `capture:${web.hash}`, "--claim", CLAIM]);
+    assert.equal(p.status, "proposed", JSON.stringify(p));
+    toAccept(root, p.id); // the reviewer said supersedes
+    assert.equal(revise(root, ["accept", "--proposal", p.id]).status, "accepted");
+    const note = git(root, "show", "--name-only", "--format=", "HEAD").trim().split("\n").find((f) => /^Research\/Alpha\/\d/.test(f))!;
+    const text = readFileSync(join(root, note), "utf-8");
+    assert.match(text, /contests:/);
+    assert.doesNotMatch(text, /supersedes:/);
+    assert.match(text, /\*\*URL:\*\* https:\/\/example\.com\/kestrel-notes/);
+
+    const conn = revise(root, ["capture"], { class: "connector", source: "mcp__acme__read_thread", text: SAID + " (thread copy)" });
+    const r = revise(root, ["propose", "--old", "Old Finding", "--new", `capture:${conn.hash}`, "--claim", CLAIM]);
+    assert.equal(r.status, "refused");
+    assert.match(r.reason, /private domain/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});

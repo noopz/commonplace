@@ -42,6 +42,7 @@ const SCRIPTS = {
   'vault':               'scripts/vault.ts',
   'eval:connection':     'evals/connection/run.ts',
   'eval:judge':          'evals/judge/run.ts',
+  'eval:capture':        'evals/capture/run.ts',
   'eval:scale':          'evals/scale/run.ts',
   'eval:search':         'evals/search/run.ts',
   'eval:prime':          'evals/prime/run.ts',

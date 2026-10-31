@@ -7,8 +7,8 @@
  */
 
 import { createHash } from "crypto";
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "fs";
-import { join } from "path";
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "fs";
+import { dirname, join } from "path";
 import { execFileSync } from "child_process";
 import { parseFrontmatter } from "../../../hooks/lib/index/yaml.ts";
 import { KIND_INDEX } from "../../../hooks/lib/graph/csr.ts";
@@ -25,6 +25,8 @@ import { acceptBlocker, edgeFor, reduce, type ProposalState, type Reduced } from
 import { releaseLock, takeLock } from "./lock.ts";
 import { insertEdge, removeEdge, hasEdge, withoutEdges } from "./fm-edit.ts";
 import { loadIndex } from "./vault-index.ts";
+import { allowedRelations, captureNote, plannedRel, rawRelFor, rawText, readCapture, type Capture } from "./capture.ts";
+import { passages, sourceRefs } from "./artifact.ts";
 
 export type Ctx = { vault: string; actor: Actor; open: string[] };
 
@@ -93,6 +95,7 @@ export function scopeFor(inputScope: readonly string[], newShard: string, oldSha
 
 export type ProposeInput = {
   old: string; // ref: path or title
+  /** A note ref, or `capture:<hash>` for a read capture (the note is written only if the proposal is accepted). */
   new: string;
   claim: string;
   inputs?: string[]; // refs of every other note the proposer read
@@ -116,8 +119,13 @@ export async function propose(ctx: Ctx, input: ProposeInput): Promise<ProposeRes
     return rel ? { id, rel, shard: v.shard(id) } : null;
   };
   const oldN = resolve(input.old);
-  const newN = resolve(input.new);
   if (!oldN) return { status: "refused", reason: `no visible note "${input.old}"` };
+  const cap: Capture | null = input.new.startsWith("capture:") ? readCapture(ctx.vault, input.new.slice(8)) : null;
+  if (input.new.startsWith("capture:") && !cap) return { status: "refused", reason: "no such capture" };
+  // Connector text is private by default: it never revises a public note.
+  if (cap?.class === "connector" && oldN.shard === MAIN) return { status: "refused", reason: "connector text may only revise notes in a private domain" };
+  // A capture becomes a note beside the older one, so it lives in the same scope.
+  const newN = cap ? { id: -1, rel: plannedRel(ctx.vault, oldN.rel, cap), shard: oldN.shard } : resolve(input.new);
   if (!newN) return { status: "refused", reason: `no visible note "${input.new}"` };
   if (oldN.rel === newN.rel) return { status: "refused", reason: "a note cannot revise itself" };
   const oldText = readFileSync(join(ctx.vault, oldN.rel), "utf-8");
@@ -127,6 +135,7 @@ export async function propose(ctx: Ctx, input: ProposeInput): Promise<ProposeRes
     return { status: "refused", reason: why };
   }
   const inputScope = new Set<string>([oldN.shard, newN.shard]);
+  if (cap) inputScope.add(cap.class === "connector" ? oldN.shard : MAIN);
   for (const ref of input.inputs ?? []) {
     const n = resolve(ref);
     if (n) inputScope.add(n.shard);
@@ -138,7 +147,7 @@ export async function propose(ctx: Ctx, input: ProposeInput): Promise<ProposeRes
   const claim = input.claim.replace(/\s+/g, " ").trim();
   const identity = [newN.rel, oldN.rel, claim].join("\u001f");
   const oldRev = sha(withoutEdges(oldText));
-  const newRev = claimRev(ctx.vault, newN.rel)!;
+  const newRev = cap ? cap.hash : claimRev(ctx.vault, newN.rel)!;
   for (const p of red.proposals.values()) {
     if (p.identity !== identity) continue;
     const live = !["rejected", "pending", "withdrawn", "reverted"].includes(p.status);
@@ -153,6 +162,16 @@ export async function propose(ctx: Ctx, input: ProposeInput): Promise<ProposeRes
     inputScope: [...inputScope].sort(),
     origin: input.origin ?? "agent",
     ...(input.rationale ? { rationale: input.rationale.slice(0, 2000) } : {}),
+    ...(cap
+      ? {
+          capture: {
+            hash: cap.hash,
+            class: cap.class,
+            source: cap.source,
+            allowed: allowedRelations(cap, sourceRefs(ctx.vault, oldText, oldN.rel).filter((r) => r.kind === "url").map((r) => r.ref)),
+          },
+        }
+      : {}),
   });
   inUnit(ctx, sc.shard);
   return { status: "proposed", id: ev.id, shard: sc.shard };
@@ -237,13 +256,17 @@ export async function accept(ctx: Ctx, proposalId: string): Promise<AcceptResult
     const oldRel = p.propose.old.rel;
     const newRel = p.propose.new.rel;
     if (!sameRev(ctx.vault, oldRel, p.propose.old.rev)) return pendingOn(ctx, p, "the older note changed after review");
-    if (!sameRev(ctx.vault, newRel, p.propose.new.rev)) return pendingOn(ctx, p, "the newer note changed after review");
+    const cap = p.propose.capture ? readCapture(ctx.vault, p.propose.capture.hash) : null;
+    if (p.propose.capture) {
+      if (!cap) return pendingOn(ctx, p, "the capture is gone");
+      if (existsSync(join(ctx.vault, newRel))) return pendingOn(ctx, p, "a file already exists where the captured note would go");
+    } else if (!sameRev(ctx.vault, newRel, p.propose.new.rev)) return pendingOn(ctx, p, "the newer note changed after review");
     const oldText = readFileSync(join(ctx.vault, oldRel), "utf-8");
     if ("error" in locateClaim(bodyOf(oldText), p.propose.old.claim)) return pendingOn(ctx, p, "the claim no longer occurs exactly once");
     const head = headOf(repo);
     // The newer note must be committed as it is: an accept commits only its
     // own change, and an uncommitted edit there is someone else's work.
-    if (blobOfFile(repo, newRel) !== blobAt(repo, head, newRel)) {
+    if (!cap && blobOfFile(repo, newRel) !== blobAt(repo, head, newRel)) {
       return { status: "deferred", reason: "the newer note has uncommitted changes; the accept waits for them to be committed" };
     }
 
@@ -260,9 +283,19 @@ export async function accept(ctx: Ctx, proposalId: string): Promise<AcceptResult
       expectedParent: head,
     });
 
-    // Commit: the frontmatter edge and the ledger, as one unit.
+    // Commit: the frontmatter edge and the ledger, as one unit. A capture is
+    // written now, as a source note beside the older one plus the excerpt the
+    // decision rests on, never the whole capture.
     const abs = join(ctx.vault, newRel);
-    const text = readFileSync(abs, "utf-8");
+    let rawRel: string | null = null;
+    if (cap) {
+      rawRel = rawRelFor(newRel);
+      const art = { ref: `capture:${cap.hash}`, hash: `sha256:${cap.hash}`, text: cap.text, fetchedAt: cap.capturedAt };
+      const query = [p.propose.old.claim, p.decision?.because ?? "", ...(p.reviews[0]?.quotesNew ?? [])].join(" ");
+      mkdirSync(dirname(join(ctx.vault, rawRel)), { recursive: true });
+      writeFileSync(join(ctx.vault, rawRel), rawText(cap, passages(art, query, 3)));
+    }
+    const text = cap ? captureNote(cap, rawRel!) : readFileSync(abs, "utf-8");
     let next: string;
     try {
       next = insertEdge(text, edge.relation, p.propose.old.title, edge.rel);
@@ -270,12 +303,13 @@ export async function accept(ctx: Ctx, proposalId: string): Promise<AcceptResult
       append(ctx.vault, p.shard, ctx.actor, { kind: "accept-failed", accept: acceptEv.id, reason: `frontmatter: ${String((e as Error).message)}` });
       return { status: "pending", reason: "the newer note's frontmatter could not take the edge" };
     }
-    const before = blobOfFile(repo, newRel, true);
+    const before = cap ? null : blobOfFile(repo, newRel, true);
     writeFileSync(abs, next);
     const after = blobOfFile(repo, newRel, true);
     const unit = `rev-${acceptEv.id}`;
     const who = { actor: ctx.actor.type, session: ctx.actor.session };
     recordTouch(ctx.vault, unit, who, newRel, before, after, repo);
+    if (rawRel) recordTouch(ctx.vault, unit, who, rawRel, null, blobOfFile(repo, rawRel, true), repo);
     recordAppendOnly(ctx.vault, unit, who, [...new Set([ledgerRel(p.shard, ctx.actor.session || "cli"), ...ledgerFiles(ctx.vault, p.shard)])], repo);
     const res = commitUnit(ctx.vault, unit, {
       message: `commonplace revision: accept ${acceptEv.id}`,
@@ -284,7 +318,11 @@ export async function accept(ctx: Ctx, proposalId: string): Promise<AcceptResult
     // A commit that landed is published even if the lock was lost meanwhile:
     // rolling the file back would leave the worktree undoing a commit on the branch.
     if (res.status !== "committed") {
-      if (blobOfFile(repo, newRel) === after) writeFileSync(abs, text); // take our uncommitted edit back out
+      if (cap) {
+        // Nothing of a capture stays in the vault unless its accept landed.
+        rmSync(abs, { force: true });
+        if (rawRel) rmSync(join(ctx.vault, rawRel), { force: true });
+      } else if (blobOfFile(repo, newRel) === after) writeFileSync(abs, text); // take our uncommitted edit back out
       const reason = res.status === "conflict" ? res.conflicts.map((c) => c.reason).join("; ") : res.status;
       // Retryable: the branch moved or a path was busy. The proposal returns to
       // "accept" and is tried again (after DEFER_MS, or once HEAD moves).

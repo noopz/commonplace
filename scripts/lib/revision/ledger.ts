@@ -56,6 +56,12 @@ export type RevEvent = Base &
         origin: "write-trigger" | "impact-checker" | "owner" | "external" | "agent";
         /** The proposer's rationale: withheld from reviewers until they commit. */
         rationale?: string;
+        /**
+         * The newer side is a read capture, not yet a note: `new.rel` is where
+         * the note will be written if the proposal is accepted, `new.rev` the
+         * capture's hash. `allowed` limits the relation the edge may carry.
+         */
+        capture?: { hash: string; class: "owner" | "connector" | "web"; source: string; allowed: RevisionRelation[] };
       }
     | ({ kind: "review" } & VerdictFields)
     | ({ kind: "escalate" } & VerdictFields)
@@ -103,6 +109,8 @@ export type RevEvent = Base &
         reads: Array<{ rel: string; rev: string }>;
         /** Overflow: (written, older) pairs already detected as changed, still to propose. */
         pairs?: Array<{ written: string; old: string; why: string }>;
+        /** A read capture: the notes in this ledger's scope it may bear on (the gate's pool). */
+        capture?: { hash: string; pool: string[] };
         origin: string;
         unit?: string;
       }

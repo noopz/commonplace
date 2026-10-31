@@ -49,7 +49,9 @@ connection pass, default on), `vaultLinks`
 a fork per pasted link Claude fetched), `primeContext` (default **off** until `eval:prime`
 passes its gate on the user's vault), `vaultRevision` (default on: trigger
 jobs, the review chain, accepts and their commits; off, nothing new is proposed
-or accepted and `/vault revise undo` still works) and `showBand` (the receipt band; a
+or accepted and `/vault revise undo` still works), `readCapture` (default on
+since `eval:capture` passed: what the session reads becomes a revision input),
+`dailyBudgetUSD` and `showBand` (the receipt band; a
 paused breaker and the cards still show when off). Keep the menu this short:
 a feature that needs a switch to be tolerable usually needs cutting instead.
 
@@ -321,7 +323,7 @@ judge replies the person never saw.
 
 **`hook-log.jsonl` stage vocabulary** (beyond the connection pass's own):
 `tool:vault_*`, `index:patch|sweep|build|built`, `guard:*`, `scope:proposed`,
-`skill:delivered`, `unit:command`, `revision:*`, `prime:sync|skip-cold|appended|judged-no|unanswered|late-drop|no-turn|error`, `budget:spend|skip`,
+`skill:delivered`, `unit:command`, `revision:*`, `prime:sync|skip-cold|appended|judged-no|unanswered|late-drop|no-turn|error`, `budget:spend|skip`, `capture:gate|none|error` (counts only),
 `skip:segment-budget`, `connect:appended|followed`,
 `triage:verdict|not-fetched|unanswered|ingest|later|skip|read|error`, `cite:check`
 (counts only), `revision:ensure|enqueue|trigger|detect|audit|proposed|propose-none|pool-empty|skip|written-truncated|proposal-cap|review|verify|escalate|wording|accept|steps|stuck|undo|waiting|commit-waiting|error`. A private note's path is never logged.
@@ -479,6 +481,28 @@ the **summary** (concepts and MOCs, revised with receipts).
   picked up, then at most every 5 min and after every successful unit commit) claims jobs, runs `runTrigger` (pool: reads + graph neighbours +
   a search, same-scope source notes only, ≤12; haiku detects, seeing each candidate's summary plus the body lines nearest the new note (`claimExcerpt`), 10% of "nothing
   changed" re-asked of sonnet; sonnet quotes the exact claim), then `runSteps`.
+- **Read capture** (`readCapture`; `scripts/lib/revision/capture.ts`,
+  `hooks/lib/revision/capture-gate.ts`, `runCapture`): what the session READ
+  outside the vault is captured by code at read time, never from the model's
+  account of it: a WebFetch'd page is re-fetched by `revise capture` (not
+  WebFetch's summary), an MCP connector result (not ours, not a browser) is
+  taken as it came, and a typed prompt ≥120 chars is the owner's word (over
+  1500 chars or with a code fence it is treated as pasted, class `web`).
+  Assistant text is never captured. Captures live in `.wiki/revision/captures/`
+  (unversioned, deduped by hash, pruned after 30 days by `revise ensure` unless
+  a live proposal or job rests on one). A free gate searches the loaded index
+  chunk by chunk (`capturePool`, prime's linear thresholds) and only a clear
+  match becomes an `external-read` job (`job-queued.capture`), one per shard;
+  connector text pools private notes only and `propose` refuses it against a
+  public note. The proposal's newer side is `capture:<hash>`; the reducer
+  limits the relation: the owner may decide any, a page or connector only
+  `contests`/`withdrawsSupport` unless it is the older note's own URL
+  (anything else is recorded as `contests`). Nothing is written until the
+  accept, which writes a `type: source` note beside the older one (same
+  scope) plus the `raw/` excerpt the decision rests on, and commits both with
+  the edge. Measured by `eval:capture` (invented gold in `evals/capture/gold.ts`,
+  plus `$VAULT/.wiki/evals/capture-gold.jsonl`): precision ≥ 80%, false change
+  ≤ 10% over ≥ 15 traps, recall ≥ 50%, the limit never broken.
 - **Artifacts** (`scripts/lib/revision/artifact.ts`): a note's captured
   source is a link into any `raw/` folder (`![[raw/…]]`, `[[Meta/raw/…]]`), an
   `**Original PDF:**` line (a bare file name is looked up in the `raw/`
@@ -599,6 +623,7 @@ All commands auto-discover the vault via cwd (`.obsidian/` or `.wiki/` marker) o
 - `commonplace session-check` — The one shell hook (SessionStart): module watchdog
 - `commonplace synthetic --scale N --out <dir>` / `commonplace eval:scale` — Synthetic vaults and the scale benchmark
 - `commonplace test:ui` — Module UI tests under `claude plugin test` (terminal + desktop); in this repo run `npm run test:ui`, because `commonplace` on PATH is the INSTALLED plugin's copy and tests that one
+- `commonplace eval:capture [--repeat N] [--only <id>]` — Read capture's precision gate: detect + review + the relation limit on invented traps and real changes
 - `commonplace eval:judge [--prime|--used] [--repeat N]` — The judge alone on stored (answer, note) pairs
 - `commonplace eval:connection [--plugin-dir .]` — The whole connection pass in live `claude -p` sessions
 - `commonplace eval:prime [--repeat 3] [--init]` — Prime's gate (live `claude -p` sessions)
@@ -620,7 +645,7 @@ All commands auto-discover the vault via cwd (`.obsidian/` or `.wiki/` marker) o
 - `commonplace freshen --clear <relative-path>` — Clear stale flag after re-ingesting a note
 - `commonplace abstract [--dry-run] [--json]` — Backfill `abstraction:` frontmatter (deterministic derivation from Summary/definition text) across source + concept notes; on completion sets the vault's `abstractions: true` adoption flag (switches `isStub` to also key on missing abstractions and makes validation require the field). Run `commonplace index` afterwards.
 - `commonplace commit --message "<what>" [--unit <id>] | --list [--json]` — Commit this agent's unit of work (the files it wrote this unit, nothing else); the unit id comes from `COMMONPLACE_UNIT`, which the module injects
-- `commonplace revise status | waiting | log [--note <ref>] | propose --old <ref> --new <ref> --claim "<exact quote>" [--rationale …] [--input <ref>]… | checked --note <rel> --event <id>` — Vault revision. The module alone runs `ensure|next|record|accept|job-enqueue|job-next|job-done|job-failed|projection`; the person runs `revert --event <id|last>`, `pause|resume`, `commit-waiting` (as `/vault revise …`)
+- `commonplace revise status | waiting | log [--note <ref>] | propose --old <ref> --new <ref> --claim "<exact quote>" [--rationale …] [--input <ref>]… | checked --note <rel> --event <id>` — Vault revision. The module alone runs `ensure|next|record|accept|capture|job-enqueue|job-next|job-done|job-failed|projection`; the person runs `revert --event <id|last>`, `pause|resume`, `commit-waiting` (as `/vault revise …`)
 - `commonplace log --entry "<text>"` — Append an entry to `.wiki/log.md` (use instead of printf/bash redirection)
 - `commonplace supersede --scan --old <name> [--new <name>] [--scope <path>] [--json]` — Find + classify prose mentions of a soon-to-be-retired entity (buckets: historical, comparison, already-retired, live, live-in-code, needs-review)
 - `commonplace supersede --retire --old <name> --new <name> --reason "..." [--date YYYY-MM-DD] [--dry-run]` — Rename old to "(Retired) <title>", inject warning callout, add `retired` tag, update wikilinks across vault, write breadcrumb to `.wiki/supersessions.jsonl`

@@ -336,8 +336,13 @@ export function reduce(events: ReadonlyArray<RevEvent & { shard: string }>): Red
 
 /** The edge an accept of `p` would write. */
 export function edgeFor(p: ProposalState): { key: string; relation: RevisionRelation; rel: EdgeRel } | null {
-  const d = p.decision;
-  if (!d) return null;
+  const raw = p.decision;
+  if (!raw) return null;
+  // A read capture may carry only the relations its source allows: a single
+  // page or connector result that a reviewer read as superseding is recorded
+  // as contesting, without the conditions or dates that relation implied.
+  const limited = p.propose.capture && !p.propose.capture.allowed.includes(raw.relation);
+  const d = limited ? { ...raw, relation: "contests" as const, within: undefined, kindOf: undefined, effective: undefined } : raw;
   const rel: EdgeRel = {
     claim: norm(p.propose.old.claim),
     ...(p.because?.text || d.because ? { because: norm(p.because?.text || d.because || "") } : {}),

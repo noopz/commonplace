@@ -16,7 +16,7 @@
 
 import { createHash } from "crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from "fs";
-import { join, resolve } from "path";
+import { dirname, join, resolve } from "path";
 import { tmpdir } from "os";
 import { parseFrontmatter } from "../../../hooks/lib/index/yaml.ts";
 
@@ -30,16 +30,20 @@ const ORIGINAL = /\*\*Original(?: PDF| file| source)?:?\*\*:?\s*(?:!?\[\[([^\]|#
 const ARXIV_ID = /(?:arxiv\.org\/(?:abs|pdf)\/|arXiv:\s*)?(\d{4}\.\d{4,5})(v\d+)?/i;
 
 /** Where a note's source can be read, best first: a captured file, then an arXiv PDF, then a URL. */
-export function sourceRefs(vault: string, noteText: string): ArtifactRef[] {
+export function sourceRefs(vault: string, noteText: string, noteRel?: string): ArtifactRef[] {
   const out: ArtifactRef[] = [];
   const add = (r: ArtifactRef) => {
     if (!out.some((x) => x.ref === r.ref)) out.push(r);
   };
   const { data, body } = parseFrontmatter(noteText);
   const root = resolve(vault) + "/";
+  // A link is tried from the vault root, then (as Obsidian would find it) from the note's own folder.
+  const here = noteRel ? dirname(noteRel) : ".";
   const addFile = (rel: string) => {
-    const abs = resolve(vault, rel);
-    if (abs.startsWith(root) && existsSync(abs)) add({ kind: "file", ref: abs });
+    for (const base of here === "." ? [vault] : [vault, join(vault, here)]) {
+      const abs = resolve(base, rel);
+      if (abs.startsWith(root) && existsSync(abs)) return add({ kind: "file", ref: abs });
+    }
   };
   for (const m of body.matchAll(RAW_LINK)) addFile(m[1]);
   for (const m of body.matchAll(ORIGINAL)) {

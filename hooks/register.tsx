@@ -111,7 +111,8 @@ import { pastedUrls, sameUrl, triagePrompt, parseTriage, triageLine, addLater, f
 import { Witness, renderWitness } from "./lib/surfaces/witness.ts";
 import { EXPLAIN_PAGES, liveSvg, liveBars, type LiveCounts } from "./lib/explain/diagrams.ts";
 import { quarantinedFolders, domainIdFor, type QuarantinedFolder } from "./lib/core/quarantine.ts";
-import { runTrigger, type TriggerPorts, type Pair } from "./lib/revision/trigger.ts";
+import { runCapture, runTrigger, type TriggerPorts, type Pair } from "./lib/revision/trigger.ts";
+import { captureFraming, capturePool } from "./lib/revision/capture-gate.ts";
 import { runSteps, type RunnerPorts } from "./lib/revision/runner.ts";
 import {
   DEFAULT_DAILY_USD,
@@ -121,6 +122,7 @@ import {
   budgetLine,
   canSpend,
   costOf,
+  dayOf,
   limitOf,
   parsePricing,
   raise as raiseBudgetState,
@@ -680,8 +682,16 @@ const triggerPorts = ($: EngineInterface, vp: string): TriggerPorts => ({
     await spend($, vp, req.model, r.usage, "revision:trigger");
     return r.isAnswered ? r.text : null;
   },
+  capture: async (hash) => {
+    try {
+      const c = JSON.parse(String(await $.fs.read(`${vp}/.wiki/revision/captures/${hash.replace(/[^a-f0-9]/g, "")}.json`)));
+      return { title: String(c.title ?? "Captured source"), text: captureFraming({ class: String(c.class), source: String(c.source ?? ""), asOf: c.asOf, text: String(c.text ?? "") }) };
+    } catch {
+      return null;
+    }
+  },
   propose: async (p) => {
-    const r = await revCli($, vp, ["propose"], { ...p, origin: "write-trigger" });
+    const r = await revCli($, vp, ["propose"], { ...p, origin: p.new.startsWith("capture:") ? "external" : "write-trigger" });
     return { status: String(r?.status ?? "error"), ...(r?.reason ? { reason: String(r.reason) } : {}) };
   },
   log: (stage, data) => traceTo($, vp, stage, data),
@@ -717,6 +727,59 @@ const runnerPorts = ($: EngineInterface, vp: string): RunnerPorts => ({
 });
 
 /**
+ * Read capture (docs/revision-design.md, "Read capture"): what the session
+ * READ outside the vault becomes an input to revision, recorded by code at
+ * read time. A page is re-fetched by the CLI (never WebFetch's summary), a
+ * connector result and the person's own words are passed as they came. The
+ * free gate (capture-gate.ts) searches the loaded index chunk by chunk; only a
+ * capture that clearly matches notes becomes a job, and the job runs under the
+ * daily budget like any other. Connector text pools private notes only. The
+ * assistant's own text is never captured.
+ */
+const captureRead = async ($: EngineInterface, c: { class: "owner" | "connector" | "web"; source: string; text?: string; asOf?: string }) => {
+  if (!features.revision || !features.capture) return;
+  const vault = await pickVault($);
+  if (!vault) return;
+  const vp = vault.path;
+  try {
+    const got = await revCli($, vp, ["capture"], { class: c.class, source: c.source, ...(c.text ? { text: c.text } : {}), ...(c.asOf ? { asOf: c.asOf } : {}) });
+    const hash = typeof got?.hash === "string" ? got.hash : "";
+    if (!hash) {
+      traceTo($, vp, "capture:none", { class: c.class });
+      return;
+    }
+    const idx = await getIndex($, vp, vault.domains);
+    const view = idx.state === "ready" ? idx.view : null;
+    if (!view) return;
+    const privateOnly = c.class === "connector";
+    const ids = capturePool(String(got?.text ?? ""), (q) =>
+      view.search(q, { limit: 3, rank: RANK_LINEAR, filter: (id) => view.visible(id) && (!privateOnly || view.shard(id) !== "main") }),
+    );
+    const pool = ids.map((id) => view.relOfId(id)).filter((r): r is string => !!r);
+    // Counts only: a connector's source and a private note's path are never logged.
+    traceTo($, vp, "capture:gate", { class: c.class, pool: pool.length });
+    if (pool.length === 0) return;
+    await revCli($, vp, ["job-enqueue"], { capture: { hash, pool }, origin: "external-read" });
+    processRevision($, vp);
+  } catch (err) {
+    traceTo($, vp, "capture:error", { err: String(err).slice(0, 80) });
+  }
+};
+
+/** The text of a tool result, whatever shape the tool answered in: its strings, joined. */
+const resultText = (r: unknown, depth = 0): string => {
+  if (depth > 6 || r === null || r === undefined) return "";
+  if (typeof r === "string") return r;
+  if (Array.isArray(r)) return r.map((x) => resultText(x, depth + 1)).filter(Boolean).join("\n");
+  if (typeof r === "object") {
+    const o = r as Record<string, unknown>;
+    if (typeof o.text === "string") return o.text;
+    return Object.values(o).map((x) => resultText(x, depth + 1)).filter(Boolean).join("\n");
+  }
+  return "";
+};
+
+/**
  * Drain the vault's durable job queue, then advance pending revisions.
  * Single-flight per vault; never awaited by a hook. Jobs left by a session
  * that died are claimed here once their lease runs out.
@@ -737,18 +800,23 @@ const processRevision = ($: EngineInterface, vp: string) => {
       // Over budget: the jobs stay queued for tomorrow (or a raise).
       if (!(await budgetOpen($, vp))) break;
       const claimed = await revCli($, vp, ["job-next"]);
-      const job = claimed?.job as { job: string; written: string[]; reads: string[]; pairs?: Pair[]; attempt: number } | undefined;
+      const job = claimed?.job as { job: string; written: string[]; reads: string[]; pairs?: Pair[]; capture?: { hash: string; pool: string[] }; attempt: number } | undefined;
       if (!job) break;
       let res: Awaited<ReturnType<typeof runTrigger>>;
       try {
-        res = await runTrigger(triggerPorts($, vp), { written: job.written, reads: job.reads, ...(job.pairs ? { pairs: job.pairs } : {}) });
+        res = job.capture
+          ? await runCapture(triggerPorts($, vp), { capture: job.capture })
+          : await runTrigger(triggerPorts($, vp), { written: job.written, reads: job.reads, ...(job.pairs ? { pairs: job.pairs } : {}) });
       } catch (err) {
         await revCli($, vp, ["job-failed", "--job", job.job, "--reason", String(err).slice(0, 120)]);
         continue;
       }
       const { overflow, ...counts } = res;
       traceTo($, vp, "revision:trigger", { ...counts, overflow: overflow.length, attempt: job.attempt });
-      if (overflow.length) {
+      if (overflow.length && job.capture) {
+        // A capture's changes past the cap: the same capture, against the rest.
+        await revCli($, vp, ["job-enqueue"], { capture: { hash: job.capture.hash, pool: overflow.map((o) => o.old) }, origin: "external-read" });
+      } else if (overflow.length) {
         // Past the per-job cap: queued as a job of its own, never dropped.
         await revCli($, vp, ["job-enqueue"], { written: [...new Set(overflow.map((o) => o.written))], pairs: overflow, origin: "overflow" });
       }
@@ -1271,7 +1339,9 @@ const pickVault = async ($: EngineInterface, ref?: string): Promise<GuardVault |
           v.label?.toLowerCase() === r ||
           (v.aliases ?? []).some((a) => a.toLowerCase() === r) ||
           v.path.toLowerCase() === r.replace(/\/+$/, ""),
-      ) ?? null
+      ) ??
+      // The unregistered vault this session found by its cwd, named by path.
+      ((await ensureVaultPath($, await $.session.cwd())) === String(ref).trim() ? { path: String(ref).trim(), domains: {} } : null)
     );
   }
   const vp = await ensureVaultPath($, await $.session.cwd());
@@ -2033,9 +2103,11 @@ type Features = {
   triage: boolean;
   /** Vault revision: trigger jobs, the review chain, accepts and their commits. */
   revision: boolean;
+  /** Read capture: what the session reads outside the vault becomes a revision input. */
+  capture: boolean;
 };
 
-let features: Features = { ambient: true, prime: false, links: true, triage: false, revision: true };
+let features: Features = { ambient: true, prime: false, links: true, triage: false, revision: true, capture: true };
 
 /** What `/vault witness` shows: every hidden addition, word for word. */
 const witness = new Witness();
@@ -2251,6 +2323,7 @@ export const register: Register = (on, options) => {
     links: options?.vaultLinks !== false,
     triage: options?.linkTriage === true,
     revision: options?.vaultRevision !== false,
+    capture: options?.readCapture !== false,
   };
   budgetSetting = typeof options?.dailyBudgetUSD === "number" && options.dailyBudgetUSD > 0 ? options.dailyBudgetUSD : DEFAULT_DAILY_USD;
 
@@ -2735,6 +2808,22 @@ export const register: Register = (on, options) => {
       const code = Number((r as { result?: { code?: unknown } }).result?.code ?? 0);
       const url = p && code >= 200 && code < 300 ? p.urls.find((u) => sameUrl(u, e.url)) : undefined;
       if (p && url && !p.fetched.includes(url)) pendingLinks = { ...p, fetched: [...p.fetched, url] };
+      if (code >= 200 && code < 300 && typeof e.url === "string") void captureRead(_$, { class: "web", source: e.url });
+    } catch {}
+    return r;
+  });
+
+  // A connector's result (Slack, Docs, Confluence, any MCP server but ours and
+  // the browser), captured as it came. Too short to rest anything on is dropped.
+  on("tool.call", { tool: /^mcp__(?!commonplace__|plugin_playwright|claude-in-chrome|computer-use|Claude_Browser)/ }, async ($, e, next) => {
+    const r = await next(e);
+    try {
+      const text = resultText((r as { result?: unknown }).result);
+      if (text.length >= 300) {
+        const input = (e as { input?: Record<string, unknown> }).input ?? {};
+        const url = Object.values(input).find((v) => typeof v === "string" && /^https?:\/\//.test(v)) as string | undefined;
+        void captureRead($, { class: "connector", source: url ?? String(e.tool), text });
+      }
     } catch {}
     return r;
   });
@@ -3269,6 +3358,17 @@ export const register: Register = (on, options) => {
         }
       }
     } catch {}
+    // Read capture: the person's own typed words, the strongest input revision
+    // has. A slash command or a short reply carries no claim worth checking. A
+    // long prompt or one with a code block is mostly something pasted, not the
+    // person's own claim, so it may only contest, like a page.
+    if (features.capture && !e.turnId && PRIME_ORIGINS.has(e.origin.kind)) {
+      const t = e.text.trim();
+      if (t.length >= 120 && !t.startsWith("/")) {
+        const pasted = t.length > 1500 || t.includes("```");
+        void captureRead($, pasted ? { class: "web", source: "pasted in conversation", text: t } : { class: "owner", source: "conversation", text: t, asOf: dayOf(new Date()) });
+      }
+    }
     // PRIME, sync lane (§8.1): postings only, no model call, prompt untouched.
     // Link triage: remember what the person pasted; the turn it starts ends with the card.
     if (features.triage && !e.turnId && PRIME_ORIGINS.has(e.origin.kind)) {
