@@ -37,7 +37,7 @@ export type EnqueueInput = {
   reads?: Array<string | { rel: string; rev?: string }>;
   pairs?: Array<{ written: string; old: string; why: string }>;
   /** A read capture and the notes the gate found it may bear on. */
-  capture?: { hash: string; pool: string[] };
+  capture?: { hash: string; pool: string[]; pairs?: Array<{ written: string; old: string; why: string }> };
   origin?: string;
   unit?: string;
 };
@@ -149,7 +149,7 @@ export async function enqueue(ctx: Ctx, input: EnqueueInput): Promise<EnqueueRes
  */
 function enqueueCapture(
   ctx: Ctx,
-  cap: { hash: string; pool: string[] },
+  cap: { hash: string; pool: string[]; pairs?: Array<{ written: string; old: string; why: string }> },
   origin: string,
   shardOf: (rel: string) => string | null,
   res: EnqueueResult,
@@ -164,13 +164,18 @@ function enqueueCapture(
   if (groups.size === 0) res.skipped.push({ why: "no visible note in the pool" });
   const red = state(ctx);
   for (const [shard, pool] of groups) {
-    const key = createHash("sha256").update(`capture:${cap.hash}\n${pool.sort().join("\n")}`).digest("hex").slice(0, 24);
+    // An overflow carries the pairs the detector already found, so it proposes them rather than detecting again.
+    const pairs = cap.pairs?.filter((p) => pool.includes(p.old));
+    const key = createHash("sha256")
+      .update(`capture:${cap.hash}\n${pool.sort().join("\n")}${pairs ? "\npairs" : ""}`)
+      .digest("hex")
+      .slice(0, 24);
     if ([...red.jobs.values()].some((j) => j.queued.key === key && j.status !== "abandoned")) {
       res.duplicate++;
       continue;
     }
     const job = newId();
-    append(ctx.vault, shard, ctx.actor, { kind: "job-queued", job, key, written: [], reads: [], capture: { hash: cap.hash, pool }, origin });
+    append(ctx.vault, shard, ctx.actor, { kind: "job-queued", job, key, written: [], reads: [], capture: { hash: cap.hash, pool, ...(pairs?.length ? { pairs } : {}) }, origin });
     res.queued.push(job);
   }
   return res;
@@ -181,7 +186,7 @@ export type ClaimedJob = {
   written: string[];
   reads: string[];
   pairs?: Array<{ written: string; old: string; why: string }>;
-  capture?: { hash: string; pool: string[] };
+  capture?: { hash: string; pool: string[]; pairs?: Array<{ written: string; old: string; why: string }> };
   attempt: number;
 };
 

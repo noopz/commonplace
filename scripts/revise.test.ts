@@ -372,6 +372,8 @@ test("read capture: the owner's words become a note beside the older one only wh
   try {
     revise(root, ["ensure"]);
     assert.equal(revise(root, ["capture"], { class: "owner", source: "conversation", text: "too short" }).none, true);
+    const dry = revise(root, ["capture"], { class: "owner", source: "conversation", text: SAID, dry: true });
+    assert.ok(dry.hash && !existsSync(join(root, ".wiki/revision/captures", `${dry.hash}.json`)), "a dry capture is not stored");
     const c = revise(root, ["capture"], { class: "owner", source: "conversation", text: SAID, asOf: "2026-10-01" });
     assert.ok(c.hash, JSON.stringify(c));
     assert.equal(revise(root, ["capture"], { class: "owner", source: "conversation", text: SAID }).hash, c.hash, "the same text is one capture");
@@ -399,6 +401,13 @@ test("read capture: the owner's words become a note beside the older one only wh
     assert.match(text, /as_of: 2026-10-01/);
     assert.match(readFileSync(join(root, "Research/Alpha/raw", note.split("/").pop()!), "utf-8"), /six hours/);
     assert.equal(readFileSync(join(root, OLD), "utf-8").includes("supersedes"), false, "the older note is never edited");
+
+    // Undo takes the captured note and its excerpt back out: they existed only for this edge.
+    const rv = revise(root, ["revert", "--event", "last"]);
+    assert.equal(rv.status, "reverted", JSON.stringify(rv));
+    assert.ok(rv.commit, JSON.stringify(rv));
+    assert.equal(existsSync(join(root, note)), false);
+    assert.equal(existsSync(join(root, "Research/Alpha/raw", note.split("/").pop()!)), false);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

@@ -257,16 +257,21 @@ export async function accept(ctx: Ctx, proposalId: string): Promise<AcceptResult
     const newRel = p.propose.new.rel;
     if (!sameRev(ctx.vault, oldRel, p.propose.old.rev)) return pendingOn(ctx, p, "the older note changed after review");
     const cap = p.propose.capture ? readCapture(ctx.vault, p.propose.capture.hash) : null;
+    // A capture bearing on two notes in one folder becomes one note: the second accept adds its edge to it.
+    let reuse: string | null = null;
     if (p.propose.capture) {
       if (!cap) return pendingOn(ctx, p, "the capture is gone");
-      if (existsSync(join(ctx.vault, newRel))) return pendingOn(ctx, p, "a file already exists where the captured note would go");
+      if (existsSync(join(ctx.vault, newRel))) {
+        reuse = readFileSync(join(ctx.vault, newRel), "utf-8");
+        if (String(parseFrontmatter(reuse).data.capture ?? "") !== cap.hash) return pendingOn(ctx, p, "a file already exists where the captured note would go");
+      } else if (existsSync(join(ctx.vault, rawRelFor(newRel)))) return pendingOn(ctx, p, "a file already exists where the captured note's excerpt would go");
     } else if (!sameRev(ctx.vault, newRel, p.propose.new.rev)) return pendingOn(ctx, p, "the newer note changed after review");
     const oldText = readFileSync(join(ctx.vault, oldRel), "utf-8");
     if ("error" in locateClaim(bodyOf(oldText), p.propose.old.claim)) return pendingOn(ctx, p, "the claim no longer occurs exactly once");
     const head = headOf(repo);
     // The newer note must be committed as it is: an accept commits only its
     // own change, and an uncommitted edit there is someone else's work.
-    if (!cap && blobOfFile(repo, newRel) !== blobAt(repo, head, newRel)) {
+    if ((!cap || reuse !== null) && blobOfFile(repo, newRel) !== blobAt(repo, head, newRel)) {
       return { status: "deferred", reason: "the newer note has uncommitted changes; the accept waits for them to be committed" };
     }
 
@@ -288,14 +293,14 @@ export async function accept(ctx: Ctx, proposalId: string): Promise<AcceptResult
     // decision rests on, never the whole capture.
     const abs = join(ctx.vault, newRel);
     let rawRel: string | null = null;
-    if (cap) {
+    if (cap && reuse === null) {
       rawRel = rawRelFor(newRel);
       const art = { ref: `capture:${cap.hash}`, hash: `sha256:${cap.hash}`, text: cap.text, fetchedAt: cap.capturedAt };
       const query = [p.propose.old.claim, p.decision?.because ?? "", ...(p.reviews[0]?.quotesNew ?? [])].join(" ");
       mkdirSync(dirname(join(ctx.vault, rawRel)), { recursive: true });
       writeFileSync(join(ctx.vault, rawRel), rawText(cap, passages(art, query, 3)));
     }
-    const text = cap ? captureNote(cap, rawRel!) : readFileSync(abs, "utf-8");
+    const text = reuse ?? (cap ? captureNote(cap, rawRel!) : readFileSync(abs, "utf-8"));
     let next: string;
     try {
       next = insertEdge(text, edge.relation, p.propose.old.title, edge.rel);
@@ -303,7 +308,7 @@ export async function accept(ctx: Ctx, proposalId: string): Promise<AcceptResult
       append(ctx.vault, p.shard, ctx.actor, { kind: "accept-failed", accept: acceptEv.id, reason: `frontmatter: ${String((e as Error).message)}` });
       return { status: "pending", reason: "the newer note's frontmatter could not take the edge" };
     }
-    const before = cap ? null : blobOfFile(repo, newRel, true);
+    const before = cap && reuse === null ? null : blobOfFile(repo, newRel, true);
     writeFileSync(abs, next);
     const after = blobOfFile(repo, newRel, true);
     const unit = `rev-${acceptEv.id}`;
@@ -318,7 +323,7 @@ export async function accept(ctx: Ctx, proposalId: string): Promise<AcceptResult
     // A commit that landed is published even if the lock was lost meanwhile:
     // rolling the file back would leave the worktree undoing a commit on the branch.
     if (res.status !== "committed") {
-      if (cap) {
+      if (cap && reuse === null) {
         // Nothing of a capture stays in the vault unless its accept landed.
         rmSync(abs, { force: true });
         if (rawRel) rmSync(join(ctx.vault, rawRel), { force: true });
@@ -394,12 +399,21 @@ export async function revert(ctx: Ctx, acceptId: string, reason: string): Promis
       }
       if (next !== null && blobOfFile(repo, a.from) === blobAt(repo, headOf(repo), a.from)) {
         append(ctx.vault, p.shard, ctx.actor, { id: revertId, kind: "revert", accept: a.id, reason });
+        // A captured note left with no edge was only ever there for this one: it goes, with its excerpt.
+        const drop = !!p.propose.capture && withoutEdges(next) === next;
+        const rawRel = drop ? rawRelFor(a.from) : null;
+        const rawAbs = rawRel ? join(ctx.vault, rawRel) : null;
+        const rawText0 = rawAbs && existsSync(rawAbs) ? readFileSync(rawAbs, "utf-8") : null;
         const before = blobOfFile(repo, a.from, true);
-        writeFileSync(abs, next);
-        const after = blobOfFile(repo, a.from, true);
+        const rawBefore = rawText0 !== null ? blobOfFile(repo, rawRel!, true) : null;
+        if (drop) rmSync(abs, { force: true });
+        else writeFileSync(abs, next);
+        if (rawText0 !== null) rmSync(rawAbs!, { force: true });
+        const after = drop ? null : blobOfFile(repo, a.from, true);
         const unit = `revert-${revertId}`;
         const who = { actor: ctx.actor.type, session: ctx.actor.session };
         recordTouch(ctx.vault, unit, who, a.from, before, after, repo);
+        if (rawText0 !== null) recordTouch(ctx.vault, unit, who, rawRel!, rawBefore, null, repo);
         recordAppendOnly(ctx.vault, unit, who, [...new Set([ledgerRel(p.shard, ctx.actor.session || "cli"), ...ledgerFiles(ctx.vault, p.shard)])], repo);
         const res = commitUnit(ctx.vault, unit, {
           message: `commonplace revision: revert ${a.id}`,
@@ -407,7 +421,8 @@ export async function revert(ctx: Ctx, acceptId: string, reason: string): Promis
         });
         if (res.status === "committed") commit = res.commit;
         else {
-          if (blobOfFile(repo, a.from) === after) writeFileSync(abs, current);
+          if (drop ? !existsSync(abs) : blobOfFile(repo, a.from) === after) writeFileSync(abs, current);
+          if (rawText0 !== null && !existsSync(rawAbs!)) writeFileSync(rawAbs!, rawText0);
           conflict = res.status === "conflict" ? res.conflicts.map((c) => c.reason).join("; ") : res.status;
         }
       } else if (next !== null) {

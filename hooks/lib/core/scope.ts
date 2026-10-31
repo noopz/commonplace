@@ -173,7 +173,8 @@ export function proposeFromPrompt(
  * the private revision ledgers. Always denied to the model's file tools,
  * whatever is open; they come first in `sealedRoots`.
  */
-export const ARTEFACT_ROOTS = [".wiki/sealed", ".revision/sealed"] as const;
+// Read captures hold connector and typed text: the model has no reason to read them back.
+export const ARTEFACT_ROOTS = [".wiki/sealed", ".revision/sealed", ".wiki/revision/captures"] as const;
 
 export function sealedRoots(domains: DomainMap, vaultPath: string, open: ReadonlySet<string>): string[] {
   const v = strip(vaultPath);

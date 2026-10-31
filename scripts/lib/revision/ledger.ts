@@ -110,7 +110,7 @@ export type RevEvent = Base &
         /** Overflow: (written, older) pairs already detected as changed, still to propose. */
         pairs?: Array<{ written: string; old: string; why: string }>;
         /** A read capture: the notes in this ledger's scope it may bear on (the gate's pool). */
-        capture?: { hash: string; pool: string[] };
+        capture?: { hash: string; pool: string[]; pairs?: Array<{ written: string; old: string; why: string }> };
         origin: string;
         unit?: string;
       }

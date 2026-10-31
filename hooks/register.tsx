@@ -736,13 +736,20 @@ const runnerPorts = ($: EngineInterface, vp: string): RunnerPorts => ({
  * daily budget like any other. Connector text pools private notes only. The
  * assistant's own text is never captured.
  */
-const captureRead = async ($: EngineInterface, c: { class: "owner" | "connector" | "web"; source: string; text?: string; asOf?: string }) => {
+const capturing = new Set<string>();
+const captureRead = async ($: EngineInterface, c: { class: "owner" | "connector" | "web"; source: string; text?: string; asOf?: string }, agentId?: string) => {
   if (!features.revision || !features.capture) return;
+  // commonplace's own agents read in order to write the vault; that is not news to it.
+  if (agentId && (await agentTypeOf($, agentId)).startsWith("commonplace:")) return;
+  // The same read twice at once is one capture, and a burst of reads waits for none.
+  const key = `${c.class}\u0000${c.source}\u0000${c.text?.length ?? 0}`;
+  if (capturing.has(key) || capturing.size >= 3) return;
   const vault = await pickVault($);
   if (!vault) return;
   const vp = vault.path;
+  capturing.add(key);
   try {
-    const got = await revCli($, vp, ["capture"], { class: c.class, source: c.source, ...(c.text ? { text: c.text } : {}), ...(c.asOf ? { asOf: c.asOf } : {}) });
+    const got = await revCli($, vp, ["capture"], { class: c.class, source: c.source, ...(c.text ? { text: c.text } : {}), ...(c.asOf ? { asOf: c.asOf } : {}), dry: true });
     const hash = typeof got?.hash === "string" ? got.hash : "";
     if (!hash) {
       traceTo($, vp, "capture:none", { class: c.class });
@@ -751,7 +758,8 @@ const captureRead = async ($: EngineInterface, c: { class: "owner" | "connector"
     const idx = await getIndex($, vp, vault.domains);
     const view = idx.state === "ready" ? idx.view : null;
     if (!view) return;
-    const privateOnly = c.class === "connector";
+    // The CLI may have made a page private (an intranet host): its class is the one stored.
+    const privateOnly = (got?.class ?? c.class) === "connector";
     const ids = capturePool(String(got?.text ?? ""), (q) =>
       view.search(q, { limit: 3, rank: RANK_LINEAR, filter: (id) => view.visible(id) && (!privateOnly || view.shard(id) !== "main") }),
     );
@@ -759,20 +767,26 @@ const captureRead = async ($: EngineInterface, c: { class: "owner" | "connector"
     // Counts only: a connector's source and a private note's path are never logged.
     traceTo($, vp, "capture:gate", { class: c.class, pool: pool.length });
     if (pool.length === 0) return;
+    // Only now is it stored: the text as read (a page as fetched above, not fetched again).
+    const kept = await revCli($, vp, ["capture"], { class: c.class, source: c.source, text: String(got?.text ?? ""), ...(c.asOf ? { asOf: c.asOf } : {}) });
+    if (kept?.hash !== hash) return;
     await revCli($, vp, ["job-enqueue"], { capture: { hash, pool }, origin: "external-read" });
     processRevision($, vp);
   } catch (err) {
     traceTo($, vp, "capture:error", { err: String(err).slice(0, 80) });
+  } finally {
+    capturing.delete(key);
   }
 };
 
-/** The text of a tool result, whatever shape the tool answered in: its strings, joined. */
+/** The text of a tool result, whatever shape the tool answered in: its strings, joined. An error or an image is no text. */
 const resultText = (r: unknown, depth = 0): string => {
   if (depth > 6 || r === null || r === undefined) return "";
   if (typeof r === "string") return r;
   if (Array.isArray(r)) return r.map((x) => resultText(x, depth + 1)).filter(Boolean).join("\n");
   if (typeof r === "object") {
     const o = r as Record<string, unknown>;
+    if (o.isError === true || o.type === "image" || o.type === "audio" || o.type === "resource_link") return "";
     if (typeof o.text === "string") return o.text;
     return Object.values(o).map((x) => resultText(x, depth + 1)).filter(Boolean).join("\n");
   }
@@ -800,7 +814,7 @@ const processRevision = ($: EngineInterface, vp: string) => {
       // Over budget: the jobs stay queued for tomorrow (or a raise).
       if (!(await budgetOpen($, vp))) break;
       const claimed = await revCli($, vp, ["job-next"]);
-      const job = claimed?.job as { job: string; written: string[]; reads: string[]; pairs?: Pair[]; capture?: { hash: string; pool: string[] }; attempt: number } | undefined;
+      const job = claimed?.job as { job: string; written: string[]; reads: string[]; pairs?: Pair[]; capture?: { hash: string; pool: string[]; pairs?: Pair[] }; attempt: number } | undefined;
       if (!job) break;
       let res: Awaited<ReturnType<typeof runTrigger>>;
       try {
@@ -814,8 +828,8 @@ const processRevision = ($: EngineInterface, vp: string) => {
       const { overflow, ...counts } = res;
       traceTo($, vp, "revision:trigger", { ...counts, overflow: overflow.length, attempt: job.attempt });
       if (overflow.length && job.capture) {
-        // A capture's changes past the cap: the same capture, against the rest.
-        await revCli($, vp, ["job-enqueue"], { capture: { hash: job.capture.hash, pool: overflow.map((o) => o.old) }, origin: "external-read" });
+        // A capture's changes past the cap: proposed by a job of their own, not detected again.
+        await revCli($, vp, ["job-enqueue"], { capture: { hash: job.capture.hash, pool: overflow.map((o) => o.old), pairs: overflow }, origin: "external-read" });
       } else if (overflow.length) {
         // Past the per-job cap: queued as a job of its own, never dropped.
         await revCli($, vp, ["job-enqueue"], { written: [...new Set(overflow.map((o) => o.written))], pairs: overflow, origin: "overflow" });
@@ -951,18 +965,35 @@ const budgetOpen = async ($: EngineInterface, vp?: string): Promise<boolean> => 
 };
 
 /** Record one background call's cost. */
+/** Budget writes run one at a time in this session, so calls finishing together do not lose each other's spend. */
+let budgetQueue: Promise<unknown> = Promise.resolve();
+const budgetWrite = <T,>(fn: () => Promise<T>): Promise<T> => {
+  const r = budgetQueue.then(fn, fn);
+  budgetQueue = r.catch(() => undefined);
+  return r;
+};
+
 const spend = async ($: EngineInterface, vp: string | undefined, model: string, u: Usage | undefined, what: string) => {
   if (!u) return;
   const cost = costOf(model, u, priceTable);
-  const s = addSpend(await budgetNow($), cost);
-  await $.store.set(BUDGET_KEY, s);
+  const s = await budgetWrite(async () => {
+    const next = addSpend(await budgetNow($), cost);
+    await $.store.set(BUDGET_KEY, next);
+    return next;
+  });
   if (vp) traceTo($, vp, "budget:spend", { what, model, usd: Number(cost.toFixed(5)), today: Number(s.spent.toFixed(4)) });
   if (!canSpend(s, budgetSetting)) await budgetNotice($, s);
 };
 
 const budgetNotice = async ($: EngineInterface, s: BudgetState) => {
   if (s.noticed || s.stopped) return;
-  await $.store.set(BUDGET_KEY, { ...s, noticed: true });
+  const first = await budgetWrite(async () => {
+    const cur = await budgetNow($);
+    if (cur.noticed) return false;
+    await $.store.set(BUDGET_KEY, { ...cur, noticed: true });
+    return true;
+  });
+  if (!first) return;
   const limit = limitOf(s, budgetSetting);
   notice(
     $,
@@ -978,8 +1009,11 @@ const budgetNotice = async ($: EngineInterface, s: BudgetState) => {
 };
 
 const raiseBudget = async ($: EngineInterface) => {
-  const s = raiseBudgetState(await budgetNow($), budgetSetting);
-  await $.store.set(BUDGET_KEY, s);
+  const s = await budgetWrite(async () => {
+    const next = raiseBudgetState(await budgetNow($), budgetSetting);
+    await $.store.set(BUDGET_KEY, next);
+    return next;
+  });
   for (const a of vaultActivity) if (a.action?.kind === "budget-raise") a.acted = true;
   bumpPanes($);
   notice($, `budget raised to ${usd(limitOf(s, budgetSetting))} for today`, "Background work resumes now; the limit returns to the setting at midnight.", undefined, { card: false });
@@ -987,7 +1021,7 @@ const raiseBudget = async ($: EngineInterface) => {
 };
 
 const stopBudget = async ($: EngineInterface) => {
-  await $.store.set(BUDGET_KEY, { ...(await budgetNow($)), stopped: true });
+  await budgetWrite(async () => $.store.set(BUDGET_KEY, { ...(await budgetNow($)), stopped: true }));
   for (const a of vaultActivity) if (a.action?.kind === "budget-raise") a.acted = true;
   bumpPanes($);
 };
@@ -2325,7 +2359,7 @@ export const register: Register = (on, options) => {
     revision: options?.vaultRevision !== false,
     capture: options?.readCapture !== false,
   };
-  budgetSetting = typeof options?.dailyBudgetUSD === "number" && options.dailyBudgetUSD > 0 ? options.dailyBudgetUSD : DEFAULT_DAILY_USD;
+  budgetSetting = typeof options?.dailyBudgetUSD === "number" && options.dailyBudgetUSD >= 0 ? options.dailyBudgetUSD : DEFAULT_DAILY_USD;
 
   /**
    * Register the vault tools so they are listed by turn one.
@@ -2808,21 +2842,22 @@ export const register: Register = (on, options) => {
       const code = Number((r as { result?: { code?: unknown } }).result?.code ?? 0);
       const url = p && code >= 200 && code < 300 ? p.urls.find((u) => sameUrl(u, e.url)) : undefined;
       if (p && url && !p.fetched.includes(url)) pendingLinks = { ...p, fetched: [...p.fetched, url] };
-      if (code >= 200 && code < 300 && typeof e.url === "string") void captureRead(_$, { class: "web", source: e.url });
+      if (code >= 200 && code < 300 && typeof e.url === "string") void captureRead(_$, { class: "web", source: e.url }, e.agentId);
     } catch {}
     return r;
   });
 
   // A connector's result (Slack, Docs, Confluence, any MCP server but ours and
-  // the browser), captured as it came. Too short to rest anything on is dropped.
-  on("tool.call", { tool: /^mcp__(?!commonplace__|plugin_playwright|claude-in-chrome|computer-use|Claude_Browser)/ }, async ($, e, next) => {
+  // the browser, nor Claude Docs, which reads back what the model wrote), captured
+  // as it came. Too short to rest anything on is dropped.
+  on("tool.call", { tool: /^mcp__(?!commonplace__|plugin_playwright|claude-in-chrome|computer-use|Claude_Browser|remote-devices__|claude_ai_Claude_Docs__)/ }, async ($, e, next) => {
     const r = await next(e);
     try {
       const text = resultText((r as { result?: unknown }).result);
       if (text.length >= 300) {
         const input = (e as { input?: Record<string, unknown> }).input ?? {};
         const url = Object.values(input).find((v) => typeof v === "string" && /^https?:\/\//.test(v)) as string | undefined;
-        void captureRead($, { class: "connector", source: url ?? String(e.tool), text });
+        void captureRead($, { class: "connector", source: url ?? String(e.tool), text }, e.agentId);
       }
     } catch {}
     return r;
@@ -3360,12 +3395,12 @@ export const register: Register = (on, options) => {
     } catch {}
     // Read capture: the person's own typed words, the strongest input revision
     // has. A slash command or a short reply carries no claim worth checking. A
-    // long prompt or one with a code block is mostly something pasted, not the
-    // person's own claim, so it may only contest, like a page.
+    // long prompt, a code block or quoted mail is mostly something pasted, not
+    // the person's own claim, so it may only contest, like a page.
     if (features.capture && !e.turnId && PRIME_ORIGINS.has(e.origin.kind)) {
       const t = e.text.trim();
       if (t.length >= 120 && !t.startsWith("/")) {
-        const pasted = t.length > 1500 || t.includes("```");
+        const pasted = t.length > 1500 || t.includes("```") || /^\s*>|^(?:From|Subject|Sent|To|Date):\s|\bwrote:\s*$|^-{3,} ?Forwarded/im.test(t);
         void captureRead($, pasted ? { class: "web", source: "pasted in conversation", text: t } : { class: "owner", source: "conversation", text: t, asOf: dayOf(new Date()) });
       }
     }

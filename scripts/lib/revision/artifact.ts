@@ -112,10 +112,12 @@ async function pdfText(bytes: Uint8Array): Promise<string> {
 }
 
 /** The artifact's text, from cache or fetched now; null when it cannot be reached. */
-export async function loadArtifact(vault: string, r: ArtifactRef, opts: { timeoutMs?: number; offline?: boolean } = {}): Promise<Artifact | null> {
+export async function loadArtifact(vault: string, r: ArtifactRef, opts: { timeoutMs?: number; offline?: boolean; fresh?: boolean } = {}): Promise<Artifact | null> {
   const dir = cacheDir(vault);
   const file = join(dir, `${sha(r.ref).slice(0, 32)}.json`);
-  try {
+  // Fresh: what the page says now, neither read from nor written over the
+  // cached copy (that copy is the evidence an older note rests on).
+  if (!opts.fresh) try {
     const cached = JSON.parse(readFileSync(file, "utf-8")) as Artifact;
     if (cached.text) return cached;
   } catch {}
@@ -145,7 +147,7 @@ export async function loadArtifact(vault: string, r: ArtifactRef, opts: { timeou
   text = text.trim();
   if (text.length < 200) return null; // a paywall stub or an empty page is not the source
   const art: Artifact = { ref: r.ref, hash: `sha256:${sha(text).slice(0, 32)}`, text, fetchedAt: new Date().toISOString() };
-  try {
+  if (!opts.fresh) try {
     mkdirSync(dir, { recursive: true });
     const tmp = `${file}.${process.pid}.tmp`;
     writeFileSync(tmp, JSON.stringify(art));

@@ -295,4 +295,13 @@ test("capture: a read capture is detected against its pool and proposed as captu
   const gone = triggerFake({ "Old.md": note("Old.md") }, [], { capture: async () => null });
   assert.equal((await runCapture(gone.ports, { capture: { hash: "zzz", pool: ["Old.md"] } })).proposed, 0);
   assert.deepEqual(gone.calls.models, [], "a capture that is gone costs nothing");
+
+  // An overflow capture job proposes the pairs already detected, with no second detector call.
+  const over = triggerFake({ "Old.md": note("Old.md") }, [], {
+    capture: async () => ({ title: "Acme page", text: "The figure is now higher than reported before." }),
+    complete: async (req) => (over.calls.models.push(req.model), '{"claim":"the old figure","rationale":"r"}'),
+  });
+  const again = await runCapture(over.ports, { capture: { hash: "abc", pool: ["Old.md"], pairs: [{ written: "capture:abc", old: "Old.md", why: "later figure" }] } });
+  assert.equal(again.proposed, 1);
+  assert.deepEqual(over.calls.models, ["sonnet"], "proposed without detecting again");
 });

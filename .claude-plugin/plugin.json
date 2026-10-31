@@ -45,7 +45,7 @@
     "dailyBudgetUSD": {
       "type": "number",
       "title": "Daily budget for background work (USD)",
-      "description": "What commonplace may spend per day on its own background model calls: connections, prime and revision. Priced from Anthropic's published rates (on a subscription, a stand-in for plan usage). When it is reached, a notice offers to raise it for the day; revision work waits until midnight. Ingest and anything you ask for never count.",
+      "description": "What commonplace may spend per day on its own background model calls: connections, prime and revision. Priced from Anthropic's published rates (on a subscription, a stand-in for plan usage). When it is reached, a notice offers to raise it for the day; revision work waits until midnight. 0 turns background work off. Ingest and anything you ask for never count.",
       "default": 5
     },
     "showBand": {

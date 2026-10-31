@@ -48,7 +48,7 @@ const CLAIM_KINDS = new Set(["source", "other"]);
 
 export type Pair = { written: string; old: string; why: string };
 export type TriggerJob = { written: string[]; reads: string[]; /** An overflow job: detection already done, propose these. */ pairs?: Pair[] };
-export type CaptureJob = { capture: { hash: string; pool: string[] } };
+export type CaptureJob = { capture: { hash: string; pool: string[]; /** An overflow: detection already done, propose these. */ pairs?: Pair[] } };
 export type TriggerResult = {
   examined: number;
   pool: number;
@@ -168,6 +168,7 @@ async function proposeOne(ports: TriggerPorts, w: NoteInfo, wText: string, old: 
  */
 export async function runCapture(ports: TriggerPorts, job: CaptureJob): Promise<TriggerResult> {
   const res: TriggerResult = { examined: 0, pool: 0, truncated: false, changed: 0, proposed: 0, unanswered: 0, overflow: [] };
+  if (job.capture.pairs?.length) return proposePairs(ports, job.capture.pairs, res);
   const cap = ports.capture ? await ports.capture(job.capture.hash) : null;
   if (!cap) {
     ports.log("revision:skip", { why: "capture-missing" });
@@ -226,7 +227,9 @@ async function proposePairs(ports: TriggerPorts, pairs: Pair[], res: TriggerResu
       res.examined++;
       res.changed++;
       const cw: NoteInfo = { rel: p.written, title: cap.title, abstraction: "", kind: "source", shard: "main" };
-      await proposeOne(ports, cw, cap.text.slice(0, DETECT_NOTE_CHARS), old, p.why, [old.rel], res);
+      const body = (await ports.text(old.rel)) ?? "";
+      const cText = cap.text.length <= DETECT_NOTE_CHARS ? cap.text : claimExcerpt(cap.text.split(/(?<=[.!?])\s+/).join("\n"), body, DETECT_NOTE_CHARS);
+      await proposeOne(ports, cw, cText, old, p.why, [old.rel], res);
       continue;
     }
     const w = await ports.info(p.written);

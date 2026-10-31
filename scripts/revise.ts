@@ -26,8 +26,8 @@ import { join } from "path";
 import { parseArgs } from "util";
 import { resolveVault } from "./lib/vault.ts";
 import { parseFrontmatter } from "../hooks/lib/index/yaml.ts";
-import { MAIN, append, ledgerFiles, newId, type Actor } from "./lib/revision/ledger.ts";
-import { acceptBlocker, edgeFor, type ProposalState } from "./lib/revision/reducer.ts";
+import { MAIN, append, ledgerFiles, ledgerShards, newId, readAll, type Actor } from "./lib/revision/ledger.ts";
+import { acceptBlocker, edgeFor, reduce, type ProposalState } from "./lib/revision/reducer.ts";
 import {
   accept,
   checked,
@@ -44,7 +44,7 @@ import {
 import { loadArtifact, passages, sourceRefs, type Artifact } from "./lib/revision/artifact.ts";
 import { openShardsFromEnv } from "./lib/revision/vault-index.ts";
 import { enqueue, claim, finish, fail } from "./lib/revision/jobs.ts";
-import { captureFraming, pruneCaptures, readCapture, writeCapture, type CaptureClass } from "./lib/revision/capture.ts";
+import { captureFraming, privateHost, pruneCaptures, readCapture, writeCapture, type CaptureClass } from "./lib/revision/capture.ts";
 import { blobAt, blobOfFile, commitUnit, headOf, recordAppendOnly, recordTouch, repoOf } from "./lib/git-unit.ts";
 import { describeDecision } from "../hooks/lib/revision/review.ts";
 import { statusLine } from "../hooks/lib/revision/edges.ts";
@@ -174,10 +174,12 @@ switch (sub) {
     const red = state(ctx);
     const work = [...red.proposals.values()].filter((p) => STAGES.has(p.status)).length;
     const jobs = [...red.jobs.values()].filter((j) => j.status === "queued").length;
-    // Captures a live proposal or queued job still rests on stay past the TTL.
+    // Captures a live proposal or queued job still rests on stay past the TTL,
+    // in every scope, sealed ones too (only hashes leave this block).
     const keep = new Set<string>();
-    for (const p of red.proposals.values()) if (p.propose.capture && STAGES.has(p.status)) keep.add(p.propose.capture.hash);
-    for (const j of red.jobs.values()) if (j.queued.capture && j.status !== "done" && j.status !== "abandoned") keep.add(j.queued.capture.hash);
+    const all = reduce(readAll(vault, [MAIN, ...ledgerShards(vault)]));
+    for (const p of all.proposals.values()) if (p.propose.capture && STAGES.has(p.status)) keep.add(p.propose.capture.hash);
+    for (const j of all.jobs.values()) if (j.queued.capture && j.status !== "done" && j.status !== "abandoned") keep.add(j.queued.capture.hash);
     pruneCaptures(ctx.vault, keep);
     print({ ...en, recovered: rec, paused: red.paused, work, jobs, scopes: Object.fromEntries([...red.scopes].map(([s, v]) => [s === MAIN ? "main" : "private", v.mode])) });
     break;
@@ -406,7 +408,7 @@ switch (sub) {
   case "capture": {
     // Module-only (the Bash guard denies it to the model): store what was read.
     const body = await stdinJson();
-    const cls = String(body.class ?? "") as CaptureClass;
+    let cls = String(body.class ?? "") as CaptureClass;
     if (!["owner", "connector", "web"].includes(cls)) {
       print({ error: "class must be owner, connector or web" });
       process.exitCode = 1;
@@ -415,9 +417,11 @@ switch (sub) {
     let text = String(body.text ?? "");
     const source = String(body.source ?? "");
     // A web page is fetched here, never taken from WebFetch's summary of it.
-    if (cls === "web" && !text && /^https?:\/\//.test(source)) text = (await loadArtifact(vault, { kind: "url", ref: source }))?.text ?? "";
-    const c = writeCapture(vault, { class: cls, source, text, ...(body.asOf ? { asOf: String(body.asOf) } : {}) });
-    print(c ? { hash: c.hash, title: c.title, chars: c.text.length, text: c.text.slice(0, 20_000) } : { none: true, why: "too little text" });
+    if (cls === "web" && !text && /^https?:\/\//.test(source)) text = (await loadArtifact(vault, { kind: "url", ref: source }, { fresh: true }))?.text ?? "";
+    if (cls === "web" && privateHost(source)) cls = "connector";
+    // Dry first: nothing read outside the vault is stored until the gate finds notes it bears on.
+    const c = writeCapture(vault, { class: cls, source, text, ...(body.asOf ? { asOf: String(body.asOf) } : {}) }, body.dry === true);
+    print(c ? { hash: c.hash, class: c.class, title: c.title, chars: c.text.length, text: c.text } : { none: true, why: "too little text" });
     break;
   }
 

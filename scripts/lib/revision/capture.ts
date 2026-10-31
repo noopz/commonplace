@@ -40,7 +40,8 @@ export const CAPTURE_TTL_MS = 30 * 24 * 3600_000;
 
 const dir = (vault: string) => join(vault, ".wiki", "revision", "captures");
 const fileOf = (vault: string, hash: string) => join(dir(vault), `${hash.replace(/[^a-f0-9]/g, "")}.json`);
-export const captureHash = (text: string) => createHash("sha256").update(text).digest("hex").slice(0, 32);
+/** Keyed by class as well as text: the same words as the owner's and as a page's carry different authority. */
+export const captureHash = (text: string, cls = "") => createHash("sha256").update(`${cls}\u0000${text}`).digest("hex").slice(0, 32);
 
 /** A short title for the captured source, safe as a file name. */
 export function captureTitle(source: string, text: string): string {
@@ -57,11 +58,25 @@ export function captureTitle(source: string, text: string): string {
   return t.replace(/[\\/:*?"<>|#^[\]]+/g, " ").replace(/\s+/g, " ").trim().slice(0, 90) || "Captured source";
 }
 
+/** A page on a host only this network can reach (localhost, a private address, an intranet name) is read like a connector: private notes only. */
+export function privateHost(url: string): boolean {
+  let h = "";
+  try {
+    h = new URL(url).hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  } catch {
+    return false;
+  }
+  if (!h.includes(".") || h === "localhost" || /\.(local|localhost|internal|intranet|corp|lan|home|test)$/.test(h)) return true;
+  if (/^(10|127)\./.test(h) || /^192\.168\./.test(h) || /^172\.(1[6-9]|2\d|3[01])\./.test(h) || /^169\.254\./.test(h)) return true;
+  return h === "::1" || /^f[cd][0-9a-f]{2}:/.test(h) || /^fe80:/.test(h);
+}
+
 /** Store a capture; the same text is one capture. Null when there is too little to rest anything on. */
-export function writeCapture(vault: string, c: Omit<Capture, "hash" | "capturedAt" | "title"> & { title?: string }): Capture | null {
+/** Store a capture (deduped by its text); `dry` builds it without storing, for the gate to look at first. */
+export function writeCapture(vault: string, c: Omit<Capture, "hash" | "capturedAt" | "title"> & { title?: string }, dry = false): Capture | null {
   const text = String(c.text ?? "").slice(0, CAPTURE_MAX_CHARS).trim();
   if (text.length < (c.class === "owner" ? CAPTURE_MIN_OWNER_CHARS : CAPTURE_MIN_CHARS)) return null;
-  const hash = captureHash(text);
+  const hash = captureHash(text, c.class);
   const existing = readCapture(vault, hash);
   if (existing) return existing;
   const cap: Capture = {
@@ -73,6 +88,7 @@ export function writeCapture(vault: string, c: Omit<Capture, "hash" | "capturedA
     ...(c.asOf ? { asOf: c.asOf } : {}),
     text,
   };
+  if (dry) return cap;
   mkdirSync(dir(vault), { recursive: true });
   const f = fileOf(vault, hash);
   writeFileSync(`${f}.${process.pid}.tmp`, JSON.stringify(cap));
@@ -121,19 +137,29 @@ const ALL: RevisionRelation[] = ["supersedes", "bounds", "contests", "withdrawsS
  */
 export function allowedRelations(c: Pick<Capture, "class" | "source">, oldSources: readonly string[]): RevisionRelation[] {
   if (c.class === "owner") return ALL;
-  const norm = (u: string) => u.replace(/^https?:\/\/(www\.)?/, "").replace(/[#?].*$/, "").replace(/\/+$/, "");
-  if (oldSources.some((u) => norm(u) === norm(c.source))) return ALL;
+  // Only a page fetched from that address is its source; a connector result
+  // that merely mentions the URL (a chat search for it) is not.
+  const norm = (u: string) => u.replace(/^https?:\/\/(www\.)?/, "").replace(/#.*$/, "").replace(/\/+(?=$|\?)/, "");
+  if (c.class === "web" && oldSources.some((u) => norm(u) === norm(c.source))) return ALL;
   return ["contests", "withdrawsSupport"];
 }
 
 export { captureFraming } from "../../../hooks/lib/revision/capture-gate.ts";
 
 /** Where the note an accepted capture becomes will live: beside the older note, so it is in the same scope. */
-export function plannedRel(vault: string, oldRel: string, c: Pick<Capture, "title" | "capturedAt">): string {
+export function plannedRel(vault: string, oldRel: string, c: Pick<Capture, "hash" | "title" | "capturedAt">): string {
   const folder = dirname(oldRel) === "." ? "" : `${dirname(oldRel)}/`;
   const base = `${localDay(c.capturedAt)} ${c.title}`;
+  const mine = (rel: string) => {
+    try {
+      return new RegExp(`^capture: ${c.hash}$`, "m").test(readFileSync(join(vault, rel), "utf-8").split(/\n---/)[0]);
+    } catch {
+      return false;
+    }
+  };
   let rel = `${folder}${base}.md`;
-  for (let i = 2; existsSync(join(vault, rel)); i++) rel = `${folder}${base} ${i}.md`;
+  // The note this capture already became (an earlier accept) takes the new edge too.
+  for (let i = 2; !mine(rel) && (existsSync(join(vault, rel)) || existsSync(join(vault, rawRelFor(rel)))); i++) rel = `${folder}${base} ${i}.md`;
   return rel;
 }
 
@@ -157,13 +183,14 @@ export function captureNote(c: Capture, rawRel: string): string {
   return [
     "---",
     "type: source",
+    `capture: ${c.hash}`,
     `created: ${localDay(new Date().toISOString())}`,
     ...(c.asOf ? [`as_of: ${c.asOf}`] : []),
     "tags: [captured]",
     "---",
     `# ${c.title}`,
     "",
-    c.class === "owner" ? "**Source:** the vault owner, in conversation" : `**URL:** ${c.source}`,
+    c.class === "owner" ? "**Source:** the vault owner, in conversation" : c.class === "web" && /^https?:\/\//.test(c.source) ? `**URL:** ${c.source}` : `**Source:** ${c.class === "connector" ? "a connector read (not the page itself)" : c.source}`,
     `**Original:** ![[${rawRel}]]`,
     "",
     "Captured by commonplace when it was read, because it bears on a claim in an older note. The excerpt above is the part the revision rests on.",

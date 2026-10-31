@@ -484,23 +484,30 @@ the **summary** (concepts and MOCs, revised with receipts).
 - **Read capture** (`readCapture`; `scripts/lib/revision/capture.ts`,
   `hooks/lib/revision/capture-gate.ts`, `runCapture`): what the session READ
   outside the vault is captured by code at read time, never from the model's
-  account of it: a WebFetch'd page is re-fetched by `revise capture` (not
-  WebFetch's summary), an MCP connector result (not ours, not a browser) is
+  account of it: a WebFetch'd page is re-fetched fresh by `revise capture`
+  (not WebFetch's summary, not the artifact cache), an MCP connector result
+  (not ours, not a browser, not Claude Docs; errors and images dropped) is
   taken as it came, and a typed prompt ≥120 chars is the owner's word (over
-  1500 chars or with a code fence it is treated as pasted, class `web`).
-  Assistant text is never captured. Captures live in `.wiki/revision/captures/`
-  (unversioned, deduped by hash, pruned after 30 days by `revise ensure` unless
-  a live proposal or job rests on one). A free gate searches the loaded index
+  1500 chars, with a code fence or quoted mail it is treated as pasted, class
+  `web`). Assistant text and commonplace's own agents' reads are never
+  captured; an intranet or local host's page is class `connector`. A capture
+  is stored in `.wiki/revision/captures/` only once it clears the gate
+  (`capture` runs `dry` first); that folder is a sealed artefact root the
+  model cannot read; keyed by class + text, pruned after 30 days by `revise
+  ensure` unless a live proposal or job in any scope rests on one. A free gate searches the loaded index
   chunk by chunk (`capturePool`, prime's linear thresholds) and only a clear
   match becomes an `external-read` job (`job-queued.capture`), one per shard;
   connector text pools private notes only and `propose` refuses it against a
   public note. The proposal's newer side is `capture:<hash>`; the reducer
   limits the relation: the owner may decide any, a page or connector only
-  `contests`/`withdrawsSupport` unless it is the older note's own URL
+  `contests`/`withdrawsSupport` unless it is a page fetched from the older note's own URL
   (anything else is recorded as `contests`). Nothing is written until the
   accept, which writes a `type: source` note beside the older one (same
   scope) plus the `raw/` excerpt the decision rests on, and commits both with
-  the edge. Measured by `eval:capture` (invented gold in `evals/capture/gold.ts`,
+  the edge; a second edge from the same capture in that folder joins that
+  note, and an Undo that leaves it edgeless removes note and excerpt.
+  Measured by `eval:capture` (detect, review and the reducer's `edgeFor`;
+  invented gold in `evals/capture/gold.ts`,
   plus `$VAULT/.wiki/evals/capture-gold.jsonl`): precision ≥ 80%, false change
   ≤ 10% over ≥ 15 traps, recall ≥ 50%, the limit never broken.
 - **Artifacts** (`scripts/lib/revision/artifact.ts`): a note's captured

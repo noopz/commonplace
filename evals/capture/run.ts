@@ -3,8 +3,10 @@
  * `eval:capture`: read capture's precision gate. Each case is an older note's
  * claim and something read (the owner's words, a page, a connector result);
  * the case runs through the SAME detect and review prompts the job runs,
- * imported from `hooks/lib/revision/review.ts`, then the relation limit from
- * `scripts/lib/revision/capture.ts`. No vault, no session: bare model calls.
+ * imported from `hooks/lib/revision/review.ts`, then the reducer's own
+ * `edgeFor`, which applies the relation limit. No vault, no session: bare
+ * model calls. Not measured here: the gate, the proposer's exact quote,
+ * verify and wording (each can only drop a change, never add one).
  *
  * Gold: the invented built-in set (./gold.ts), plus
  * `$VAULT/.wiki/evals/capture-gold.jsonl` when it exists (never committed).
@@ -20,6 +22,7 @@ import { resolveVault } from "../../scripts/lib/vault.ts";
 import { DETECT_SYSTEM, MODELS, REVIEW_SYSTEM, claimExcerpt, detectPrompt, parseDetect, parseReview, reviewPrompt } from "../../hooks/lib/revision/review.ts";
 import { captureFraming } from "../../hooks/lib/revision/capture-gate.ts";
 import { allowedRelations } from "../../scripts/lib/revision/capture.ts";
+import { edgeFor, type ProposalState } from "../../scripts/lib/revision/reducer.ts";
 import { BUILTIN } from "./gold.ts";
 import { formatSummary, scoreCase, summarize, type CaptureCase, type CaptureTrial } from "./score.ts";
 
@@ -55,9 +58,11 @@ async function trial(c: CaptureCase): Promise<CaptureTrial> {
   if (!det?.some((d) => d.n === 1)) return { detected: false, verdict: null, final: null };
   const rv = parseReview(await ask(MODELS.review, REVIEW_SYSTEM, reviewPrompt({ claim: c.older.claim, older: c.older, newer, oldFirst: Math.random() < 0.5 })));
   const verdict = rv?.verdict ?? null;
-  // The reducer's limit: a relation the capture may not decide is recorded as contests.
+  // The edge the reducer would write for that decision, limit included.
   const allowed = allowedRelations({ class: c.class, source: c.source }, []);
-  const final = verdict && verdict !== "none" && verdict !== "insufficient" ? ((allowed as string[]).includes(verdict) ? verdict : "contests") : null;
+  const decided = verdict && verdict !== "none" && verdict !== "insufficient";
+  const p = { decision: { relation: verdict, because: "" }, propose: { old: { claim: c.older.claim, title: c.older.title }, new: { rel: "capture:eval" }, capture: { hash: "eval", class: c.class, source: c.source, allowed } } };
+  const final = decided ? (edgeFor(p as unknown as ProposalState)?.relation ?? null) : null;
   return { detected: true, verdict, final };
 }
 
