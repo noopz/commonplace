@@ -1474,11 +1474,15 @@ const getIndex = async ($: EngineInterface, vp: string, domains: DomainMap): Pro
     try {
       const sm = JSON.parse(String(await $.fs.read(`${vp}/.wiki/sealed/manifest.json`)));
       const n = Number(sm?.shards?.quarantine?.nodes ?? 0);
-      if (n > 0) {
+      // Once per growth, not every session: an unclassified folder is safe, sealed, and needs no reminder.
+      const seenKey = `quarantine:noticed:${vp}`;
+      const seen = Number((await $.store.get(seenKey).catch(() => 0)) ?? 0);
+      await $.store.set(seenKey, n).catch(() => undefined);
+      if (n > seen) {
         quarantineNotice = notice(
           $,
           `🔒 ${n} note${n === 1 ? "" : "s"} in new folders quarantined`,
-          `${n} note${n === 1 ? "" : "s"} live in folders that appeared after the first index. They stay sealed (no vault tool sees them) until you classify each folder: \`/vault domain\` lists them, \`/vault domain public|private <folder>\` classifies one.`,
+          `${n} note${n === 1 ? "" : "s"} live in folders that appeared after the first index. They stay sealed (no vault tool sees them), which is safe to leave as it is. To use them, type \`/vault domain\` to see the folders, then \`/vault domain public <folder>\` or \`/vault domain private <folder>\`. This notice comes back only when more new folders appear.`,
         );
       }
     } catch {}
@@ -1906,8 +1910,8 @@ const runVaultCommand = async ($: EngineInterface, argsText: string): Promise<{ 
   if (sub === "domain") {
     const [scope, ...words] = rest;
     const id = words.join(" ");
-    if (!scope) {
-      // Bare: the quarantined folders waiting to be classified.
+    if ((scope !== "public" && scope !== "private") || !id) {
+      // Bare, or anything but a classification (`list`, a typo): the quarantined folders waiting.
       const folders = (await loadQuarantine($, vp)).filter((f) => !quarantine?.done.has(f.folder));
       if (!folders.length) return { text: "No quarantined folders. Usage: /vault domain public|private <id|folder>" };
       return {
@@ -1915,10 +1919,10 @@ const runVaultCommand = async ($: EngineInterface, argsText: string): Promise<{ 
           "Quarantined folders (sealed until classified):",
           ...folders.map((f) => `  ${f.folder} · ${f.notes} note${f.notes === 1 ? "" : "s"}`),
           "/vault domain public <folder>: every vault tool sees it · /vault domain private <folder>: sealed unless opened",
+          "Leaving a folder unclassified is safe: it just stays sealed.",
         ].join("\n"),
       };
     }
-    if ((scope !== "public" && scope !== "private") || !id) return { text: "Usage: /vault domain public|private <id|folder>" };
     let reg: { domains?: Record<string, Record<string, unknown>> } = {};
     try {
       reg = JSON.parse(String(await $.fs.read(`${vp}/.wiki/domains.json`)));
