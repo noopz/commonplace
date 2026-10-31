@@ -252,6 +252,10 @@ test("runner: no answer is not a verdict, and a step that comes back unchanged s
   const pk = { proposal: "p1", stage: "verify", ...side, olderArtifact: null, newerArtifact: null };
   const b = runnerFake([pk, pk, pk], []);
   assert.equal(await runSteps(b.ports), 1);
+  // Over budget mid-run: the wording step waits, it does not record the unchecked draft.
+  const c = runnerFake([{ proposal: "p1", stage: "because", ...side, confirmed: "x", draft: "d" }], []);
+  await runSteps(c.ports);
+  assert.equal(c.recorded.filter((r) => r.args[0] === "record").length, 0);
 });
 
 test("trigger: changes past the proposal cap are returned as overflow, and an overflow job proposes without re-detecting", async () => {

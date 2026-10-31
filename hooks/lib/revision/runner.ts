@@ -152,11 +152,17 @@ export async function runSteps(ports: RunnerPorts, max = STEPS_PER_RUN): Promise
         prompt: wordingPrompt({ decision: p.decision ?? "", confirmed: p.confirmed ?? "", draft: p.draft ?? "", rationale: p.rationale ?? "" }),
         maxTokens: 300,
       });
-      const w = parseWording(text ?? undefined);
+      // No answer (over budget, a dead call) is "try again next run", never the unchecked draft.
+      if (text === null) {
+        ports.log("revision:wording", { answered: false });
+        break;
+      }
+      const w = parseWording(text);
       let final = p.draft ?? "";
       let checked = false;
       if (w) {
         const c = await ports.complete({ model: MODELS.wordingCheck, system: WORDING_CHECK_SYSTEM, prompt: wordingCheckPrompt(w.because, p.confirmed ?? ""), maxTokens: 40 });
+        if (c === null) break;
         const adds = parseWordingCheck(c ?? undefined);
         // Wording that adds a claim the verifier did not confirm is dropped for the reviewer's own draft.
         if (adds === false) {
@@ -164,7 +170,7 @@ export async function runSteps(ports: RunnerPorts, max = STEPS_PER_RUN): Promise
           checked = true;
         }
         ports.log("revision:wording", { flipped: w.flip, adds: adds ?? "unparsed" });
-      } else ports.log("revision:wording", { answered: text !== null, parsed: false });
+      } else ports.log("revision:wording", { answered: true, parsed: false });
       await record("because", { text: final, checked, ...(w ? { flipped: w.flip } : {}) });
     } else if (p.stage === "accept") {
       const r = await ports.cli(["accept", "--proposal", p.proposal]);

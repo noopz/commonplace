@@ -44,7 +44,7 @@ import {
 import { loadArtifact, passages, sourceRefs, type Artifact } from "./lib/revision/artifact.ts";
 import { openShardsFromEnv } from "./lib/revision/vault-index.ts";
 import { enqueue, claim, finish, fail } from "./lib/revision/jobs.ts";
-import { captureFraming, privateHost, pruneCaptures, readCapture, writeCapture, type CaptureClass } from "./lib/revision/capture.ts";
+import { captureFraming, privateHost, pruneCaptures, readCapture, secretUrl, writeCapture, type CaptureClass } from "./lib/revision/capture.ts";
 import { blobAt, blobOfFile, commitUnit, headOf, recordAppendOnly, recordTouch, repoOf } from "./lib/git-unit.ts";
 import { describeDecision } from "../hooks/lib/revision/review.ts";
 import { statusLine } from "../hooks/lib/revision/edges.ts";
@@ -423,6 +423,11 @@ switch (sub) {
     // A web page is fetched here, never taken from WebFetch's summary of it.
     // The store call after the gate passes the dry call's text and landing back.
     let landed = typeof body.landed === "string" ? body.landed : source;
+    // A signed or one-time link (a token, a login, a pre-signed download) is not fetched again: that would spend or replay it.
+    if (cls === "web" && !text && secretUrl(source)) {
+      print({ none: true, why: "a signed or tokened link is not fetched again" });
+      break;
+    }
     if (cls === "web" && !text && /^https?:\/\//.test(source)) {
       const art = await loadArtifact(vault, { kind: "url", ref: source }, { fresh: true });
       text = art?.text ?? "";

@@ -538,9 +538,7 @@ const noteWrite = (_$: EngineInterface, vp: string, rel: string, agentId: string
   // The turn wrote the vault: its own reads are not captured. commonplace's
   // background agents (a MOC update after an earlier ingest) do not count.
   if (!agentId) turnWrote = true;
-  else void agentTypeOf(_$, agentId).then((t) => {
-    if (!t.startsWith("commonplace:")) turnWrote = true;
-  }).catch(() => undefined);
+  else turnChecks.push(agentTypeOf(_$, agentId).then((t) => !t.startsWith("commonplace:"), () => false));
   if (!features.revision) return;
   const w = workOf(vp, agentId);
   w.written.add(rel);
@@ -572,16 +570,26 @@ const flushTimers = new Map<string, { cancel: () => void }>();
  * the branch the session began on instead of whatever is checked out now.
  */
 const pins = new Map<string, string>();
-const PIN_KEY = "revision:pins";
+/** One key per session (`$.store` is shared by every open session), pruned after a month. */
+const PIN_PREFIX = "revision:pins:";
+const PIN_TTL_MS = 30 * 24 * 3600_000;
+/** Pins are read and written one at a time, so two vaults pinned together keep both. */
+let pinQueue: Promise<unknown> = Promise.resolve();
 const pinFor = async ($: EngineInterface, vp: string): Promise<string> => {
+  const known = pins.get(vp);
+  if (known !== undefined) return known;
+  const run = pinQueue.then(() => pinNow($, vp), () => pinNow($, vp));
+  pinQueue = run.catch(() => undefined);
+  return run;
+};
+const pinNow = async ($: EngineInterface, vp: string): Promise<string> => {
   let p = pins.get(vp);
   if (p !== undefined) return p;
-  const session = String(await $.session.id());
-  let stored: { session?: string; pins?: Record<string, string> } = {};
+  const key = PIN_PREFIX + String(await $.session.id());
+  let saved: Record<string, string> = {};
   try {
-    stored = ((await $.store.get(PIN_KEY)) as typeof stored) ?? {};
+    saved = (((await $.store.get(key)) as { pins?: Record<string, string> } | null)?.pins) ?? {};
   } catch {}
-  const saved = stored.session === session ? stored.pins ?? {} : {};
   p = saved[vp];
   if (p === undefined) {
     p = "";
@@ -590,11 +598,19 @@ const pinFor = async ($: EngineInterface, vp: string): Promise<string> => {
       if (r.exitCode === 0) p = String(r.stdout ?? "").trim();
     } catch {}
     try {
-      await $.store.set(PIN_KEY, { session, pins: { ...saved, [vp]: p } });
+      await $.store.set(key, { at: Date.now(), pins: { ...saved, [vp]: p } });
     } catch {}
   }
   pins.set(vp, p);
   return p;
+};
+/** Other sessions' pins a month old (session.start). */
+const prunePins = async ($: EngineInterface) => {
+  for (const k of await storeKeys($)) {
+    if (!k.startsWith(PIN_PREFIX)) continue;
+    const v = (await $.store.get(k)) as { at?: number } | null;
+    if (!v?.at || Date.now() - v.at > PIN_TTL_MS) await $.store.delete(k);
+  }
 };
 const noteRead = async ($: EngineInterface, vp: string, rel: string, agentId: string | undefined) => {
   if (!features.revision) return;
@@ -753,19 +769,25 @@ type CaptureIn = { class: "owner" | "connector" | "web"; source: string; text?: 
  */
 let pendingCaptures: Array<{ c: CaptureIn; agentId?: string }> = [];
 let turnWrote = false;
+/** A subagent's write counts once its type is known; the flush waits for these. */
+let turnChecks: Array<Promise<boolean>> = [];
 const captureQueue: Array<{ c: CaptureIn; agentId?: string; drop?: string }> = [];
 let captureDraining = false;
 const queueCapture = (c: CaptureIn, agentId?: string) => {
   if (!features.revision || !features.capture) return;
   pendingCaptures.push({ c, ...(agentId ? { agentId } : {}) });
-  // Past 20 the oldest read goes, never the person's own words.
+  // Past 20 the oldest capture goes, the person's own words last.
   if (pendingCaptures.length > 20) pendingCaptures.splice(Math.max(0, pendingCaptures.findIndex((p) => p.c.class !== "owner")), 1);
 };
-const flushCaptures = ($: EngineInterface) => {
-  const drop = turnWrote ? "ingested" : undefined;
-  for (const p of pendingCaptures) captureQueue.push({ ...p, ...(drop ? { drop } : {}) });
+const flushCaptures = async ($: EngineInterface) => {
+  const list = pendingCaptures;
+  const wrote = turnWrote;
+  const checks = turnChecks;
   pendingCaptures = [];
   turnWrote = false;
+  turnChecks = [];
+  const drop = wrote || (await Promise.all(checks)).some(Boolean) ? "ingested" : undefined;
+  for (const p of list) captureQueue.push({ ...p, ...(drop ? { drop } : {}) });
   void drainCaptures($);
 };
 const drainCaptures = async ($: EngineInterface) => {
@@ -1041,12 +1063,9 @@ const storeKeys = async ($: EngineInterface): Promise<readonly string[]> => {
 const budgetNow = async ($: EngineInterface): Promise<BudgetState> => {
   const now = new Date();
   const s = today((await $.store.get(BUDGET_KEY)) as BudgetState | null, now);
+  const kept = await Promise.all((await storeKeys($)).filter((k) => k.startsWith(SPENT_PREFIX)).map((k) => $.store.get(k)));
   let spent = 0;
-  for (const k of await storeKeys($)) {
-    if (!k.startsWith(SPENT_PREFIX)) continue;
-    const v = (await $.store.get(k)) as { day?: string; spent?: number } | null;
-    if (v?.day === s.day && typeof v.spent === "number") spent += v.spent;
-  }
+  for (const v of kept as Array<{ day?: string; spent?: number } | null>) if (v?.day === s.day && typeof v.spent === "number") spent += v.spent;
   return { ...s, spent };
 };
 
@@ -2494,6 +2513,7 @@ export const register: Register = (on, options) => {
     pins.clear();
     void loadPrices($);
     void pruneSpend($).catch(() => undefined);
+    void prunePins($).catch(() => undefined);
     void (async () => {
       const v = await pickVault($);
       if (v) await pinFor($, v.path);
@@ -3589,6 +3609,7 @@ export const register: Register = (on, options) => {
     if ((e as { agentId?: string }).agentId !== undefined) return next(e);
     latestTurn = { turnId: e.turnId, text: e.text, at: Date.now() };
     turnWrote = false;
+    turnChecks = [];
     if (pendingLinks && !pendingLinks.turnId) pendingLinks = { ...pendingLinks, turnId: e.turnId };
     return next(e);
   });
@@ -3847,7 +3868,7 @@ export const register: Register = (on, options) => {
     try {
       scheduleRevisionFlush($, e.agentId);
     } catch {}
-    if (e.agentId === undefined) flushCaptures($);
+    if (e.agentId === undefined) void flushCaptures($);
     // The main loop's answers only. A subagent's turn ends here too, and the
     // pass would judge (and surface under) a reply the person never read.
     if (e.agentId !== undefined) return base;
@@ -4044,7 +4065,8 @@ export const register: Register = (on, options) => {
       await $.session.append({ message: { type: "user", content: [{ type: "text", text: block }] } });
       witnessAdd($, "connection", block);
       lastConnection = { vp, path: surfaced.path };
-      traceTo($, vp, "connect:appended", { path: surfaced.path });
+      const sid = indexes.get(vp)?.view?.idOfRel(surfaced.path);
+      traceTo($, vp, "connect:appended", { path: sid !== undefined && indexes.get(vp)?.view?.shard(sid) === "main" ? surfaced.path : "private" });
     } catch {}
     // Keep the engine's `usage` beside the replaced text: a hook that drops
     // it hides the turn's cost from every hook above.

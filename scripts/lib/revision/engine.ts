@@ -124,6 +124,9 @@ export async function propose(ctx: Ctx, input: ProposeInput): Promise<ProposeRes
   if (input.new.startsWith("capture:") && !cap) return { status: "refused", reason: "no such capture" };
   // Connector text is private by default: it never revises a public note.
   if (cap?.class === "connector" && oldN.shard === MAIN) return { status: "refused", reason: "connector text may only revise notes in a private domain" };
+  // A note private only by its own `scope: private` sits in a public folder,
+  // where the captured note and its excerpt would go: nothing seals them there.
+  if (cap && oldN.shard === "loose") return { status: "refused", reason: "a capture cannot revise a note that is private only by its own frontmatter" };
   // A capture becomes a note beside the older one, so it lives in the same scope.
   const newN = cap ? { id: -1, rel: plannedRel(ctx.vault, oldN.rel, cap), shard: oldN.shard } : resolve(input.new);
   if (!newN) return { status: "refused", reason: `no visible note "${input.new}"` };

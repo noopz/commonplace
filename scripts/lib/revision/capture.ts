@@ -74,6 +74,19 @@ export function privateHost(url: string): boolean {
   return h === "::1" || /^f[cd][0-9a-f]{2}:/.test(h) || /^fe80:/.test(h);
 }
 
+/** Query parameters that carry a credential: whole names, or a word of one (`access_token`, `X-Amz-Signature`), never a substring (`author`, `keyword`). */
+const SECRET_PARAM = /(^|[_.-])(token|key|apikey|sig|signature|secret|auth|authorization|session|sessionid|sid|password|passwd|pass|pwd|code|email|credential|credentials|ticket|jwt|otp|nonce|state|hmac|expires)($|[_.-])|^x-(amz|goog)-/i;
+
+/** Whether fetching `url` again could spend or replay something: credentials or a signed or one-time parameter. */
+export function secretUrl(url: string): boolean {
+  try {
+    const u = new URL(url);
+    return !!(u.username || u.password) || [...u.searchParams.keys()].some((k) => SECRET_PARAM.test(k));
+  } catch {
+    return false;
+  }
+}
+
 /** A source URL without what would leak if committed: credentials and token-like query parameters. */
 export function redactUrl(source: string): string {
   if (!/^https?:\/\//i.test(source)) return source;
@@ -84,7 +97,7 @@ export function redactUrl(source: string): string {
     // An OAuth callback carries its token in the fragment.
     u.hash = "";
     for (const k of [...u.searchParams.keys()]) {
-      if (/token|key|sig|signature|secret|auth|session|sid|password|pass|code|email|credential|ticket|jwt|otp|nonce|^state$|^x-amz-|^x-goog-/i.test(k)) u.searchParams.delete(k);
+      if (SECRET_PARAM.test(k)) u.searchParams.delete(k);
     }
     return u.toString();
   } catch {
@@ -176,7 +189,8 @@ export function allowedRelations(c: Pick<Capture, "class" | "source" | "landed">
       return u;
     }
   };
-  const own = (u: string) => oldSources.some((o) => norm(o) === norm(u));
+  // Both sides as stored: the capture's source has lost its secret parameters.
+  const own = (u: string) => oldSources.some((o) => norm(redactUrl(o)) === norm(redactUrl(u)));
   if (c.class === "web" && own(c.source) && (!c.landed || own(c.landed))) return ALL;
   return ["contests", "withdrawsSupport"];
 }
@@ -224,7 +238,7 @@ export function rawText(c: Capture, passages: ReadonlyArray<{ locator: string; t
   ].join("\n");
 }
 
-/** The source note an accepted capture becomes; the edge is inserted into it by the accept. `priv`: the older note is private, so this one is too, wherever it sits. */
+/** The source note an accepted capture becomes; the edge is inserted into it by the accept. Its H1 is its file name (the excerpt's is the same). `priv`: the older note is private, so this one is too, wherever it sits. */
 export function captureNote(c: Capture, rawRel: string, priv = false): string {
   return [
     "---",
@@ -235,7 +249,7 @@ export function captureNote(c: Capture, rawRel: string, priv = false): string {
     ...(c.asOf ? [`as_of: ${c.asOf}`] : []),
     "tags: [captured]",
     "---",
-    `# ${localDay(c.capturedAt)} ${c.title}`,
+    `# ${(rawRel.split("/").pop() ?? "").replace(/\.md$/, "")}`,
     "",
     c.class === "owner" ? "**Source:** the vault owner, in conversation" : c.class === "web" && /^https?:\/\//.test(c.source) ? `**URL:** ${c.source}` : `**Source:** ${c.source === PASTED ? PASTED : c.class === "connector" ? "a connector read (not the page itself)" : c.source}`,
     `**Original:** ![[${rawRel}]]`,

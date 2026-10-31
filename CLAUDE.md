@@ -499,7 +499,8 @@ the **summary** (concepts and MOCs, revised with receipts).
   `connector`. Reads wait for the main turn to end, run one at a time, and are
   dropped when that turn (the main loop or a non-commonplace subagent) wrote
   the vault (an ingest: the write trigger covers it). Source URLs
-  lose credentials and token-like parameters before they are stored. A capture
+  lose credentials and token-like parameters before they are stored, and a
+  signed or tokened link is never fetched again (that would replay it). A capture
   is stored in `.wiki/revision/captures/` only once it clears the gate
   (`capture` runs `dry` first); that folder is a sealed artefact root the
   model cannot read; keyed by class + text, pruned after 30 days by `revise
@@ -508,7 +509,8 @@ the **summary** (concepts and MOCs, revised with receipts).
   notes only, so concepts and MOCs cannot crowd them out) and only a clear
   match becomes an `external-read` job (`job-queued.capture`), one per shard;
   connector text pools private notes only and `propose` refuses it against a
-  public note. The proposal's newer side is `capture:<hash>`; the reducer
+  public note; a note private only by its own `scope: private` (shard
+  `loose`, in a public folder) takes no capture. The proposal's newer side is `capture:<hash>`; the reducer
   limits the relation: the owner may decide any, a page or connector only
   `contests`/`withdrawsSupport` unless it is a page fetched from the older note's own URL and not
   redirected elsewhere (anything else is recorded as `contests`). Nothing is written until the

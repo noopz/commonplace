@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { allowedRelations, captureHash, captureNote, plannedRel, privateHost, rawRelFor, redactUrl, type Capture } from "./capture.ts";
+import { allowedRelations, captureHash, captureNote, plannedRel, privateHost, rawRelFor, redactUrl, secretUrl, type Capture } from "./capture.ts";
 
 test("only a page fetched from the older note's own address may supersede it", () => {
   const own = ["https://docs.example.com/limits"];
@@ -38,6 +38,7 @@ test("a capture's planned note is reused by its own second edge, never by anothe
     assert.notEqual(plannedRel(v, "Alpha/Old Two.md", other), first, "another capture with the same title on the same day");
     assert.match(rawRelFor(first), /^Alpha\/_raw\//, "the excerpt sits where the index does not look");
     assert.match(captureNote(cap, rawRelFor(first), true), /^scope: private$/m);
+    assert.match(captureNote(cap, rawRelFor(first)), new RegExp(`^# ${first.split("/").pop()!.replace(/\.md$/, "")}$`, "m"), "the H1 is the file name");
   } finally {
     rmSync(v, { recursive: true, force: true });
   }
@@ -47,4 +48,8 @@ test("a source URL loses credentials and token-like parameters before it is stor
   assert.equal(redactUrl("https://u:p@docs.example.com/a?id=4&token=abc&X-Amz-Signature=z&email=a%40b.c"), "https://docs.example.com/a?id=4");
   assert.equal(redactUrl("pasted in conversation"), "pasted in conversation");
   assert.equal(redactUrl("HTTPS://bob:pw@app.example.com/cb?ticket=t#access_token=SECRET"), "https://app.example.com/cb");
+  assert.equal(redactUrl("https://example.org/list?author=smith&keyword=x&access_token=t"), "https://example.org/list?author=smith&keyword=x", "a word of the name, never a substring");
+  assert.ok(allowedRelations({ class: "web", source: redactUrl("https://example.org/list?author=smith&sig=z") }, ["https://example.org/list?author=smith&sig=y"]).includes("supersedes"), "compared as stored");
+  assert.equal(secretUrl("https://bucket.example.com/f.pdf?X-Amz-Signature=abc"), true);
+  assert.equal(secretUrl("https://example.org/list?author=smith"), false);
 });
