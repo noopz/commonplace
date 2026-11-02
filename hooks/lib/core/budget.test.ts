@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "fs";
-import { addSpend, budgetLine, canSpend, costOf, dayOf, parsePricing, priceFor, raise, today } from "./budget.ts";
+import { budgetLine, canSpend, costOf, dayOf, parsePricing, priceFor, raise, today } from "./budget.ts";
 
 const PAGE = [
   "| Model | Base Input Tokens | 5m Cache Writes | 1h Cache Writes | Cache Hits & Refreshes | Output Tokens |",
@@ -42,7 +42,7 @@ test("the live pricing page snapshot parses, when one is on disk", (t) => {
 test("the day rolls over at local midnight and spending starts again", () => {
   const d1 = new Date(2026, 9, 30, 23, 59);
   const d2 = new Date(2026, 9, 31, 0, 1);
-  let s = addSpend(today(null, d1), 5.2);
+  let s = { ...today(null, d1), spent: 5.2 };
   assert.equal(s.day, dayOf(d1));
   assert.equal(canSpend(s, 5), false);
   s = today(s, d2);

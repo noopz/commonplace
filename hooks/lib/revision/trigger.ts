@@ -61,8 +61,24 @@ export type TriggerResult = {
   overflow: Pair[];
 };
 
+const emptyResult = (): TriggerResult => ({ examined: 0, pool: 0, truncated: false, changed: 0, proposed: 0, unanswered: 0, overflow: [] });
+
+/** Propose each change the detector named; past the cap they are queued, never dropped. */
+async function proposeChanged(ports: TriggerPorts, w: NoteInfo, wText: string, pool: NoteInfo[], changed: ReadonlyArray<{ n: number; why: string }>, inputs: (old: NoteInfo) => string[], res: TriggerResult) {
+  for (const c of changed) {
+    const old = pool[c.n - 1];
+    if (res.proposed >= PROPOSALS_MAX) res.overflow.push({ written: w.rel, old: old.rel, why: c.why });
+    else await proposeOne(ports, w, wText, old, c.why, inputs(old), res);
+  }
+}
+
+/** A capture as the newer side of a pair. It can be long, so the proposer sees the lines nearest what it is set against. */
+const captureInfo = (rel: string, cap: { title: string }): NoteInfo => ({ rel, title: cap.title, abstraction: "", kind: "source", shard: "main" });
+const captureText = (cap: { text: string }, against: string) =>
+  cap.text.length <= DETECT_NOTE_CHARS ? cap.text : claimExcerpt(cap.text.split(/(?<=[.!?])\s+/).join("\n"), against, DETECT_NOTE_CHARS);
+
 export async function runTrigger(ports: TriggerPorts, job: TriggerJob): Promise<TriggerResult> {
-  const res: TriggerResult = { examined: 0, pool: 0, truncated: false, changed: 0, proposed: 0, unanswered: 0, overflow: [] };
+  const res = emptyResult();
   if (job.pairs?.length) return proposePairs(ports, job.pairs, res);
   const all = [...new Set(job.written)];
   const written = all.slice(0, WRITTEN_MAX);
@@ -121,14 +137,8 @@ export async function runTrigger(ports: TriggerPorts, job: TriggerJob): Promise<
     if (!changed || changed.length === 0) continue;
     res.changed += changed.length;
 
-    for (const c of changed) {
-      const old = pool[c.n - 1];
-      if (res.proposed >= PROPOSALS_MAX) {
-        res.overflow.push({ written: rel, old: old.rel, why: c.why });
-        continue;
-      }
-      await proposeOne(ports, w, wText, old, c.why, pool.map((p) => p.rel), res);
-    }
+    const inputs = pool.map((p) => p.rel);
+    await proposeChanged(ports, w, wText, pool, changed, () => inputs, res);
   }
   if (all.length > WRITTEN_MAX) {
     // The written notes past the cap are not dropped either: the caller queues them.
@@ -167,7 +177,7 @@ async function proposeOne(ports: TriggerPorts, w: NoteInfo, wText: string, old: 
  * pooled notes.
  */
 export async function runCapture(ports: TriggerPorts, job: CaptureJob): Promise<TriggerResult> {
-  const res: TriggerResult = { examined: 0, pool: 0, truncated: false, changed: 0, proposed: 0, unanswered: 0, overflow: [] };
+  const res = emptyResult();
   if (job.capture.pairs?.length) return proposePairs(ports, job.capture.pairs, res);
   const cap = ports.capture ? await ports.capture(job.capture.hash) : null;
   if (!cap) {
@@ -192,8 +202,8 @@ export async function runCapture(ports: TriggerPorts, job: CaptureJob): Promise<
     bodies.push(body);
     shown.push({ ...p, excerpt: claimExcerpt(body, cap.text) });
   }
-  const wText = cap.text.length <= DETECT_NOTE_CHARS ? cap.text : claimExcerpt(cap.text.split(/(?<=[.!?])\s+/).join("\n"), bodies.join("\n"), DETECT_NOTE_CHARS);
-  const w: NoteInfo = { rel: `capture:${job.capture.hash}`, title: cap.title, abstraction: "", kind: "source", shard: "main" };
+  const wText = captureText(cap, bodies.join("\n"));
+  const w = captureInfo(`capture:${job.capture.hash}`, cap);
   const prompt = detectPrompt({ title: cap.title, text: wText }, shown);
   const det = await ports.complete({ model: MODELS.detect, system: DETECT_SYSTEM, prompt, maxTokens: 400 });
   if (det === null) res.unanswered++;
@@ -201,14 +211,7 @@ export async function runCapture(ports: TriggerPorts, job: CaptureJob): Promise<
   ports.log("revision:detect", { pool: pool.length, truncated: false, changed: changed?.length ?? -1, answered: det !== null, capture: true });
   if (!changed || changed.length === 0) return res;
   res.changed = changed.length;
-  for (const c of changed) {
-    const old = pool[c.n - 1];
-    if (res.proposed >= PROPOSALS_MAX) {
-      res.overflow.push({ written: w.rel, old: old.rel, why: c.why });
-      continue;
-    }
-    await proposeOne(ports, w, wText, old, c.why, [old.rel], res);
-  }
+  await proposeChanged(ports, w, wText, pool, changed, (old) => [old.rel], res);
   if (res.overflow.length) ports.log("revision:proposal-cap", { queued: res.overflow.length });
   return res;
 }
@@ -229,10 +232,7 @@ async function proposePairs(ports: TriggerPorts, pairs: Pair[], res: TriggerResu
       }
       res.examined++;
       res.changed++;
-      const cw: NoteInfo = { rel: p.written, title: cap.title, abstraction: "", kind: "source", shard: "main" };
-      const body = (await ports.text(old.rel)) ?? "";
-      const cText = cap.text.length <= DETECT_NOTE_CHARS ? cap.text : claimExcerpt(cap.text.split(/(?<=[.!?])\s+/).join("\n"), body, DETECT_NOTE_CHARS);
-      await proposeOne(ports, cw, cText, old, p.why, [old.rel], res);
+      await proposeOne(ports, captureInfo(p.written, cap), captureText(cap, (await ports.text(old.rel)) ?? ""), old, p.why, [old.rel], res);
       continue;
     }
     const w = await ports.info(p.written);

@@ -110,15 +110,14 @@ import { wikiRefs, linkWikiRefs, fileHref, citationFooter, citationCounts, type 
 import { pastedUrls, sameUrl, triagePrompt, parseTriage, triageLine, addLater, formatLater, TRIAGE_NOTE_CHARS, type Triage, type LaterItem } from "./lib/surfaces/triage.ts";
 import { Witness, renderWitness } from "./lib/surfaces/witness.ts";
 import { EXPLAIN_PAGES, liveSvg, liveBars, type LiveCounts } from "./lib/explain/diagrams.ts";
-import { quarantinedFolders, domainIdFor, treeRows, type QuarantinedFolder } from "./lib/core/quarantine.ts";
+import { applyClassification, quarantinedFolders, treeRows, type QuarantinedFolder } from "./lib/core/quarantine.ts";
 import { runCapture, runTrigger, type TriggerPorts, type Pair } from "./lib/revision/trigger.ts";
-import { GATE_POOL_MAX, captureFraming, capturePool } from "./lib/revision/capture-gate.ts";
+import { GATE_POOL_MAX, captureFraming, capturePool, connectorRead, typedCapture, type CaptureIn } from "./lib/revision/capture-gate.ts";
 import { runSteps, type RunnerPorts } from "./lib/revision/runner.ts";
 import {
   DEFAULT_DAILY_USD,
   FALLBACK_PRICES,
   PRICING_URL,
-  addSpend,
   budgetLine,
   canSpend,
   costOf,
@@ -534,11 +533,13 @@ const workOf = (vp: string, agentId: string | undefined) => {
   if (!w) revisionWork.set(key, (w = { vp, agent: agentKey(agentId), ...(agentId ? { agentId } : {}), written: new Set(), reads: new Map() }));
   return w;
 };
+/** One of commonplace's own agents: their reads and writes are maintenance, not news. */
+const ownAgent = async ($: EngineInterface, agentId: string) => (await agentTypeOf($, agentId)).startsWith("commonplace:");
 const noteWrite = (_$: EngineInterface, vp: string, rel: string, agentId: string | undefined) => {
   // The turn wrote the vault: its own reads are not captured. commonplace's
   // background agents (a MOC update after an earlier ingest) do not count.
   if (!agentId) turnWrote = true;
-  else turnChecks.push(agentTypeOf(_$, agentId).then((t) => !t.startsWith("commonplace:"), () => false));
+  else turnChecks.push(ownAgent(_$, agentId).then((own) => !own, () => false));
   if (!features.revision) return;
   const w = workOf(vp, agentId);
   w.written.add(rel);
@@ -573,14 +574,21 @@ const pins = new Map<string, string>();
 /** One key per session (`$.store` is shared by every open session), pruned after a month. */
 const PIN_PREFIX = "revision:pins:";
 const PIN_TTL_MS = 30 * 24 * 3600_000;
+/** A queue of async steps run one at a time; a failed step does not stop the next. */
+const serial = () => {
+  let tail: Promise<unknown> = Promise.resolve();
+  return <T,>(fn: () => Promise<T>): Promise<T> => {
+    const run = tail.then(fn, fn);
+    tail = run.catch(() => undefined);
+    return run;
+  };
+};
 /** Pins are read and written one at a time, so two vaults pinned together keep both. */
-let pinQueue: Promise<unknown> = Promise.resolve();
+const pinWrite = serial();
 const pinFor = async ($: EngineInterface, vp: string): Promise<string> => {
   const known = pins.get(vp);
   if (known !== undefined) return known;
-  const run = pinQueue.then(() => pinNow($, vp), () => pinNow($, vp));
-  pinQueue = run.catch(() => undefined);
-  return run;
+  return pinWrite(() => pinNow($, vp));
 };
 const pinNow = async ($: EngineInterface, vp: string): Promise<string> => {
   let p = pins.get(vp);
@@ -605,13 +613,7 @@ const pinNow = async ($: EngineInterface, vp: string): Promise<string> => {
   return p;
 };
 /** Other sessions' pins a month old (session.start). */
-const prunePins = async ($: EngineInterface) => {
-  for (const k of await storeKeys($)) {
-    if (!k.startsWith(PIN_PREFIX)) continue;
-    const v = (await $.store.get(k)) as { at?: number } | null;
-    if (!v?.at || Date.now() - v.at > PIN_TTL_MS) await $.store.delete(k);
-  }
-};
+const prunePins = ($: EngineInterface) => pruneStore($, PIN_PREFIX, (v: { at?: number } | null) => !v?.at || Date.now() - v.at > PIN_TTL_MS);
 const noteRead = async ($: EngineInterface, vp: string, rel: string, agentId: string | undefined) => {
   if (!features.revision) return;
   const w = workOf(vp, agentId);
@@ -758,8 +760,6 @@ const runnerPorts = ($: EngineInterface, vp: string): RunnerPorts => ({
  * daily budget like any other. Connector text pools private notes only. The
  * assistant's own text is never captured.
  */
-const capturing = new Set<string>();
-type CaptureIn = { class: "owner" | "connector" | "web"; source: string; text?: string; asOf?: string };
 /**
  * Reads wait for the turn to end: a turn that wrote the vault (an ingest of
  * the page it fetched, a note the person asked for) already sends what it
@@ -801,8 +801,6 @@ const drainCaptures = async ($: EngineInterface) => {
 };
 const captureRead = async ($: EngineInterface, c: CaptureIn, agentId?: string, drop?: string) => {
   let vp = "";
-  const key = `${c.class}\u0000${c.source}\u0000${c.text?.length ?? 0}`;
-  let mine = false;
   try {
     const vault = await pickVault($);
     if (!vault) return;
@@ -811,19 +809,11 @@ const captureRead = async ($: EngineInterface, c: CaptureIn, agentId?: string, d
     // The person's words while a private domain is open may carry it: they are not stored beside public notes.
     const why =
       drop ??
-      (agentId && (await agentTypeOf($, agentId)).startsWith("commonplace:")
-        ? "own-agent"
-        : capturing.has(key)
-          ? "in-flight"
-          : c.class === "owner" && openOf(vp).size > 0
-            ? "private-open"
-            : "");
+      (agentId && (await ownAgent($, agentId)) ? "own-agent" : c.class === "owner" && openOf(vp).size > 0 ? "private-open" : "");
     if (why) {
       traceTo($, vp, "capture:skip", { class: c.class, why });
       return;
     }
-    capturing.add(key);
-    mine = true;
     const idx = await getIndex($, vp, vault.domains);
     const view = idx.state === "ready" ? idx.view : null;
     if (!view) {
@@ -864,23 +854,7 @@ const captureRead = async ($: EngineInterface, c: CaptureIn, agentId?: string, d
     processRevision($, vp);
   } catch (err) {
     if (vp) traceTo($, vp, "capture:error", { err: String(err).slice(0, 80) });
-  } finally {
-    if (mine) capturing.delete(key);
   }
-};
-
-/** The text of a tool result, whatever shape the tool answered in: its strings, joined. An error or an image is no text. */
-const resultText = (r: unknown, depth = 0): string => {
-  if (depth > 6 || r === null || r === undefined) return "";
-  if (typeof r === "string") return r;
-  if (Array.isArray(r)) return r.map((x) => resultText(x, depth + 1)).filter(Boolean).join("\n");
-  if (typeof r === "object") {
-    const o = r as Record<string, unknown>;
-    if (o.isError === true || o.type === "image" || o.type === "audio" || o.type === "resource_link") return "";
-    if (typeof o.text === "string") return o.text;
-    return Object.values(o).map((x) => resultText(x, depth + 1)).filter(Boolean).join("\n");
-  }
-  return "";
 };
 
 /**
@@ -1061,23 +1035,26 @@ const storeKeys = async ($: EngineInterface): Promise<readonly string[]> => {
     return [];
   }
 };
+/** Delete the `prefix` records `stale` says are done with. */
+const pruneStore = async <T,>($: EngineInterface, prefix: string, stale: (v: T | null) => boolean) => {
+  for (const k of await storeKeys($)) {
+    if (k.startsWith(prefix) && stale((await $.store.get(k)) as T | null)) await $.store.delete(k);
+  }
+};
 const budgetNow = async ($: EngineInterface): Promise<BudgetState> => {
   const now = new Date();
-  const s = today((await $.store.get(BUDGET_KEY)) as BudgetState | null, now);
-  const kept = await Promise.all((await storeKeys($)).filter((k) => k.startsWith(SPENT_PREFIX)).map((k) => $.store.get(k)));
+  const [stored, keys] = await Promise.all([$.store.get(BUDGET_KEY), storeKeys($)]);
+  const s = today(stored as BudgetState | null, now);
+  const kept = await Promise.all(keys.filter((k) => k.startsWith(SPENT_PREFIX)).map((k) => $.store.get(k)));
   let spent = 0;
   for (const v of kept as Array<{ day?: string; spent?: number } | null>) if (v?.day === s.day && typeof v.spent === "number") spent += v.spent;
   return { ...s, spent };
 };
 
 /** Drop other days' per-session spend (session.start). */
-const pruneSpend = async ($: EngineInterface) => {
+const pruneSpend = ($: EngineInterface) => {
   const day = dayOf(new Date());
-  for (const k of await storeKeys($)) {
-    if (!k.startsWith(SPENT_PREFIX)) continue;
-    const v = (await $.store.get(k)) as { day?: string } | null;
-    if (v?.day !== day) await $.store.delete(k);
-  }
+  return pruneStore($, SPENT_PREFIX, (v: { day?: string } | null) => v?.day !== day);
 };
 
 /** Whether background work may start a model call; raises the over-budget notice once a day when not. */
@@ -1091,12 +1068,7 @@ const budgetOpen = async ($: EngineInterface, vp?: string): Promise<boolean> => 
 };
 
 /** Budget writes run one at a time in this session, so calls finishing together do not lose each other's spend. */
-let budgetQueue: Promise<unknown> = Promise.resolve();
-const budgetWrite = <T,>(fn: () => Promise<T>): Promise<T> => {
-  const r = budgetQueue.then(fn, fn);
-  budgetQueue = r.catch(() => undefined);
-  return r;
-};
+const budgetWrite = serial();
 
 /** Record one background call's cost. */
 const spend = async ($: EngineInterface, vp: string | undefined, model: string, u: Usage | undefined, what: string) => {
@@ -1235,12 +1207,16 @@ const openExplain = async ($: EngineInterface, vp: string | undefined, page = 0)
 const QUARANTINE_PANE = "commonplace-quarantine";
 /** Tree paths the person expanded. */
 const quarantineOpen = new Set<string>();
+/** The quarantine notice on the band or held, so classifying the last folder can take it down. */
+let quarantineNotice: number | null = null;
+/** Vaults whose quarantine count was looked at this session. */
+const quarantineChecked = new Set<string>();
 let quarantine: { vp: string; folders: QuarantinedFolder[]; done: Map<string, string> } | null = null;
 
-const loadQuarantine = async ($: EngineInterface, vp: string): Promise<QuarantinedFolder[]> => {
+const loadQuarantine = async ($: EngineInterface, vp: string): Promise<void> => {
   const vault = await pickVault($, vp);
   const idx = vault ? await getIndex($, vp, vault.domains).catch(() => null) : null;
-  if (!vault || !idx?.manifest) return [];
+  if (!vault || !idx?.manifest) return;
   const cfg = await vaultConfig($, vp);
   const r = await $.process.run(findNotesArgv(vp));
   const rels = String(r.stdout ?? "")
@@ -1254,57 +1230,48 @@ const loadQuarantine = async ($: EngineInterface, vp: string): Promise<Quarantin
     structureDirs: [cfg.structure?.concepts, cfg.structure?.mocs].filter((x): x is string => Boolean(x)),
   });
   quarantine = { vp, folders, done: quarantine?.vp === vp ? quarantine.done : new Map() };
-  return folders;
 };
 
 const openQuarantine = async ($: EngineInterface, vp: string): Promise<boolean> => {
   const placed = openPane($, QUARANTINE_PANE, "⟡ vault · new folders", { rows: 16, columns: 56 });
-  await loadQuarantine($, vp).catch(() => []);
+  await loadQuarantine($, vp).catch(() => undefined);
   bumpPanes($);
   return placed;
 };
 
-/** Register `folder` as a domain of `scope` and reindex. Returns the transcript line. */
-const classifyFolder = async ($: EngineInterface, vp: string, folder: string, scope: "public" | "private"): Promise<string> => {
-  let reg: { domains?: Record<string, Record<string, unknown>> } = {};
+type DomainRegistry = { domains?: Record<string, Record<string, unknown>> };
+const NO_REGISTRY = "Could not read .wiki/domains.json.";
+const readRegistry = async ($: EngineInterface, vp: string): Promise<DomainRegistry | null> => {
   try {
-    reg = JSON.parse(String(await $.fs.read(`${vp}/.wiki/domains.json`)));
+    return JSON.parse(String(await $.fs.read(`${vp}/.wiki/domains.json`)));
   } catch {
-    return "Could not read .wiki/domains.json.";
+    return null;
   }
-  const domains = (reg.domains ??= {});
-  const existing = Object.keys(domains).find((id) => String(domains[id].path ?? "").replace(/\/+$/, "") === folder);
-  const id = existing ?? domainIdFor(domains as never, folder);
-  domains[id] = { ...(domains[id] ?? { path: folder }), scope };
+};
+const saveRegistry = async ($: EngineInterface, vp: string, reg: DomainRegistry, reason: "command" | "classify") => {
   await $.fs.write(`${vp}/.wiki/domains.json`, JSON.stringify(reg, null, 2) + "\n");
   guardCache = null;
   buildStarted.delete(vp);
+  startBuild($, vp, reason);
+};
+
+/** Register `folder` as a domain of `scope` and reindex. Returns the transcript line. */
+const classifyFolder = async ($: EngineInterface, vp: string, folder: string, scope: "public" | "private"): Promise<string> => {
+  const reg = await readRegistry($, vp);
+  if (!reg) return NO_REGISTRY;
+  const id = applyClassification((reg.domains ??= {}), folder, scope);
   // Not "command": the press is its own announcement, and a "refreshed" notice
   // would cover the quarantine notice while other folders still wait.
-  startBuild($, vp, "classify");
-  if (quarantine?.vp !== vp) await loadQuarantine($, vp).catch(() => []);
+  await saveRegistry($, vp, reg, "classify");
+  if (quarantine?.vp !== vp) await loadQuarantine($, vp).catch(() => undefined);
   if (quarantine?.vp === vp) {
     quarantine.done.set(folder, scope);
     // Every folder classified: the notice asking for it has nothing left to ask.
-    if (quarantine.folders.every((f) => quarantine!.done.has(f.folder))) await dropQuarantineNotice($);
+    if (quarantine.folders.every((f) => quarantine!.done.has(f.folder))) await retireNotice($, quarantineNotice);
   }
   bumpPanes($);
   return `"${folder}" is now the ${scope} domain "${id}". Reindexing in the background.`;
 };
-
-const dropQuarantineNotice = async ($: EngineInterface) => {
-  const isQuarantine = (id: number | null) => id !== null && id === quarantineNotice;
-  if (isQuarantine(heldNotice)) heldNotice = null;
-  if (bandCard?.kind === "notice" && isQuarantine(bandCard.entry)) {
-    bandCard = null;
-    try {
-      await update($, band, (b) => ({ ...b, visible: false }));
-    } catch {}
-  }
-};
-
-/** The quarantine notice on the band or held, so classifying the last folder can take it down. */
-let quarantineNotice: number | null = null;
 
 /** No pane (a surface that cannot seat one): the pages as text. */
 const renderExplainText = (): string =>
@@ -1519,7 +1486,6 @@ const getIndex = async ($: EngineInterface, vp: string, domains: DomainMap): Pro
   return idx;
 };
 
-const quarantineChecked = new Set<string>();
 
 /** Pick a registered vault by id, alias, label or path; the active vault when omitted. */
 const pickVault = async ($: EngineInterface, ref?: string): Promise<GuardVault | null> => {
@@ -1949,12 +1915,8 @@ const runVaultCommand = async ($: EngineInterface, argsText: string): Promise<{ 
         ].join("\n"),
       };
     }
-    let reg: { domains?: Record<string, Record<string, unknown>> } = {};
-    try {
-      reg = JSON.parse(String(await $.fs.read(`${vp}/.wiki/domains.json`)));
-    } catch {
-      return { text: "Could not read .wiki/domains.json." };
-    }
+    const reg = await readRegistry($, vp);
+    if (!reg) return { text: NO_REGISTRY };
     if (!reg.domains?.[id]) {
       // A quarantined folder has no domain entry: classifying it registers one.
       const folder = id.replace(/\/+$/, "");
@@ -1966,10 +1928,7 @@ const runVaultCommand = async ($: EngineInterface, argsText: string): Promise<{ 
       return { text: await classifyFolder($, vp, folder, scope) };
     }
     reg.domains[id] = { ...reg.domains[id], scope };
-    await $.fs.write(`${vp}/.wiki/domains.json`, JSON.stringify(reg, null, 2) + "\n");
-    guardCache = null;
-    buildStarted.delete(vp);
-    startBuild($, vp, "command");
+    await saveRegistry($, vp, reg, "command");
     return { text: `Domain "${id}" is now ${scope}. Reindexing in the background.` };
   }
   // Status.
@@ -2336,6 +2295,18 @@ const showCard = ($: EngineInterface, card: BandCard, text: string) => {
   bandCard = card;
   setBand($, { kind: card.kind, text });
 };
+const hideCard = async ($: EngineInterface) => {
+  bandCard = null;
+  try {
+    await update($, band, (b) => ({ ...b, visible: false }));
+  } catch {}
+};
+/** Take a notice down, on the band or held: what it asked for has happened. */
+const retireNotice = async ($: EngineInterface, id: number | null) => {
+  if (id === null) return;
+  if (heldNotice === id) heldNotice = null;
+  if (bandCard?.kind === "notice" && bandCard.entry === id) await hideCard($);
+};
 
 /** The buttons each card offers, as [action, label]. */
 const cardButtons = (card: BandCard): Array<[string, string]> => {
@@ -2357,13 +2328,11 @@ const laterKey = (vp: string) => `triage:later:${vp}`;
 const bandPress = async ($: EngineInterface, action: string) => {
   const card = bandCard;
   if (!card) return;
-  bandCard = null;
+  bandCard = null; // A second press does nothing, even while the pane opens.
   const entry = card.kind === "notice" ? vaultActivity.find((a) => a.id === card.entry) : undefined;
   // Before the first await: see openPane.
   const details = action === "details" && card.kind === "notice" ? (entry?.quarantine ? openQuarantine($, entry.quarantine) : openActivity($)) : null;
-  try {
-    await update($, band, (b) => ({ ...b, visible: false }));
-  } catch {}
+  await hideCard($);
   try {
     if (card.kind !== "notice") showHeldNotice($);
     if (card.kind === "notice") {
@@ -3015,21 +2984,12 @@ export const register: Register = (on, options) => {
 
   // A connector's result (Slack, Docs, Confluence, any MCP server but ours and
   // the browser, nor Claude Docs, which reads back what the model wrote), captured
-  // as it came. Too short to rest anything on is dropped, and so is what a
-  // write-type tool (send, post, create, update…) echoes back: the model wrote it.
+  // as it came.
   on("tool.call", { tool: /^mcp__(?!commonplace__|plugin_playwright|claude-in-chrome|computer-use|Claude_Browser|remote-devices__|claude_ai_Claude_Docs__)/ }, async ($, e, next) => {
     const r = await next(e);
     try {
-      const out = r as { result?: unknown; text?: string; isError?: true; isReadOnly?: true; deny?: string };
-      // Every word of the name is checked (`slack_send_message`, `notion-create-pages`, `createPage`), unless the server declared the tool read-only.
-      const words = (String(e.tool).split("__").pop() ?? "").replace(/([a-z])([A-Z])/g, "$1_$2").toLowerCase().split(/[_-]+/);
-      const writes = !out.isReadOnly && words.some((w) => /^(send|post|create|update|write|edit|reply|comment|add|delete|remove|upload|publish|set|put|patch|append|insert|move|rename|draft)s?$/.test(w));
-      const text = writes || out.isError || out.deny !== undefined ? "" : typeof out.text === "string" ? out.text : resultText(out.result);
-      if (text.length >= 300) {
-        // MCP arguments sit beside `tool` on the event itself.
-        const url = Object.entries(e as Readonly<Record<string, unknown>>).find(([k, v]) => k !== "tool" && typeof v === "string" && /^https?:\/\//.test(v))?.[1] as string | undefined;
-        queueCapture({ class: "connector", source: url ?? String(e.tool), text }, e.agentId);
-      }
+      const c = connectorRead(e as Readonly<Record<string, unknown>>, r as Parameters<typeof connectorRead>[1]);
+      if (c) queueCapture(c, e.agentId);
     } catch {}
     return r;
   });
@@ -3564,17 +3524,10 @@ export const register: Register = (on, options) => {
         }
       }
     } catch {}
-    // Read capture: the person's own typed words, the strongest input revision
-    // has. A slash command or a short reply carries no claim worth checking. A
-    // long prompt, a code block or quoted mail is mostly something pasted, not
-    // the person's own claim, so it may only contest, like a page.
+    // Read capture: the person's own typed words, the strongest input revision has.
     if (features.capture && !e.turnId && CAPTURE_ORIGINS.has(e.origin.kind)) {
-      const t = e.text.trim();
-      if (t.length >= 120 && !t.startsWith("/")) {
-        const pasted = t.length > 1500 || t.includes("```") || /^\s*>|^(?:From|Subject|Sent|To|Date):\s|\bwrote:\s*$|^-{3,} ?Forwarded/im.test(t);
-        // Pasted text has no known origin (often mail or a work document): connector class, private notes only.
-        queueCapture(pasted ? { class: "connector", source: "pasted in conversation", text: t } : { class: "owner", source: "conversation", text: t, asOf: dayOf(new Date()) });
-      }
+      const c = typedCapture(e.text, dayOf(new Date()));
+      if (c) queueCapture(c);
     }
     // PRIME, sync lane (§8.1): postings only, no model call, prompt untouched.
     // Link triage: remember what the person pasted; the turn it starts ends with the card.
@@ -3842,7 +3795,7 @@ export const register: Register = (on, options) => {
     // Done shows a ✓ on the row; a press that failed must say so.
     const classify = (folder: string, scope: "public" | "private") =>
       void classifyFolder($, q!.vp, folder, scope).then((line) => {
-        if (line.startsWith("Could not")) $.ui.toast(line);
+        if (line === NO_REGISTRY) $.ui.toast(line);
       });
     return (
       <Box flexDirection="column">

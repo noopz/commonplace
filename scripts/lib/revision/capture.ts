@@ -13,6 +13,7 @@
  * shard, so work text never lands in a public note or the public ledger.
  */
 
+import { dayOf } from "../../../hooks/lib/core/budget.ts";
 import { createHash } from "crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
@@ -71,7 +72,7 @@ export function privateHost(url: string): boolean {
   if (h.includes(":")) return h === "::" || h === "::1" || /^f[cd][0-9a-f]{2}:/.test(h) || /^fe80:/.test(h) || /^::ffff:/.test(h);
   if (!h.includes(".") || h === "localhost" || /\.(local|localhost|internal|intranet|corp|lan|home|test)$/.test(h)) return true;
   if (/^(0|10|127)\./.test(h) || /^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(h) || /^192\.168\./.test(h) || /^172\.(1[6-9]|2\d|3[01])\./.test(h) || /^169\.254\./.test(h)) return true;
-  return h === "::1" || /^f[cd][0-9a-f]{2}:/.test(h) || /^fe80:/.test(h);
+  return false;
 }
 
 /** Query parameters that carry a credential: whole names, or a word of one (`access_token`, `X-Amz-Signature`), never a substring (`author`, `keyword`). */
@@ -105,8 +106,7 @@ export function redactUrl(source: string): string {
   }
 }
 
-/** Store a capture; the same text is one capture. Null when there is too little to rest anything on. */
-/** Store a capture (deduped by its text); `dry` builds it without storing, for the gate to look at first. */
+/** Store a capture (deduped by its text); null when there is too little to rest anything on. `dry` builds it without storing, for the gate to look at first. */
 export function writeCapture(vault: string, c: Omit<Capture, "hash" | "capturedAt" | "title"> & { title?: string }, dry = false): Capture | null {
   const text = String(c.text ?? "").slice(0, CAPTURE_MAX_CHARS).trim();
   if (text.length < (c.class === "owner" ? CAPTURE_MIN_OWNER_CHARS : CAPTURE_MIN_CHARS)) return null;
@@ -156,12 +156,8 @@ export function pruneCaptures(vault: string, keep: ReadonlySet<string>, now = Da
   return n;
 }
 
-/** The local calendar day of an instant: a capture is dated the day the person read it. */
-const localDay = (iso: string) => {
-  const d = new Date(iso);
-  const p = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
-};
+/** A capture is dated the local day the person read it. */
+const localDay = (iso: string) => dayOf(new Date(iso));
 
 const ALL: RevisionRelation[] = ["supersedes", "bounds", "contests", "withdrawsSupport"];
 
@@ -194,8 +190,6 @@ export function allowedRelations(c: Pick<Capture, "class" | "source" | "landed">
   if (c.class === "web" && own(c.source) && (!c.landed || own(c.landed))) return ALL;
   return ["contests", "withdrawsSupport"];
 }
-
-export { captureFraming } from "../../../hooks/lib/revision/capture-gate.ts";
 
 /** Where the note an accepted capture becomes will live: beside the older note, so it is in the same scope. */
 export function plannedRel(vault: string, oldRel: string, c: Pick<Capture, "hash" | "title" | "capturedAt">): string {
@@ -245,7 +239,7 @@ export function captureNote(c: Capture, rawRel: string, priv = false): string {
     "type: source",
     ...(priv ? ["scope: private"] : []),
     `capture: ${c.hash}`,
-    `created: ${localDay(new Date().toISOString())}`,
+    `created: ${dayOf(new Date())}`,
     ...(c.asOf ? [`as_of: ${c.asOf}`] : []),
     "tags: [captured]",
     "---",

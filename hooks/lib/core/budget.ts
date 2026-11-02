@@ -118,10 +118,6 @@ export const limitOf = (s: BudgetState, setting: number) => s.limit ?? setting;
 /** Whether background work may start another call. Soft: a call already running finishes. */
 export const canSpend = (s: BudgetState, setting: number) => s.spent < limitOf(s, setting);
 
-export function addSpend(s: BudgetState, usd: number): BudgetState {
-  return { ...s, spent: s.spent + Math.max(0, usd) };
-}
-
 /** Raise today's limit: double what it is now. */
 export function raise(s: BudgetState, setting: number): BudgetState {
   return { ...s, limit: limitOf(s, setting) * 2, noticed: false };

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { quarantinedFolders, domainIdFor, treeRows, type QuarantinedFolder } from "./quarantine.ts";
+import { applyClassification, quarantinedFolders, domainIdFor, treeRows, type QuarantinedFolder } from "./quarantine.ts";
 
 const opts = {
   domains: { alpha: { path: "Research/Alpha", scope: "public" } },
@@ -35,6 +35,21 @@ const folders: QuarantinedFolder[] = [
   { folder: "Acme Robot", notes: 3, rels: ["Acme Robot/README.md", "Acme Robot/docs/Wiring.md", "Acme Robot/docs/deep/Servo.md"] },
   { folder: "Marble Notes", notes: 1, rels: ["Marble Notes/One.md"] },
 ];
+
+test("classifying adds a domain for a new folder and keeps an existing entry's other fields", () => {
+  const domains: Record<string, Record<string, unknown>> = { alpha: { path: "Alpha/", scope: "private", aliases: ["a"] } };
+  assert.equal(applyClassification(domains, "Alpha", "public"), "alpha");
+  assert.deepEqual(domains.alpha, { path: "Alpha/", scope: "public", aliases: ["a"] });
+  assert.equal(applyClassification(domains, "Acme Robot", "private"), "acme-robot");
+  assert.deepEqual(domains["acme-robot"], { path: "Acme Robot", scope: "private" });
+});
+
+test("a folder of thousands draws its first notes and says how many more", () => {
+  const rels = Array.from({ length: 150 }, (_, i) => `Big/n${String(i).padStart(3, "0")}.md`);
+  const rows = treeRows([{ folder: "Big", notes: 150, rels }], new Set(["Big"]));
+  assert.equal(rows.length, 102);
+  assert.equal(rows.at(-1)!.name, "… 50 more");
+});
 
 test("a closed tree shows only the folders, with their note counts", () => {
   assert.deepEqual(

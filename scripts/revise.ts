@@ -44,7 +44,8 @@ import {
 import { loadArtifact, passages, sourceRefs, type Artifact } from "./lib/revision/artifact.ts";
 import { openShardsFromEnv } from "./lib/revision/vault-index.ts";
 import { enqueue, claim, finish, fail } from "./lib/revision/jobs.ts";
-import { captureFraming, privateHost, pruneCaptures, readCapture, secretUrl, writeCapture, type CaptureClass } from "./lib/revision/capture.ts";
+import { captureFraming } from "../hooks/lib/revision/capture-gate.ts";
+import { privateHost, pruneCaptures, readCapture, secretUrl, writeCapture, type CaptureClass } from "./lib/revision/capture.ts";
 import { blobAt, blobOfFile, commitUnit, headOf, recordAppendOnly, recordTouch, repoOf } from "./lib/git-unit.ts";
 import { describeDecision } from "../hooks/lib/revision/review.ts";
 import { statusLine } from "../hooks/lib/revision/edges.ts";

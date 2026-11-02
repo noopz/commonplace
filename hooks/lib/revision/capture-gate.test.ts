@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { capturePool, chunks } from "./capture-gate.ts";
+import { capturePool, chunks, connectorRead, typedCapture } from "./capture-gate.ts";
 
 test("chunks cuts paragraphs into bounded pieces and samples a long text evenly", () => {
   const text = Array.from({ length: 100 }, (_, i) => `Paragraph ${i} about the kestrel pipeline and its nightly run time.`).join("\n\n");
@@ -19,4 +19,23 @@ test("capturePool keeps strong hits only, most-matched chunks first", () => {
   };
   assert.deepEqual(capturePool(text, search), [7]);
   assert.deepEqual(capturePool("nothing", () => []), []);
+});
+
+test("a connector's read is captured; a write, an error or a scrap is not", () => {
+  const long = "x".repeat(300);
+  assert.deepEqual(connectorRead({ tool: "mcp__acme__fetch_page", url: "https://wiki.example.com/a" }, { text: long }), { class: "connector", source: "https://wiki.example.com/a", text: long });
+  assert.equal(connectorRead({ tool: "mcp__acme__fetch_page" }, { result: [{ type: "text", text: long }] })?.source, "mcp__acme__fetch_page");
+  for (const tool of ["mcp__acme__slack_send_message", "mcp__acme__notion-create-pages", "mcp__acme__createPage"]) assert.equal(connectorRead({ tool }, { text: long }), null, tool);
+  assert.ok(connectorRead({ tool: "mcp__acme__createPage" }, { text: long, isReadOnly: true }), "the server's word wins");
+  assert.equal(connectorRead({ tool: "mcp__acme__read" }, { text: long, isError: true }), null);
+  assert.equal(connectorRead({ tool: "mcp__acme__read" }, { text: long, deny: "no" }), null);
+  assert.equal(connectorRead({ tool: "mcp__acme__read" }, { text: "short" }), null);
+});
+
+test("typed words are the owner's; pasted text and commands are not", () => {
+  const typed = "The kestrel pipeline moved to a nightly run in March, so anything that says it runs hourly is out of date now, and we should treat it so.";
+  assert.deepEqual(typedCapture(typed, "2026-11-01"), { class: "owner", source: "conversation", text: typed, asOf: "2026-11-01" });
+  assert.equal(typedCapture("short", "d"), null);
+  assert.equal(typedCapture(`/vault ${typed}`, "d"), null);
+  for (const t of [`${typed}\n\`\`\`\ncode\n\`\`\``, `> ${typed}`, `Subject: hello\n${typed}`, "y ".repeat(800)]) assert.equal(typedCapture(t, "d")?.class, "connector", t.slice(0, 20));
 });
